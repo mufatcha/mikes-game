@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -k -n web,game -c cyan,magenta \"next dev\" \"bun --watch server/index.ts\"",
+    "dev:web": "next dev",
+    "dev:game": "bun --watch server/index.ts",
     "build": "next build",
     "start": "next start",
+    "start:game": "bun server/index.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p server",
     "lint": "eslint"
   },
   "dependencies": {
@@ -15,9 +19,11 @@
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
+    "@types/bun": "^1.4.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.6",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",

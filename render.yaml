@@ -1,0 +1,13 @@
+# Render Blueprint for the game server (New -> Blueprint in the Render dashboard).
+services:
+  - type: web
+    name: mikes-game-server
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Set this to your website's URL (e.g. https://mikes-game.vercel.app) after deploying it.
+      - key: ALLOWED_ORIGINS
+        sync: false
