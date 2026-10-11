@@ -4,6 +4,7 @@ import { useState } from "react";
 import { TEAM_NAMES, TEAM_SIZE, type Team } from "@/shared/constants";
 import type { RoomState } from "@/shared/protocol";
 import { ARCHETYPES, type ArchetypeId, type Loadout } from "@/shared/archetypes";
+import { keyLabel, useKeybinds } from "@/lib/settings";
 import LoadoutPicker from "./LoadoutPicker";
 
 const TEAM_STYLES = [
@@ -57,6 +58,7 @@ export default function Lobby({
   const isHost = room.hostId === myId;
   const humans = room.roster.length;
   const bots = TEAM_SIZE * 2 - humans;
+  const binds = useKeybinds();
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6">
@@ -161,12 +163,12 @@ export default function Lobby({
       <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5 text-sm text-zinc-300">
         <h2 className="mb-3 text-lg font-bold text-white">Controls</h2>
         <ul className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
-          <li><Key>W A S D</Key> move</li>
+          <li><Key>{[binds.up, binds.left, binds.down, binds.right].map(keyLabel).join(" ")}</Key> move</li>
           <li><Key>Mouse</Key> aim, <Key>Left click</Key> shoot</li>
-          <li><Key>R</Key> reload</li>
-          <li><Key>1</Key> <Key>2</Key> / <Key>Q</Key> / <Key>Wheel</Key> switch weapon</li>
-          <li><Key>Tab</Key> scoreboard</li>
-          <li><Key>B</Key> change class (applies on respawn)</li>
+          <li><Key>{keyLabel(binds.reload)}</Key> reload</li>
+          <li><Key>{keyLabel(binds.weapon1)}</Key> <Key>{keyLabel(binds.weapon2)}</Key> / <Key>{keyLabel(binds.swap)}</Key> / <Key>Wheel</Key> switch weapon</li>
+          <li><Key>{keyLabel(binds.scoreboard)}</Key> scoreboard</li>
+          <li><Key>{keyLabel(binds.loadout)}</Key> change class (applies on respawn)</li>
           <li><Key>Esc</Key> menu</li>
         </ul>
       </section>

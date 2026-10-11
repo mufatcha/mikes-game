@@ -1,3 +1,4 @@
+import { getKeybinds } from "@/lib/settings";
 import type { InputFrame } from "@/shared/protocol";
 
 export interface InputHandlers {
@@ -41,24 +42,25 @@ export class InputController {
         return;
       }
       if (!this.enabled) return;
-      if (e.code === "Tab") {
-        e.preventDefault();
+      const binds = getKeybinds();
+      if (Object.values(binds).includes(e.code)) e.preventDefault();
+      if (e.code === binds.scoreboard) {
         this.scoreboard = true;
         return;
       }
       if (e.repeat) return;
-      if (e.code === "KeyR") this.reloadQueued = true;
-      else if (e.code === "Digit1") this.swapTo = 0;
-      else if (e.code === "Digit2") this.swapTo = 1;
-      else if (e.code === "KeyQ") this.swapToggle = true;
-      else if (e.code === "KeyB") {
+      if (e.code === binds.reload) this.reloadQueued = true;
+      else if (e.code === binds.weapon1) this.swapTo = 0;
+      else if (e.code === binds.weapon2) this.swapTo = 1;
+      else if (e.code === binds.swap) this.swapToggle = true;
+      else if (e.code === binds.loadout) {
         this.handlers.onLoadout();
         return;
       }
       this.keys.add(e.code);
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Tab") this.scoreboard = false;
+      if (e.code === getKeybinds().scoreboard) this.scoreboard = false;
       this.keys.delete(e.code);
     };
     const onMouseMove = (e: MouseEvent) => {
@@ -105,15 +107,77 @@ export class InputController {
     this.cleanup = null;
   }
 
+  // ------------------------------------------------------------ touch
+
+  /** Set while a touch screen is in use; turns on the thumbsticks and turns off the crosshair. */
+  touchMode = false;
+  private touchMove = { x: 0, y: 0 };
+  private touchAim: number | null = null;
+  private touchFiring = false;
+  private lastTouchAim = 0;
+  private pulse = false;
+
+  /** Left thumbstick, each axis from -1 to 1. */
+  setTouchMove(x: number, y: number) {
+    this.touchMode = true;
+    this.touchMove = { x, y };
+  }
+
+  /** Right thumbstick: the aim angle (null when released) and whether it's pushed far enough to throw. */
+  setTouchAim(angle: number | null, firing: boolean) {
+    this.touchMode = true;
+    this.touchAim = angle;
+    if (angle !== null) this.lastTouchAim = angle;
+    this.touchFiring = angle !== null && firing;
+  }
+
+  /** Let go of both thumbsticks, e.g. when the touch controls are turned off. */
+  releaseTouch() {
+    this.touchMove = { x: 0, y: 0 };
+    this.touchAim = null;
+    this.touchFiring = false;
+  }
+
+  reload() {
+    if (this.enabled) this.reloadQueued = true;
+  }
+
+  switchWeapon() {
+    if (this.enabled) this.swapToggle = true;
+  }
+
+  /**
+   * Aim on a touch screen: the right stick if it's held, otherwise the way
+   * you're walking, otherwise wherever you last aimed.
+   */
+  touchAimAngle() {
+    if (this.touchAim !== null) return this.touchAim;
+    const { x, y } = this.touchMove;
+    if (Math.hypot(x, y) > 0.3) this.lastTouchAim = Math.atan2(y, x);
+    return this.lastTouchAim;
+  }
+
   /** Build the next input frame, consuming one-shot actions like reload. */
-  frame(aim: number, currentSlot: number): Omit<InputFrame, "seq"> {
+  frame(aim: number, currentSlot: number, autoWeapon = true): Omit<InputFrame, "seq"> {
     const k = this.keys;
+    const b = getKeybinds();
     let mx = 0;
     let my = 0;
-    if (k.has("KeyW") || k.has("ArrowUp")) my -= 1;
-    if (k.has("KeyS") || k.has("ArrowDown")) my += 1;
-    if (k.has("KeyA") || k.has("ArrowLeft")) mx -= 1;
-    if (k.has("KeyD") || k.has("ArrowRight")) mx += 1;
+    // Arrow keys always move too, unless they've been bound to something else.
+    const held = (code: string, arrow: string) => k.has(code) || (k.has(arrow) && !Object.values(b).includes(arrow));
+    if (held(b.up, "ArrowUp")) my -= 1;
+    if (held(b.down, "ArrowDown")) my += 1;
+    if (held(b.left, "ArrowLeft")) mx -= 1;
+    if (held(b.right, "ArrowRight")) mx += 1;
+    if (this.enabled) {
+      mx = Math.max(-1, Math.min(1, mx + Math.round(this.touchMove.x * 100) / 100));
+      my = Math.max(-1, Math.min(1, my + Math.round(this.touchMove.y * 100) / 100));
+    }
+
+    // Holding the aim stick keeps throwing. Semi-auto throws need a fresh
+    // press for each shot, so pulse the trigger for those.
+    this.pulse = !this.pulse;
+    const touchFire = this.touchFiring && (autoWeapon || this.pulse);
 
     let swap = this.swapTo;
     if (this.swapToggle) swap = currentSlot === 0 ? 1 : 0;
@@ -121,7 +185,7 @@ export class InputController {
       mx,
       my,
       aim: Math.round(aim * 1000) / 1000,
-      fire: this.enabled && this.firing,
+      fire: this.enabled && (this.firing || touchFire),
       reload: this.reloadQueued,
       swap,
     };
@@ -135,5 +199,6 @@ export class InputController {
     this.keys.clear();
     this.firing = false;
     this.scoreboard = false;
+    this.releaseTouch();
   }
 }

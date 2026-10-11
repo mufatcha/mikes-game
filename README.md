@@ -26,7 +26,11 @@ To test with friends on the same network, open the web app at your machine's LAN
 - The Nurse's Office in the middle of the main hall heals you and protects you from damage, but you can't throw from inside it. Stay longer than 30 seconds and you pass out, then respawn with half health.
 - First team to 50 kills wins, or whoever leads when the 8-minute timer runs out.
 
-Controls: WASD to move, mouse to aim, left click to shoot, R to reload, 1/2/Q/mouse wheel to switch weapons, Tab for the scoreboard, B to change class (it applies on respawn), Esc for the menu.
+Controls: WASD to move, mouse to aim, left click to shoot, R to reload, 1/2/Q/mouse wheel to switch weapons, Tab for the scoreboard, B to change class (it applies on respawn), Esc for the menu. To change the keys, click the gear icon on the home screen or in the Esc menu.
+
+Line of sight: inside a room you can see the whole room, and in the hallways you can see all the hallways. Looking out of where you are (through a doorway, say), you see a short way all around you and far in a cone where you aim. Walls, lockers and shelves block your view, so you only see through a doorway what you'd see from where you stand. Enemies you can't see aren't drawn; teammates always are. Desks, tables, bleachers and easels are low enough to see over.
+
+Phones and tablets: touch the left half of the screen to move and the right half to aim. Push the right stick further to throw. On-screen buttons handle reload (↻), switch weapon (⇄), the scoreboard (🏆), the menu (☰) and fullscreen (⛶). Play with the phone sideways. To turn the touch controls on (for a touchscreen laptop) or off, use Mobile controls in Settings (the gear icon).
 
 ## Project layout
 

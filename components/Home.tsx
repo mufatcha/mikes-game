@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { GAME_TITLE, gameServerUrl, saveName, useSavedName, wakeGameServer } from "@/lib/settings";
+import KeybindSettings, { SettingsButton } from "./KeybindSettings";
+import Modal from "./Modal";
 
 export default function Home() {
   const router = useRouter();
@@ -13,6 +15,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Start waking the game server as soon as someone opens the site.
   useEffect(() => {
@@ -56,7 +59,15 @@ export default function Home() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
+    <main className="relative flex min-h-screen flex-col items-center justify-center px-4 py-12">
+      <SettingsButton onClick={() => setShowSettings(true)} className="absolute right-4 top-4" />
+      {showSettings && (
+        <div className="fixed inset-0 z-10">
+          <Modal onClose={() => setShowSettings(false)}>
+            <KeybindSettings onDone={() => setShowSettings(false)} />
+          </Modal>
+        </div>
+      )}
       <div className="flex w-full max-w-md flex-col gap-8">
         <div className="text-center">
           <h1 className="text-5xl font-black tracking-tight text-white">{GAME_TITLE}</h1>

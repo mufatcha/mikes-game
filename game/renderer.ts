@@ -24,12 +24,15 @@ import {
 } from "@/shared/map";
 import type { BulletSnap, GameEvent, PlayerSnap, RosterEntry } from "@/shared/protocol";
 import { ARCHETYPES, WEAPONS, weaponsOf } from "@/shared/archetypes";
+import { getKeybinds, keyLabel } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
+import { CONE_HALF, FAR_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
 
 const TEAM_TINTS = ["rgba(147,197,253,0.7)", "rgba(253,186,116,0.7)"] as const;
 const PAINT_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#eab308", "#ec4899", "#a855f7"];
 const BG = "#0b0d12";
+const FOG = "rgba(4,6,10,0.86)";
 const ASPHALT = "#3a3f47";
 const STREET_WHITE = "#e5e7eb";
 const STREET_BLUE = "#3b82f6";
@@ -78,6 +81,8 @@ export interface ViewInput {
   mouseY: number;
   aim: number;
   scoreboard: boolean;
+  /** Off on touch screens, where you aim with a thumbstick instead. */
+  crosshair: boolean;
 }
 
 function lerp(a: number, b: number, f: number) {
@@ -120,6 +125,9 @@ export class Renderer {
   private passedOut = false;
   private patterns = new Map<FloorPattern, CanvasPattern | null>();
   private killBanner: { text: string; until: number } | null = null;
+  /** Offscreen layer for the line-of-sight darkness. */
+  private fog = document.createElement("canvas");
+  private fogCtx = this.fog.getContext("2d")!;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -136,6 +144,8 @@ export class Renderer {
     this.ch = this.canvas.clientHeight;
     this.canvas.width = Math.round(this.cw * this.dpr);
     this.canvas.height = Math.round(this.ch * this.dpr);
+    this.fog.width = this.canvas.width;
+    this.fog.height = this.canvas.height;
     this.scale = Math.sqrt((this.cw * this.ch) / VIEW_AREA);
   }
 
@@ -210,16 +220,25 @@ export class Renderer {
     );
     this.drawFloor();
     this.drawBullets(bullets);
-    for (const p of players) {
-      if (!p.alive) continue;
+    // Teammates always show; enemies only when you can actually see them.
+    const myTeam = roster.get(myId ?? "")?.team;
+    const shown = players.filter(
+      (p) =>
+        p.alive &&
+        (!me ||
+          p.id === myId ||
+          roster.get(p.id)?.team === myTeam ||
+          canSee(this.myX, this.myY, view.aim, p.x, p.y, PLAYER_RADIUS)),
+    );
+    for (const p of shown) {
       const isMe = p.id === myId;
       const pos = isMe ? { x: this.myX, y: this.myY } : p;
       this.drawPlayer(p, pos.x, pos.y, isMe ? view.aim : p.aim, roster.get(p.id), isMe, now);
     }
     this.updateParticles(dt);
     this.drawWalls();
-    for (const p of players) {
-      if (!p.alive) continue;
+    if (me) this.drawFog(view.aim);
+    for (const p of shown) {
       const isMe = p.id === myId;
       this.drawNameplate(p, isMe ? this.myX : p.x, isMe ? this.myY : p.y, roster.get(p.id), isMe);
     }
@@ -231,9 +250,72 @@ export class Renderer {
     this.drawMinimap(players, roster);
     this.drawScore();
     this.drawFeed(now);
-    if (me) this.drawStatus(me);
+    if (me) this.drawStatus(me, !view.crosshair);
     if (view.scoreboard) this.drawScoreboard(roster);
-    this.drawCrosshair(view.mouseX, view.mouseY, now, me);
+    if (view.crosshair) this.drawCrosshair(view.mouseX, view.mouseY, now, me);
+  }
+
+  /**
+   * Darken everything you can't see: you see a little way all around you and
+   * far in a cone where you're aiming, and walls block both.
+   */
+  private drawFog(aim: number) {
+    const f = this.fogCtx;
+    const { width, height } = this.fog;
+    const x = this.myX;
+    const y = this.myY;
+    f.globalCompositeOperation = "source-over";
+    f.setTransform(1, 0, 0, 1, 0, 0);
+    f.clearRect(0, 0, width, height);
+    f.fillStyle = FOG;
+    f.fillRect(0, 0, width, height);
+
+    // Cut the visible area out of the fog, in world space.
+    f.setTransform(this.ctx.getTransform());
+    f.globalCompositeOperation = "destination-out";
+    // The room or hallways you're in, a little past the edges so their walls are lit too.
+    f.fillStyle = "#000";
+    for (const a of litAreasAt(x, y)) f.fillRect(a.x - 12, a.y - 12, a.w + 24, a.h + 24);
+    f.save();
+    f.beginPath();
+    for (const [px, py] of sightPolygon(x, y)) f.lineTo(px, py);
+    f.closePath();
+    f.clip();
+
+    const ring = f.createRadialGradient(x, y, NEAR_SIGHT * 0.55, x, y, NEAR_SIGHT);
+    ring.addColorStop(0, "#000");
+    ring.addColorStop(1, "rgba(0,0,0,0)");
+    f.fillStyle = ring;
+    f.beginPath();
+    f.arc(x, y, NEAR_SIGHT, 0, Math.PI * 2);
+    f.fill();
+
+    // The cone, with softened sides and a fade at the far end.
+    const cone = f.createRadialGradient(x, y, 0, x, y, FAR_SIGHT);
+    cone.addColorStop(0, "#000");
+    cone.addColorStop(0.8, "#000");
+    cone.addColorStop(1, "rgba(0,0,0,0)");
+    f.fillStyle = cone;
+    for (const [extra, alpha] of [
+      [0, 1],
+      [0.05, 0.5],
+      [0.1, 0.25],
+    ]) {
+      f.globalAlpha = alpha;
+      f.beginPath();
+      f.moveTo(x, y);
+      f.arc(x, y, FAR_SIGHT, aim - CONE_HALF - extra, aim + CONE_HALF + extra);
+      f.closePath();
+      f.fill();
+    }
+    f.globalAlpha = 1;
+    f.restore();
+
+    const { ctx } = this;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.fog, 0, 0);
+    ctx.restore();
   }
 
   // ---------------------------------------------------------------- state
@@ -935,7 +1017,8 @@ export class Renderer {
     }
   }
 
-  private drawStatus(me: PlayerSnap) {
+  private drawStatus(me: PlayerSnap, touch: boolean) {
+    const binds = getKeybinds();
     const { ctx, cw, ch } = this;
     const weapon = WEAPONS[me.weapon];
 
@@ -990,13 +1073,13 @@ export class Renderer {
         "center",
         800,
       );
-      this.text("Press B to change class", cw / 2, ch / 2 + 22, 12, "#9ca3af", "center");
+      this.text(touch ? "Tap ☰ to change class" : `Press ${keyLabel(binds.loadout)} to change class`, cw / 2, ch / 2 + 22, 12, "#9ca3af", "center");
     } else {
       this.deathMessage = null;
       this.passedOut = false;
       this.drawZoneTimer(me);
       if (me.reload >= 0) this.text("RELOADING", cw / 2, ch / 2 + 70, 13, "#fbbf24", "center", 700);
-      else if (me.ammo === 0) this.text("PRESS R TO RELOAD", cw / 2, ch / 2 + 70, 13, "#f87171", "center", 700);
+      else if (me.ammo === 0) this.text(touch ? "TAP ↻ TO RELOAD" : `PRESS ${keyLabel(binds.reload)} TO RELOAD`, cw / 2, ch / 2 + 70, 13, "#f87171", "center", 700);
     }
     if (this.killBanner && performance.now() < this.killBanner.until) {
       this.text(this.killBanner.text, cw / 2, 100, 16, "#fde68a", "center", 800);

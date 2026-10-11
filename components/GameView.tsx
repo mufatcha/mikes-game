@@ -3,15 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { TICK_MS, TEAM_NAMES } from "@/shared/constants";
 import type { ResultsMessage } from "@/shared/protocol";
-import type { ArchetypeId, Loadout } from "@/shared/archetypes";
+import { WEAPONS, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { Sfx } from "@/game/audio";
 import type { GameConnection } from "@/game/connection";
 import { InputController } from "@/game/input";
 import { Renderer } from "@/game/renderer";
+import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import LoadoutPicker from "./LoadoutPicker";
 import { CopyButton, inviteLink } from "./Lobby";
+import { useTouchControlsMode } from "@/lib/settings";
+import Modal from "./Modal";
+import TouchControls, { useMediaQuery } from "./TouchControls";
 
-type Overlay = "none" | "menu" | "loadout";
+type Overlay = "none" | "menu" | "loadout" | "settings";
 
 export default function GameView({
   conn,
@@ -35,13 +39,16 @@ export default function GameView({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<InputController | null>(null);
   const [overlay, setOverlay] = useState<Overlay>("none");
+  const touchMode = useTouchControlsMode();
+  const coarsePointer = useMediaQuery("(pointer: coarse)");
+  const isTouch = touchMode === "on" || (touchMode === "auto" && coarsePointer);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
     const sfx = new Sfx();
     const renderer = new Renderer(canvas, conn, sfx);
     const input = new InputController(canvas, {
-      onMenu: () => setOverlay((o) => (o === "none" ? "menu" : "none")),
+      onMenu: () => setOverlay((o) => (o === "none" || o === "settings" ? "menu" : "none")),
       onLoadout: () => setOverlay("loadout"),
       onActivity: () => sfx.unlock(),
     });
@@ -57,16 +64,30 @@ export default function GameView({
     const loop = (now: number) => {
       acc += Math.min(250, now - last);
       last = now;
+      const touch = input.touchMode;
+      if (touch) {
+        // No mouse: look ahead the way the thumbstick aims.
+        const a = input.touchAimAngle();
+        input.mouseX = canvas.clientWidth / 2 + Math.cos(a) * canvas.clientWidth * 0.3;
+        input.mouseY = canvas.clientHeight / 2 + Math.sin(a) * canvas.clientHeight * 0.3;
+      }
       const dt = renderer.updateCamera(now, input.mouseX, input.mouseY);
-      const aim = renderer.aimFrom(input.mouseX, input.mouseY);
+      const aim = touch ? input.touchAimAngle() : renderer.aimFrom(input.mouseX, input.mouseY);
+      const me = conn.me;
       let steps = 0;
       while (acc >= TICK_MS && steps < 5) {
         acc -= TICK_MS;
         steps++;
-        conn.sendInput(input.frame(aim, conn.me?.slot ?? 0));
+        conn.sendInput(input.frame(aim, me?.slot ?? 0, me ? WEAPONS[me.weapon].auto : true));
       }
       if (steps === 5) acc = 0;
-      renderer.draw(now, dt, { mouseX: input.mouseX, mouseY: input.mouseY, aim, scoreboard: input.scoreboard });
+      renderer.draw(now, dt, {
+        mouseX: input.mouseX,
+        mouseY: input.mouseY,
+        aim,
+        scoreboard: input.scoreboard,
+        crosshair: !touch,
+      });
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -84,13 +105,33 @@ export default function GameView({
     inputRef.current?.setEnabled(overlay === "none" && !results);
   }, [overlay, results]);
 
+  useEffect(() => {
+    if (inputRef.current) inputRef.current.touchMode = isTouch;
+  }, [isTouch, conn]);
+
   return (
-    <div className="fixed inset-0 select-none bg-black">
-      <canvas ref={canvasRef} className="h-full w-full" style={{ cursor: overlay === "none" ? "none" : "auto" }} />
+    <div className="fixed inset-0 select-none bg-black [-webkit-touch-callout:none]">
+      <canvas
+        ref={canvasRef}
+        className="h-full w-full touch-none"
+        style={{ cursor: overlay === "none" ? "none" : "auto" }}
+      />
+
+      {isTouch && (
+        <TouchControls
+          inputRef={inputRef}
+          canvasRef={canvasRef}
+          active={overlay === "none" && !results}
+          onMenu={() => setOverlay("menu")}
+        />
+      )}
 
       {overlay === "menu" && !results && (
         <Modal onClose={() => setOverlay("none")}>
-          <h2 className="text-2xl font-bold text-white">Menu</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-white">Menu</h2>
+            <SettingsButton onClick={() => setOverlay("settings")} />
+          </div>
           <div className="flex flex-col gap-2">
             <MenuButton onClick={() => setOverlay("none")}>Resume</MenuButton>
             <MenuButton onClick={() => setOverlay("loadout")}>Change class</MenuButton>
@@ -134,22 +175,13 @@ export default function GameView({
         </Modal>
       )}
 
-      {results && <Results results={results} myId={conn.myId} />}
-    </div>
-  );
-}
+      {overlay === "settings" && !results && (
+        <Modal onClose={() => setOverlay("menu")}>
+          <KeybindSettings onDone={() => setOverlay("menu")} />
+        </Modal>
+      )}
 
-function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/60 p-4" onMouseDown={onClose}>
-      <div
-        className={`flex max-h-full w-full flex-col gap-4 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950 p-6 ${
-          wide ? "max-w-4xl" : "max-w-md"
-        }`}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
+      {results && <Results results={results} myId={conn.myId} />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,16 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "School Wars",
   description: "Private 4v4 top-down shooter. Invite your friends with a code.",
+};
+
+// Phones: fill the screen and don't zoom when players double-tap or pinch mid-match.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#0b0d12",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
