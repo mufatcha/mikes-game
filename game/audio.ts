@@ -51,12 +51,12 @@ const SHOT_SOUNDS: Record<WeaponId, ShotSound> = {
   piccolo: { freq: 3000, q: 8, duration: 0.04, gain: 0.3, thump: 350 },
   violin: { freq: 1400, q: 7, duration: 0.06, gain: 0.32, thump: 260 },
   pizzicato: { freq: 700, q: 6, duration: 0.12, gain: 0.45, thump: 150 },
-  oboe: { freq: 1000, q: 7, duration: 0.09, gain: 0.4, thump: 220 },
-  bassoon: { freq: 220, q: 5, duration: 0.25, gain: 0.6, thump: 70 },
-  horn: { freq: 440, q: 5, duration: 0.18, gain: 0.55, thump: 100 },
-  hornblast: { freq: 350, q: 4, duration: 0.3, gain: 0.65, thump: 80 },
-  timpani: { freq: 120, q: 2, duration: 0.45, gain: 0.85, thump: 45 },
-  triangle: { freq: 4200, q: 10, duration: 0.25, gain: 0.3, thump: 400 },
+  viola: { freq: 900, q: 7, duration: 0.08, gain: 0.36, thump: 220 },
+  tremolo: { freq: 1100, q: 8, duration: 0.03, gain: 0.25, thump: 300 },
+  cello: { freq: 330, q: 6, duration: 0.18, gain: 0.55, thump: 90 },
+  spiccato: { freq: 520, q: 6, duration: 0.08, gain: 0.45, thump: 130 },
+  doublebass: { freq: 110, q: 4, duration: 0.4, gain: 0.85, thump: 45 },
+  slap: { freq: 160, q: 2, duration: 0.12, gain: 0.6, thump: 70 },
   note: { freq: 990, q: 8, duration: 0.3, gain: 0.55, thump: 130 },
 };
 

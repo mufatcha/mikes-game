@@ -42,15 +42,15 @@ export type WeaponId =
   | "fanfare"
   | "reed"
   | "piccolo"
-  // Orchestra Kid sections.
+  // Orchestra Kid sections (all strings).
   | "violin"
   | "pizzicato"
-  | "oboe"
-  | "bassoon"
-  | "horn"
-  | "hornblast"
-  | "timpani"
-  | "triangle"
+  | "viola"
+  | "tremolo"
+  | "cello"
+  | "spiccato"
+  | "doublebass"
+  | "slap"
   | "note";
 
 export type ArchetypeId =
@@ -309,7 +309,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1600, spread: 0.08, pellets: 1, range: 550, auto: true,
     radius: 2, color: "#e0f2fe", style: "streak",
   },
-  // Orchestra Kid: Strings.
+  // Orchestra Kid (all strings): Violin.
   violin: {
     id: "violin", name: "Violin Bow", damage: 12, fireRate: 9, magSize: 30, reloadTime: 1.6,
     projectileSpeed: 1500, spread: 0.05, pellets: 1, range: 750, auto: true,
@@ -320,38 +320,38 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1350, spread: 0.16, pellets: 4, range: 450, auto: false,
     radius: 3, color: "#fcd34d", style: "ball",
   },
-  // Orchestra Kid: Woodwind.
-  oboe: {
-    id: "oboe", name: "Oboe Dart", damage: 23, fireRate: 3.4, magSize: 12, reloadTime: 1.5,
-    projectileSpeed: 1800, spread: 0.015, pellets: 1, range: 1100, auto: false,
-    radius: 2, color: "#86efac", style: "streak",
+  // Orchestra Kid: Viola.
+  viola: {
+    id: "viola", name: "Viola Bow", damage: 16, fireRate: 6.5, magSize: 24, reloadTime: 1.6,
+    projectileSpeed: 1450, spread: 0.04, pellets: 1, range: 800, auto: true,
+    radius: 3, color: "#92400e", style: "streak",
   },
-  bassoon: {
-    id: "bassoon", name: "Bassoon Honk", damage: 40, fireRate: 1.4, magSize: 4, reloadTime: 2.1,
-    projectileSpeed: 1000, spread: 0.03, pellets: 1, range: 750, auto: false,
-    radius: 8, color: "#7c2d12", style: "blob",
+  tremolo: {
+    id: "tremolo", name: "Tremolo", damage: 7, fireRate: 14, magSize: 40, reloadTime: 1.6,
+    projectileSpeed: 1500, spread: 0.1, pellets: 1, range: 500, auto: true,
+    radius: 2, color: "#fbbf24", style: "streak",
   },
-  // Orchestra Kid: Brass.
-  horn: {
-    id: "horn", name: "French Horn", damage: 27, fireRate: 2.5, magSize: 8, reloadTime: 1.8,
-    projectileSpeed: 1250, spread: 0.03, pellets: 1, range: 900, auto: false,
-    radius: 6, color: "#f59e0b", style: "ball",
+  // Orchestra Kid: Cello.
+  cello: {
+    id: "cello", name: "Cello Bow", damage: 30, fireRate: 2.4, magSize: 8, reloadTime: 1.8,
+    projectileSpeed: 1250, spread: 0.025, pellets: 1, range: 900, auto: false,
+    radius: 6, color: "#78350f", style: "ball",
   },
-  hornblast: {
-    id: "hornblast", name: "Horn Blast", damage: 13, fireRate: 1.2, magSize: 4, reloadTime: 2,
-    projectileSpeed: 1200, spread: 0.2, pellets: 5, range: 400, auto: false,
-    radius: 4, color: "#fde68a", style: "blob",
+  spiccato: {
+    id: "spiccato", name: "Spiccato", damage: 14, fireRate: 1.6, magSize: 6, reloadTime: 1.8,
+    projectileSpeed: 1300, spread: 0.12, pellets: 3, range: 500, auto: false,
+    radius: 4, color: "#d97706", style: "ball", bounces: 1,
   },
-  // Orchestra Kid: Percussion.
-  timpani: {
-    id: "timpani", name: "Timpani Boom", damage: 50, fireRate: 1.25, magSize: 3, reloadTime: 2.2,
-    projectileSpeed: 950, spread: 0.02, pellets: 1, range: 1000, auto: false,
-    radius: 12, color: "#78350f", style: "ball", bounces: 1,
+  // Orchestra Kid: Double Bass.
+  doublebass: {
+    id: "doublebass", name: "Double Bass Thump", damage: 48, fireRate: 1.2, magSize: 3, reloadTime: 2.2,
+    projectileSpeed: 900, spread: 0.02, pellets: 1, range: 900, auto: false,
+    radius: 13, color: "#451a03", style: "ball", bounces: 1, stun: 0.4,
   },
-  triangle: {
-    id: "triangle", name: "Triangle Ding", damage: 14, fireRate: 7, magSize: 20, reloadTime: 1.4,
-    projectileSpeed: 1600, spread: 0.04, pellets: 1, range: 750, auto: true,
-    radius: 3, color: "#e5e7eb", style: "streak",
+  slap: {
+    id: "slap", name: "Slap Bass", damage: 20, fireRate: 3, magSize: 10, reloadTime: 1.6,
+    projectileSpeed: 1300, spread: 0.04, pellets: 1, range: 600, auto: false,
+    radius: 5, color: "#a16207", style: "blob",
   },
   // Orchestra Kid super.
   note: {
@@ -418,7 +418,7 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
   },
   orchestra: {
     id: "orchestra", name: "Orchestra Kid", emoji: "🎻",
-    tagline: "First chair, first strike. Two can play on a team.",
+    tagline: "First chair, first strike. Strings only; two can play on a team.",
     defense: 0.1, speed: 1.0, primary: "violin", secondary: "pizzicato",
     ratings: { attack: 3, defense: 2, speed: 3, range: 4 },
   },
@@ -469,10 +469,10 @@ export type SectionId =
   | "percussion"
   | "brass"
   | "woodwind"
-  | "strings"
-  | "orchwinds"
-  | "orchbrass"
-  | "orchpercussion";
+  | "violins"
+  | "violas"
+  | "cellos"
+  | "basses";
 
 /** A section of the band or orchestra: which instrument you play, and so what you throw. */
 export interface SectionDef {
@@ -492,10 +492,10 @@ export const SECTIONS: Partial<Record<ArchetypeId, SectionDef[]>> = {
     { id: "woodwind", name: "Woodwind", emoji: "🎷", primary: "reed", secondary: "piccolo" },
   ],
   orchestra: [
-    { id: "strings", name: "Strings", emoji: "🎻", primary: "violin", secondary: "pizzicato" },
-    { id: "orchwinds", name: "Woodwind", emoji: "🪈", primary: "oboe", secondary: "bassoon" },
-    { id: "orchbrass", name: "Brass", emoji: "📯", primary: "horn", secondary: "hornblast" },
-    { id: "orchpercussion", name: "Percussion", emoji: "🥁", primary: "timpani", secondary: "triangle" },
+    { id: "violins", name: "Violin", emoji: "🎻", primary: "violin", secondary: "pizzicato" },
+    { id: "violas", name: "Viola", emoji: "🎻", primary: "viola", secondary: "tremolo" },
+    { id: "cellos", name: "Cello", emoji: "🎻", primary: "cello", secondary: "spiccato" },
+    { id: "basses", name: "Double Bass", emoji: "🎻", primary: "doublebass", secondary: "slap" },
   ],
 };
 

@@ -49,12 +49,12 @@ const PREFERRED_RANGE: Record<WeaponId, number> = {
   piccolo: 300,
   violin: 400,
   pizzicato: 230,
-  oboe: 600,
-  bassoon: 380,
-  horn: 480,
-  hornblast: 200,
-  timpani: 400,
-  triangle: 420,
+  viola: 450,
+  tremolo: 300,
+  cello: 480,
+  spiccato: 250,
+  doublebass: 400,
+  slap: 380,
   note: 450,
 };
 
