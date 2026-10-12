@@ -84,13 +84,13 @@ export const KEY_ACTIONS = [
   { id: "scoreboard", label: "Scoreboard (hold)" },
   { id: "loadout", label: "Change class" },
   { id: "super", label: "Super" },
-  { id: "ability1", label: "Principal power 1 (Detention / Hall Pass)" },
-  { id: "ability2", label: "Principal power 2 (Lecture / Suspension)" },
-  { id: "ability3", label: "Principal power 3 (Pop Quiz / Staff Meeting)" },
-  { id: "ability4", label: "Principal power 4 (Intercom / Report Card)" },
+  { id: "ability1", label: "Power 1 (Detention / Berry Blast / Juice Squirt)" },
+  { id: "ability2", label: "Power 2 (Lecture / Roll Out / Peel Trap)" },
+  { id: "ability3", label: "Power 3 (Pop Quiz / Jam Puddle / Thick Rind)" },
+  { id: "ability4", label: "Power 4 (Intercom / Antioxidants / Big Orange)" },
 ] as const;
 
-/** Key actions for the Principal's four powers, in abilitiesFor(mode) order. */
+/** Key actions for the Principal's or a mascot's four powers, in abilitiesOf(archetype) order. */
 export const ABILITY_ACTIONS = ["ability1", "ability2", "ability3", "ability4"] as const;
 
 export type KeyAction = (typeof KEY_ACTIONS)[number]["id"];

@@ -1,4 +1,4 @@
-import { TEAM_COLORS, type Team } from "@/shared/constants";
+import { PLAYER_HEIGHT, TEAM_COLORS, type Team } from "@/shared/constants";
 import type { ArchetypeId } from "@/shared/archetypes";
 import { SKIN, drawFace, drawOutfit } from "./skins";
 
@@ -329,13 +329,15 @@ function flush(out: Drawable[]) {
 // ---------------------------------------------------------------- figures
 
 /** A regular student is this tall; bigger classes are scaled up. */
-export const FIGURE_HEIGHT = 56;
+export const FIGURE_HEIGHT = PLAYER_HEIGHT;
 
 /** The parts of a figure, standing at the origin and facing +f. */
 function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number): Part[] {
   const shirt = TEAM_COLORS[team];
   const sleeve = SLEEVES[a] ?? shirt;
-  const skin = SKIN[a];
+  const mascot = a === "blueberry" || a === "orangepeel";
+  // Mascots wear big white gloves.
+  const skin = mascot ? "#f8fafc" : SKIN[a];
   const parts: Part[] = [];
   // Legs swing from the hips, opposite each other.
   for (const s of [-1, 1]) {
@@ -362,11 +364,12 @@ function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number)
       { c: [s * 13.2, 0, 26], h: [2.6, 2.6, 2], color: skin, pivot: [0, 40], swing },
     );
   }
-  // Head, with the face on the front.
+  // Head, with the face on the front. A mascot's head is a big piece of fruit.
+  const hs = mascot ? 10 : 7;
   parts.push({
-    c: [0, 0, 48.5],
-    h: [7, 7, 7],
-    color: skin,
+    c: [0, 0, 41.5 + hs],
+    h: [hs, hs, hs],
+    color: SKIN[a],
     faces: {
       front: headTex(a, "front"),
       back: headTex(a, "back"),
@@ -388,6 +391,25 @@ function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number)
   }
   if (a === "principal") {
     for (const s of [-1, 1]) parts.push({ c: [s * 7.4, -1, 47.5], h: [0.8, 4, 2.2], color: "#9ca3af" });
+  }
+  if (a === "blueberry") {
+    // The blueberry's crown: a dark star of little points on top.
+    parts.push({ c: [0, 0, 62], h: [3.5, 3.5, 0.8], color: "#1e1b4b" });
+    for (const [s, f] of [
+      [0, 4.5],
+      [4.3, 1.4],
+      [2.6, -3.6],
+      [-2.6, -3.6],
+      [-4.3, 1.4],
+    ]) {
+      parts.push({ c: [s, f, 62.2], h: [1.3, 1.3, 1], color: "#1e1b4b" });
+    }
+  }
+  if (a === "orangepeel") {
+    parts.push(
+      { c: [0, 0, 62.8], h: [0.8, 0.8, 1.6], color: "#78350f" },
+      { c: [3.2, 0.5, 63.6], h: [3.2, 1.4, 0.5], color: "#16a34a" },
+    );
   }
   return parts;
 }
@@ -490,7 +512,9 @@ export function drawAvatar(
   );
   flush(out);
 
-  const top = project(cam, o.x, o.y, at.z + FIGURE_HEIGHT * k);
+  // Mascots have a big fruit head on top.
+  const tall = o.archetype === "blueberry" || o.archetype === "orangepeel" ? 64 : FIGURE_HEIGHT;
+  const top = project(cam, o.x, o.y, at.z + tall * k);
   return { cx: top.sx, top: top.sy, bottom: center.sy, k: cam.proj / center.depth };
 }
 
@@ -500,13 +524,62 @@ export function drawBall3D(
   cam: Camera3D,
   x: number,
   y: number,
+  z: number,
   radius: number,
   color: string,
   fogAmt: number,
 ) {
+  // Its shadow on the floor, fainter the higher it flies, so you can judge the arc.
+  const shade = 0.35 * (1 - fogAmt) * Math.max(0, 1 - z / 90);
+  if (shade > 0.02) floorPolygon(ctx, cam, x, y, radius * 1.1, 10, `rgba(0,0,0,${shade.toFixed(3)})`);
   const out: Drawable[] = [];
-  addBall(out, ctx, cam, x, y, 36, radius, color, fogAmt);
+  addBall(out, ctx, cam, x, y, z, radius, color, fogAmt);
   flush(out);
+}
+
+/** Fill a circle lying flat on the floor. Skipped if any of it is behind the camera. */
+function floorPolygon(ctx: CanvasRenderingContext2D, cam: Camera3D, x: number, y: number, r: number, sides: number, fill: string, wobble = 0) {
+  const pts: Screen[] = [];
+  for (let i = 0; i < sides; i++) {
+    const t = (i / sides) * Math.PI * 2;
+    const rr = r * (1 + wobble * Math.sin(i * 2.7));
+    const p = project(cam, x + Math.cos(t) * rr, y + Math.sin(t) * rr, 0.6);
+    if (p.depth < 2) return;
+    pts.push(p);
+  }
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.sx, p.sy) : ctx.lineTo(p.sx, p.sy)));
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * Mascot powers lying on the floor: a glossy purple Jam Puddle, or a
+ * curled orange Peel Trap with its white pith showing.
+ */
+export function drawFloorZone3D(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera3D,
+  z: { k: "jam" | "peel"; x: number; y: number; r: number },
+  fogAmt: number,
+  now: number,
+) {
+  const a = 1 - fogAmt;
+  if (z.k === "jam") {
+    floorPolygon(ctx, cam, z.x, z.y, z.r, 24, `rgba(76,29,149,${(0.75 * a).toFixed(3)})`, 0.08);
+    floorPolygon(ctx, cam, z.x, z.y, z.r * 0.7, 18, `rgba(124,58,237,${(0.55 * a).toFixed(3)})`, 0.12);
+    // Bubbles popping in the jam.
+    for (let i = 0; i < 4; i++) {
+      const t = now / 700 + i * 1.7;
+      const bx = z.x + Math.cos(i * 2.1) * z.r * 0.5;
+      const by = z.y + Math.sin(i * 2.1) * z.r * 0.5;
+      floorPolygon(ctx, cam, bx, by, 6 + 3 * Math.sin(t), 8, `rgba(196,181,253,${(0.5 * a).toFixed(3)})`);
+    }
+  } else {
+    floorPolygon(ctx, cam, z.x, z.y, z.r, 14, `rgba(249,115,22,${a.toFixed(3)})`, 0.2);
+    floorPolygon(ctx, cam, z.x + 3, z.y - 2, z.r * 0.55, 10, `rgba(255,247,237,${(0.9 * a).toFixed(3)})`, 0.25);
+  }
 }
 
 /**
@@ -525,7 +598,12 @@ export function drawViewModel(
   // The arm reaches up from the bottom right corner; the hand cups the ball from below.
   const parts: Part[] = [
     { c: [11.5 + bobS, 20, -14 + bobZ], h: [2.2, 8, 2.2], color: sleeve, pivot: [20, -14 + bobZ], swing: 0.35 },
-    { c: [10.6 + bobS, 29.5, -11.2 + bobZ], h: [2, 2.2, 1.6], color: SKIN[o.archetype] },
+    // Mascots wear white gloves.
+    {
+      c: [10.6 + bobS, 29.5, -11.2 + bobZ],
+      h: [2, 2.2, 1.6],
+      color: o.archetype === "blueberry" || o.archetype === "orangepeel" ? "#f8fafc" : SKIN[o.archetype],
+    },
   ];
   const out: Drawable[] = [];
   const none = () => 0;

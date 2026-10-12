@@ -14,7 +14,14 @@ export const SKIN: Record<ArchetypeId, string> = {
   nerd: "#ffdbac",
   clown: "#fafafa",
   principal: "#d6a57c",
+  // The mascots' "skin" is the fruit itself.
+  blueberry: "#4338ca",
+  orangepeel: "#f97316",
 };
+
+function isMascot(a: ArchetypeId) {
+  return a === "blueberry" || a === "orangepeel";
+}
 
 const INK = "#1f2937";
 
@@ -72,7 +79,17 @@ export function drawFace(
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.clip();
-  if (a === "teacher") {
+  if (a === "blueberry") {
+    // The dusty bloom on a blueberry's skin.
+    for (let i = 0; i < 14; i++) {
+      circle(ctx, cx + Math.cos(i * 2.4) * r * 0.75 * ((i % 4) / 4 + 0.2), cy + Math.sin(i * 2.4) * r * 0.7 * ((i % 3) / 3 + 0.25), r * 0.12, "rgba(199,210,254,0.18)");
+    }
+  } else if (a === "orangepeel") {
+    // Dimpled peel.
+    for (let i = 0; i < 22; i++) {
+      circle(ctx, cx + Math.cos(i * 1.9) * r * ((i % 5) / 5 + 0.1), cy + Math.sin(i * 1.9) * r * ((i % 4) / 4 + 0.1), r * 0.045, "rgba(154,52,18,0.35)");
+    }
+  } else if (a === "teacher") {
     ctx.fillStyle = "#6b4423";
     ctx.beginPath();
     ctx.ellipse(cx, cy - r * 0.75, r * 1.05, r * 0.5, 0, 0, Math.PI * 2);
@@ -126,6 +143,31 @@ export function drawFace(
     ctx.moveTo(cx + r * 0.2, cy - r * 1.1);
     ctx.lineTo(cx + r * 0.25, cy - r * 1.3);
     ctx.stroke();
+  } else if (a === "blueberry") {
+    // The little five-pointed crown on top of a blueberry.
+    ctx.fillStyle = "#1e1b4b";
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+      const rr = i % 2 ? r * 0.12 : r * 0.3;
+      const px = cx + Math.cos(ang) * rr;
+      const py = cy - r * 0.86 + Math.sin(ang) * rr * 0.6;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.fill();
+  } else if (a === "orangepeel") {
+    // A stem and a leaf on top.
+    ctx.strokeStyle = "#78350f";
+    ctx.lineWidth = r * 0.1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r * 0.9);
+    ctx.lineTo(cx + r * 0.05, cy - r * 1.15);
+    ctx.stroke();
+    ctx.fillStyle = "#16a34a";
+    ctx.beginPath();
+    ctx.ellipse(cx + r * 0.32, cy - r * 1.12, r * 0.34, r * 0.14, -0.4, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   // Turn the head: features slide toward the side it's facing and squash, like a sphere turning.
@@ -154,7 +196,16 @@ export function drawFace(
         ctx.fill();
       }
     }
-    for (const s of [-1, 1]) circle(ctx, cx + s * ex, ey, r * 0.11, INK);
+    if (isMascot(a)) {
+      // Mascots have big friendly cartoon eyes.
+      for (const s of [-1, 1]) {
+        circle(ctx, cx + s * ex, ey - r * 0.05, r * 0.22, "#fff");
+        circle(ctx, cx + s * ex + r * 0.04, ey - r * 0.02, r * 0.11, INK);
+        circle(ctx, cx + s * ex + r * 0.08, ey - r * 0.07, r * 0.04, "#fff");
+      }
+    } else {
+      for (const s of [-1, 1]) circle(ctx, cx + s * ex, ey, r * 0.11, INK);
+    }
     if (a === "jock") {
       ctx.fillStyle = INK;
       for (const s of [-1, 1]) ctx.fillRect(cx + s * ex - r * 0.15, ey + r * 0.17, r * 0.3, r * 0.08);
@@ -201,6 +252,17 @@ export function drawFace(
       ctx.beginPath();
       ctx.ellipse(cx - r * 0.2, cy + r * 0.38, r * 0.24, r * 0.1, 0.2, 0, Math.PI * 2);
       ctx.ellipse(cx + r * 0.2, cy + r * 0.38, r * 0.24, r * 0.1, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (isMascot(a)) {
+      // A big open grin.
+      ctx.fillStyle = "#450a0a";
+      ctx.beginPath();
+      ctx.arc(cx, cy + r * 0.22, r * 0.36, 0, Math.PI);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#f87171";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + r * 0.48, r * 0.17, r * 0.08, 0, 0, Math.PI * 2);
       ctx.fill();
     } else {
       ctx.strokeStyle = INK;
@@ -346,8 +408,24 @@ export function drawOutfit(
       ctx.fill();
       tie("#b91c1c");
       break;
+    case "blueberry":
+    case "orangepeel":
+      drawJersey(ctx, a, x, y, w, h, false);
+      break;
   }
   ctx.restore();
+}
+
+/** A mascot's game-day jersey: white stripes and the school's letter on the front, number 1 on the back. */
+function drawJersey(ctx: CanvasRenderingContext2D, a: ArchetypeId, x: number, y: number, w: number, h: number, back: boolean) {
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.fillRect(x, y + h * 0.12, w, h * 0.06);
+  ctx.fillRect(x, y + h * 0.24, w, h * 0.03);
+  ctx.font = `900 ${Math.max(6, w * 0.45)}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = a === "blueberry" ? "#e0e7ff" : "#fff7ed";
+  ctx.fillText(back ? "1" : a === "blueberry" ? "B" : "O", x + w / 2, y + h * 0.6);
 }
 
 function wrapAngle(a: number) {
@@ -406,6 +484,10 @@ function drawBackOfHead(ctx: CanvasRenderingContext2D, cx: number, cy: number, r
 /** The back of each outfit: no ties or pockets, but you can still tell the class. */
 function drawOutfitBack(ctx: CanvasRenderingContext2D, a: ArchetypeId, x: number, y: number, w: number, h: number) {
   switch (a) {
+    case "blueberry":
+    case "orangepeel":
+      drawJersey(ctx, a, x, y, w, h, true);
+      break;
     case "teacher":
       ctx.fillStyle = "#3f6212"; // the cardigan covers the whole back
       ctx.fillRect(x, y, w, h);

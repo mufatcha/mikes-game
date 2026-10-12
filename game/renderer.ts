@@ -23,9 +23,10 @@ import {
   type Room,
   type WallKind,
 } from "@/shared/map";
-import type { BulletSnap, GameEvent, PlayerSnap, RosterEntry } from "@/shared/protocol";
+import type { BulletSnap, GameEvent, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
 import {
-  abilitiesFor,
+  abilitiesOf,
+  hasAbilities,
   EXTRA_CREDIT_RADIUS,
   PAINT_BOMB_RADIUS,
   STUDENT_LIVES,
@@ -218,6 +219,7 @@ export class Renderer {
 
     const players = this.interpolatedPlayers(now);
     const bullets = this.interpolatedBullets(renderTick);
+    const zones = this.conn.bracket(renderTick)?.b.zones ?? [];
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = BG;
@@ -243,6 +245,7 @@ export class Renderer {
         shakeY: sy,
         players,
         bullets,
+        zones,
         roster,
         myId,
         now,
@@ -267,6 +270,7 @@ export class Renderer {
         this.dpr * (this.ch / 2 - this.camY * this.scale + sy),
       );
       this.drawFloor();
+      this.drawZones(zones, now);
       this.drawBullets(bullets);
       // Teammates always show; enemies only when you can actually see them.
       const myTeam = roster.get(myId ?? "")?.team;
@@ -389,6 +393,39 @@ export class Renderer {
     ctx.stroke();
   }
 
+  /** Mascot powers on the floor: Barry's Jam Puddles and Peely's Peel Traps. */
+  private drawZones(zones: ZoneSnap[], now: number) {
+    const { ctx } = this;
+    for (const z of zones) {
+      if (z.k === "jam") {
+        ctx.fillStyle = "rgba(76,29,149,0.6)";
+        ctx.beginPath();
+        for (let i = 0; i <= 24; i++) {
+          const t = (i / 24) * Math.PI * 2;
+          const rr = z.r * (1 + 0.07 * Math.sin(i * 2.7 + now / 400));
+          ctx.lineTo(z.x + Math.cos(t) * rr, z.y + Math.sin(t) * rr);
+        }
+        ctx.fill();
+        ctx.fillStyle = "rgba(167,139,250,0.35)";
+        for (let i = 0; i < 4; i++) {
+          ctx.beginPath();
+          ctx.arc(z.x + Math.cos(i * 2.1) * z.r * 0.5, z.y + Math.sin(i * 2.1) * z.r * 0.5, 6 + 3 * Math.sin(now / 300 + i), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        // A curled orange peel with its white pith showing.
+        ctx.fillStyle = "#f97316";
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, z.r * 0.8, 0.3, Math.PI * 1.7);
+        ctx.arc(z.x + 5, z.y, z.r * 0.45, Math.PI * 1.7, 0.3, true);
+        ctx.fill();
+        ctx.strokeStyle = "#fff7ed";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+  }
+
   /** Expanding rings from a Stern Lecture. */
   private drawShockwaves(now: number) {
     const { ctx } = this;
@@ -473,12 +510,12 @@ export class Renderer {
     );
   }
 
-  /** The Principal's four abilities with their keys and cooldowns. */
+  /** The Principal's (or a mascot's) four abilities with their keys and cooldowns. */
   private drawAbilityBar(me: PlayerSnap, touch: boolean) {
     const { ctx } = this;
     const binds = getKeybinds();
     const slots = abilitySlots(this.cw, this.ch);
-    abilitiesFor(this.mode).forEach((a, i) => {
+    abilitiesOf(me.archetype).forEach((a, i) => {
       const s = slots[i];
       const cd = me.cds?.[i] ?? 0;
       const ready = cd <= 0 && me.alive && !me.stunned;
@@ -592,7 +629,7 @@ export class Renderer {
     const out: BulletSnap[] = [];
     for (const bb of b.bullets) {
       const ba = prev.get(bb.id);
-      if (ba) out.push({ ...bb, x: lerp(ba.x, bb.x, f), y: lerp(ba.y, bb.y, f) });
+      if (ba) out.push({ ...bb, x: lerp(ba.x, bb.x, f), y: lerp(ba.y, bb.y, f), ...(bb.z !== undefined && { z: lerp(ba.z ?? bb.z, bb.z, f) }) });
     }
     return out;
   }
@@ -705,12 +742,18 @@ export class Renderer {
               mine ? "#fde68a" : "#f87171",
               4000,
             );
-          } else if (e.ability === "hallpass") {
-            // The dash happened on the server; puff where they left from.
-            this.burst(e.x, e.y, "#e2e8f0", 18, 220);
-          } else if (e.ability === "staffmeeting") {
-            this.burst(e.x, e.y, "#fde047", 20, 200);
-            if (mine) this.showBanner("🛡️ Staff Meeting: nothing can hurt you", "#fde68a", 2000);
+          } else if (e.ability === "rollout") {
+            // The roll happened on the server; puff where they started from.
+            this.burst(e.x, e.y, "#a5b4fc", 18, 240);
+            this.sfx.shot("rollout", mine ? 0.9 : Math.max(0, 1 - Math.hypot(e.x - this.myX, e.y - this.myY) / HEARING_RANGE));
+          } else if (e.ability === "antioxidants") {
+            this.burst(e.x, e.y, "#60a5fa", 22, 180);
+            if (mine) this.showBanner("💙 Antioxidants: healed and speedy", "#bfdbfe", 2000);
+          } else if (e.ability === "rind") {
+            this.burst(e.x, e.y, "#fdba74", 20, 200);
+            if (mine) this.showBanner("🛡️ Thick Rind: nothing can hurt you", "#fed7aa", 2000);
+          } else if (e.ability === "jam" || e.ability === "peel") {
+            this.sfx.shot(e.ability, mine ? 0.8 : Math.max(0, 1 - Math.hypot(e.x - this.myX, e.y - this.myY) / HEARING_RANGE));
           }
           break;
         }
@@ -1271,7 +1314,7 @@ export class Renderer {
     const k = 1 / this.scale;
     const team: Team = info?.team ?? 0;
     const top = y - radiusFor(p.archetype) - 14 * k;
-    const bw = (p.archetype === "principal" ? 70 : 44) * k;
+    const bw = (hasAbilities(p.archetype) ? 70 : 44) * k;
     const bh = 5 * k;
     const frac = p.hp / p.maxHp;
 
@@ -1285,7 +1328,7 @@ export class Renderer {
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillStyle = "rgba(0,0,0,0.7)";
-      const label = info.level > 1 && p.archetype !== "principal" ? `${info.name} · Lv ${info.level}` : info.name;
+      const label = info.level > 1 && !hasAbilities(p.archetype) ? `${info.name} · Lv ${info.level}` : info.name;
       ctx.fillText(label, x + k, top - 3 * k + k);
       ctx.fillStyle = team === 0 ? "#bfdbfe" : "#fed7aa";
       ctx.fillText(label, x, top - 3 * k);
@@ -1467,7 +1510,7 @@ export class Renderer {
     } else {
       this.deathMessage = null;
       this.passedOut = false;
-      if (me.archetype !== "principal") this.drawZoneTimer(me);
+      if (!hasAbilities(me.archetype)) this.drawZoneTimer(me);
       if (me.jailed > 0) {
         this.panel(cw / 2 - 170, ch / 2 - 110, 340, 56);
         this.text(`🔒 IN DETENTION · ${Math.ceil(me.jailed)}s`, cw / 2, ch / 2 - 92, 18, "#f87171", "center", 800);

@@ -29,8 +29,17 @@ const SHOT_SOUNDS: Record<WeaponId, ShotSound> = {
   pie: { freq: 800, q: 0.5, duration: 0.22, gain: 0.55, thump: 90 },
   tackle: { freq: 200, q: 0.5, duration: 0.35, gain: 0.8, thump: 45 },
   paintbomb: { freq: 550, q: 0.4, duration: 0.4, gain: 0.8, thump: 60 },
-  suspension: { freq: 2600, q: 3, duration: 0.1, gain: 0.45, thump: 260 },
-  reportcard: { freq: 350, q: 0.5, duration: 0.35, gain: 0.75, thump: 55 },
+  berry: { freq: 1300, q: 1.2, duration: 0.06, gain: 0.32, thump: 170 },
+  bigberry: { freq: 380, q: 0.6, duration: 0.18, gain: 0.7, thump: 58 },
+  berryblast: { freq: 900, q: 0.8, duration: 0.2, gain: 0.6, thump: 90 },
+  rollout: { freq: 220, q: 0.5, duration: 0.35, gain: 0.8, thump: 45 },
+  jam: { freq: 420, q: 0.4, duration: 0.35, gain: 0.7, thump: 60 },
+  seeds: { freq: 3000, q: 3, duration: 0.04, gain: 0.3, thump: 320 },
+  wedge: { freq: 650, q: 0.7, duration: 0.12, gain: 0.5, thump: 100 },
+  squirt: { freq: 1600, q: 0.5, duration: 0.25, gain: 0.55, thump: 120 },
+  peel: { freq: 700, q: 1, duration: 0.15, gain: 0.5, thump: 110 },
+  bigorange: { freq: 330, q: 0.5, duration: 0.3, gain: 0.75, thump: 55 },
+  segment: { freq: 800, q: 0.7, duration: 0.1, gain: 0.45, thump: 100 },
 };
 
 /** Tiny synthesized sound effects, so the game needs no audio files. */

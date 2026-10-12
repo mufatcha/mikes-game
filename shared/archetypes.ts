@@ -1,4 +1,4 @@
-import { MAX_HP, PLAYER_RADIUS } from "./constants";
+import { MAX_HP, PLAYER_RADIUS, type GameMode, type Team } from "./constants";
 
 export type WeaponId =
   | "chalk"
@@ -21,10 +21,29 @@ export type WeaponId =
   | "tackle"
   | "paintbomb"
   | "lecture"
-  | "suspension"
-  | "reportcard";
+  // The duel mascots' weapons and powers.
+  | "berry"
+  | "bigberry"
+  | "berryblast"
+  | "rollout"
+  | "jam"
+  | "seeds"
+  | "wedge"
+  | "squirt"
+  | "peel"
+  | "bigorange"
+  | "segment";
 
-export type ArchetypeId = "teacher" | "lunchlady" | "jock" | "artkid" | "nerd" | "clown" | "principal";
+export type ArchetypeId =
+  | "teacher"
+  | "lunchlady"
+  | "jock"
+  | "artkid"
+  | "nerd"
+  | "clown"
+  | "principal"
+  | "blueberry"
+  | "orangepeel";
 
 export interface WeaponDef {
   id: WeaponId;
@@ -48,6 +67,10 @@ export interface WeaponDef {
   bounces?: number;
   /** Seconds a hit stuns the target for. */
   stun?: number;
+  /** Seconds a hit slows the target for. */
+  slow?: number;
+  /** Bursts into this many of another projectile when it lands or hits something. */
+  burst?: { weapon: WeaponId; count: number };
   /** How the projectile is drawn. */
   style: "streak" | "ball" | "blob";
 }
@@ -164,16 +187,62 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
     radius: 0, color: "rainbow", style: "blob",
   },
-  // Thrown by the duel Principals' abilities.
-  suspension: {
-    id: "suspension", name: "Suspension Slip", damage: 20, fireRate: 1, magSize: 1, reloadTime: 1,
-    projectileSpeed: 1700, spread: 0, pellets: 1, range: 1000, auto: false,
-    radius: 6, color: "#f472b6", style: "streak", stun: 2,
+  // Barry the Blueberry (duel mascot).
+  berry: {
+    id: "berry", name: "Blueberries", damage: 16, fireRate: 6, magSize: 24, reloadTime: 1.6,
+    projectileSpeed: 1350, spread: 0.05, pellets: 1, range: 850, auto: true,
+    radius: 5, color: "#4f46e5", style: "ball",
   },
-  reportcard: {
-    id: "reportcard", name: "Report Card", damage: 90, fireRate: 1, magSize: 1, reloadTime: 1,
-    projectileSpeed: 750, spread: 0, pellets: 1, range: 1100, auto: false,
-    radius: 16, color: "#fef2f2", style: "ball",
+  bigberry: {
+    id: "bigberry", name: "Giant Berry", damage: 55, fireRate: 1.3, magSize: 3, reloadTime: 2.2,
+    projectileSpeed: 1000, spread: 0.02, pellets: 1, range: 1100, auto: false,
+    radius: 11, color: "#3730a3", style: "ball", bounces: 2,
+  },
+  berryblast: {
+    id: "berryblast", name: "Berry Blast", damage: 24, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1200, spread: 0, pellets: 1, range: 900, auto: false,
+    radius: 6, color: "#6366f1", style: "ball", bounces: 2,
+  },
+  rollout: {
+    id: "rollout", name: "Roll Out", damage: 45, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "#4f46e5", style: "ball",
+  },
+  jam: {
+    id: "jam", name: "Jam Puddle", damage: 20, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "#7c3aed", style: "blob",
+  },
+  // Peely the Orange (duel mascot).
+  seeds: {
+    id: "seeds", name: "Orange Seeds", damage: 11, fireRate: 10, magSize: 32, reloadTime: 1.6,
+    projectileSpeed: 1600, spread: 0.06, pellets: 1, range: 750, auto: true,
+    radius: 2, color: "#fef3c7", style: "streak",
+  },
+  wedge: {
+    id: "wedge", name: "Orange Wedge", damage: 42, fireRate: 1.8, magSize: 6, reloadTime: 2,
+    projectileSpeed: 1500, spread: 0.015, pellets: 1, range: 950, auto: false,
+    radius: 5, color: "#f97316", style: "blob",
+  },
+  squirt: {
+    id: "squirt", name: "Juice Squirt", damage: 12, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1300, spread: 0, pellets: 1, range: 450, auto: false,
+    radius: 4, color: "#fb923c", style: "blob", slow: 2,
+  },
+  peel: {
+    id: "peel", name: "Peel Trap", damage: 30, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "#f97316", style: "blob", stun: 1.5,
+  },
+  bigorange: {
+    id: "bigorange", name: "Big Orange", damage: 60, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 850, spread: 0, pellets: 1, range: 750, auto: false,
+    radius: 15, color: "#ea580c", style: "ball", burst: { weapon: "segment", count: 8 },
+  },
+  segment: {
+    id: "segment", name: "Orange Segment", damage: 22, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1000, spread: 0, pellets: 1, range: 380, auto: false,
+    radius: 5, color: "#fdba74", style: "blob",
   },
   // Thrown by the Principal's abilities, not held.
   quiz: {
@@ -233,12 +302,39 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     maxHp: 10000, radius: 26,
     ratings: { attack: 5, defense: 5, speed: 2, range: 4 },
   },
+  // The two school mascots, who fight each other in the 1v1 duel; never in the class picker.
+  blueberry: {
+    id: "blueberry", name: "Barry the Blueberry", emoji: "🫐",
+    tagline: "The Blueberries' mascot. Round, bouncy and full of juice.",
+    defense: 0.25, speed: 1.0, primary: "berry", secondary: "bigberry",
+    maxHp: 1500, radius: 24,
+    ratings: { attack: 4, defense: 4, speed: 3, range: 3 },
+  },
+  orangepeel: {
+    id: "orangepeel", name: "Peely the Orange", emoji: "🍊",
+    tagline: "The Orange Peels' mascot. Zesty, slippery and thick-skinned.",
+    defense: 0.25, speed: 1.0, primary: "seeds", secondary: "wedge",
+    maxHp: 1500, radius: 24,
+    ratings: { attack: 4, defense: 4, speed: 3, range: 3 },
+  },
 };
 
-export const PRINCIPAL_LOADOUT: Loadout = { archetype: "principal" };
+/** Characters with four special powers instead of a class super: the Principal and the mascots. */
+export const BOSS_ARCHETYPES: ArchetypeId[] = ["principal", "blueberry", "orangepeel"];
 
-/** The classes students can pick (everything but the Principal). */
-export const ARCHETYPE_IDS: ArchetypeId[] = (Object.keys(ARCHETYPES) as ArchetypeId[]).filter((a) => a !== "principal");
+export function hasAbilities(archetype: ArchetypeId) {
+  return BOSS_ARCHETYPES.includes(archetype);
+}
+
+/** The character a fixed seat plays: the 7v1 Principal, or each side's mascot in the duel. */
+export function seatLoadout(mode: GameMode, team: Team): Loadout | null {
+  if (mode === "boss" && team === 1) return { archetype: "principal" };
+  if (mode === "duel") return { archetype: team === 0 ? "blueberry" : "orangepeel" };
+  return null;
+}
+
+/** The classes students can pick (not the Principal or the mascots). */
+export const ARCHETYPE_IDS: ArchetypeId[] = (Object.keys(ARCHETYPES) as ArchetypeId[]).filter((a) => !hasAbilities(a));
 
 export interface Loadout {
   archetype: ArchetypeId;
@@ -270,17 +366,23 @@ export function radiusFor(archetype: ArchetypeId): number {
   return ARCHETYPES[archetype].radius ?? PLAYER_RADIUS;
 }
 
-// ---------------------------------------------------------------- Principal abilities
+// ---------------------------------------------------------------- Principal and mascot abilities
 
 export type AbilityId =
   | "detention"
   | "lecture"
   | "quiz"
   | "intercom"
-  | "hallpass"
-  | "suspension"
-  | "staffmeeting"
-  | "reportcard";
+  // Barry the Blueberry
+  | "berryblast"
+  | "rollout"
+  | "jam"
+  | "antioxidants"
+  // Peely the Orange
+  | "squirt"
+  | "peel"
+  | "rind"
+  | "bigorange";
 
 export interface AbilityDef {
   id: AbilityId;
@@ -310,37 +412,71 @@ export const ABILITIES: AbilityDef[] = [
   },
 ];
 
-/** The 1v1 Principal Duel's powers: built for fighting another Principal, not a crowd. */
-export const DUEL_ABILITIES: AbilityDef[] = [
+/** Barry the Blueberry's powers in the duel. */
+export const BLUEBERRY_ABILITIES: AbilityDef[] = [
   {
-    id: "hallpass", name: "Hall Pass", emoji: "📋", cooldown: 7,
-    description: "Teleport-dash 350 units where you're aiming. Great for dodging.",
+    id: "berryblast", name: "Berry Blast", emoji: "🫐", cooldown: 6,
+    description: "Throw a fan of 5 bouncy blueberries that ricochet off walls.",
   },
   {
-    id: "suspension", name: "Suspension Slip", emoji: "⏸️", cooldown: 11,
-    description: "A fast slip that stuns whoever it hits for 2 seconds.",
+    id: "rollout", name: "Roll Out", emoji: "🌀", cooldown: 8,
+    description: "Curl up and roll where you aim, flattening anyone in the way: 45 damage and a 1-second stun.",
   },
   {
-    id: "staffmeeting", name: "Staff Meeting", emoji: "🛡️", cooldown: 16,
-    description: "Nothing can hurt you for 2.5 seconds.",
+    id: "jam", name: "Jam Puddle", emoji: "🍇", cooldown: 14,
+    description: "Splat a puddle of sticky jam where you aim. Enemies in it are slowed and take 40 damage a second for 5 seconds.",
   },
   {
-    id: "reportcard", name: "Report Card", emoji: "📉", cooldown: 9,
-    description: "Throw a huge, slow report card for 90 damage.",
+    id: "antioxidants", name: "Antioxidants", emoji: "💙", cooldown: 18,
+    description: "Heal 300 health and move 30% faster for 4 seconds.",
   },
 ];
 
-/** The Principal's four abilities in a given mode (the duel has its own set). */
-export function abilitiesFor(mode: string): AbilityDef[] {
-  return mode === "duel" ? DUEL_ABILITIES : ABILITIES;
+/** Peely the Orange's powers in the duel. */
+export const ORANGE_ABILITIES: AbilityDef[] = [
+  {
+    id: "squirt", name: "Juice Squirt", emoji: "💦", cooldown: 5,
+    description: "Spray 7 drops of sticky juice in a cone. Every drop that hits slows them for 2 seconds.",
+  },
+  {
+    id: "peel", name: "Peel Trap", emoji: "🟠", cooldown: 8,
+    description: "Drop a slippery peel at your feet. The first enemy to step on it slips: 30 damage and stunned for 1.5 seconds. Up to 3 at once.",
+  },
+  {
+    id: "rind", name: "Thick Rind", emoji: "🛡️", cooldown: 16,
+    description: "Nothing can hurt you for 2.5 seconds.",
+  },
+  {
+    id: "bigorange", name: "Big Orange", emoji: "🍊", cooldown: 9,
+    description: "Lob a huge orange (60 damage) that bursts into 8 juicy segments when it hits something or lands.",
+  },
+];
+
+/** A character's four powers, in ability-key order (none for student classes). */
+export function abilitiesOf(archetype: ArchetypeId): AbilityDef[] {
+  if (archetype === "principal") return ABILITIES;
+  if (archetype === "blueberry") return BLUEBERRY_ABILITIES;
+  if (archetype === "orangepeel") return ORANGE_ABILITIES;
+  return [];
 }
 
-export const ABILITY_IDS = [...ABILITIES, ...DUEL_ABILITIES].map((a) => a.id);
+export const ABILITY_IDS = [...ABILITIES, ...BLUEBERRY_ABILITIES, ...ORANGE_ABILITIES].map((a) => a.id);
 
-export const HALL_PASS_DISTANCE = 350;
-export const STAFF_MEETING_TIME = 2.5;
-/** In the duel, each Principal has far less health than the 7v1 boss. */
-export const DUEL_PRINCIPAL_HP = 1500;
+export const ROLL_DISTANCE = 420;
+export const ROLL_STUN = 1;
+/** Jam Puddle: thrown up to this far, this big, lasting this long; hurts every half second. */
+export const JAM_RANGE = 320;
+export const JAM_RADIUS = 110;
+export const JAM_TIME = 5;
+export const JAM_DPS = 40;
+export const ANTIOXIDANT_HEAL = 300;
+export const ANTIOXIDANT_TIME = 4;
+export const ANTIOXIDANT_SPEED = 1.3;
+export const SQUIRT_DROPS = 7;
+export const PEEL_RADIUS = 26;
+export const PEEL_TIME = 30;
+export const MAX_PEELS = 3;
+export const RIND_TIME = 2.5;
 /** 7v1 boss buff: moves this much faster than a duel Principal. */
 export const BOSS_SPEED_BONUS = 1.12;
 /** 7v1 buff: everything the boss Principal throws hits this much harder. */
@@ -416,4 +552,18 @@ export const OVERCLOCK_TIME = 6;
 export const OVERCLOCK_SPEED = 1.35;
 
 /** Weapons that only come from supers and abilities; they don't charge your super. */
-export const SPECIAL_WEAPONS: WeaponId[] = ["meatball", "pie", "tackle", "paintbomb", "quiz", "lecture", "suspension", "reportcard"];
+export const SPECIAL_WEAPONS: WeaponId[] = [
+  "meatball",
+  "pie",
+  "tackle",
+  "paintbomb",
+  "quiz",
+  "lecture",
+  "berryblast",
+  "rollout",
+  "jam",
+  "squirt",
+  "peel",
+  "bigorange",
+  "segment",
+];

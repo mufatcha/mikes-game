@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { TICK_MS, teamNamesFor } from "@/shared/constants";
 import type { ResultsMessage } from "@/shared/protocol";
-import { ARCHETYPES, WEAPONS, abilitiesFor, type ArchetypeId, type Loadout } from "@/shared/archetypes";
+import { ARCHETYPES, WEAPONS, abilitiesOf, hasAbilities, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { levelFromXp, type ClassXp } from "@/shared/progress";
 import { Sfx } from "@/game/audio";
 import type { GameConnection } from "@/game/connection";
@@ -47,7 +47,8 @@ export default function GameView({
   const touchMode = useTouchControlsMode();
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   const isTouch = touchMode === "on" || (touchMode === "auto" && coarsePointer);
-  const isPrincipal = loadout.archetype === "principal";
+  // The Principal or a duel mascot: four powers instead of a class to pick.
+  const isPrincipal = hasAbilities(loadout.archetype);
   const binds = useKeybinds();
   // Detention skill check in progress: who's being sent, and a handle to stop the needle.
   const [skill, setSkill] = useState<{ target: string; name: string } | null>(null);
@@ -76,8 +77,8 @@ export default function GameView({
     /** A Principal ability key or button. Detention opens the skill check (or stops it if it's open). */
     const useAbility = (index: number) => {
       const me = conn.me;
-      const ability = abilitiesFor(conn.room?.mode ?? "teams")[index];
-      if (!me || !ability || me.archetype !== "principal" || !me.alive) return;
+      const ability = me ? abilitiesOf(me.archetype)[index] : undefined;
+      if (!me || !ability || !me.alive) return;
       if (ability.id !== "detention") {
         conn.send({ t: "ability", ability: ability.id });
         return;
@@ -301,7 +302,7 @@ export default function GameView({
             </button>
           </div>
           {isPrincipal ? (
-            <PrincipalCard mode={conn.room?.mode ?? "boss"} />
+            <PrincipalCard mode={conn.room?.mode ?? "boss"} archetype={loadout.archetype} />
           ) : (
             <>
               <p className="text-sm text-zinc-400">

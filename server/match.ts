@@ -1,7 +1,12 @@
 import {
   BASE_SPEED,
+  CEILING_HEIGHT,
   DT,
+  GRAVITY,
   MAX_HP,
+  MAX_PITCH,
+  PLAYER_HEIGHT,
+  THROW_HEIGHT,
   PLAYER_RADIUS,
   RESPAWN_TIME,
   SAFE_ZONE_HEAL,
@@ -16,17 +21,30 @@ import {
   type GameMode,
   type Team,
 } from "../shared/constants";
-import { SPAWNS, inSafeZone } from "../shared/map";
-import { firstWallHitWithNormal, hasLineOfSight, movePlayer, segmentCircle } from "../shared/physics";
-import type { BulletSnap, GameEvent, InputFrame, PlayerSnap } from "../shared/protocol";
+import { SPAWNS, WALLS, WALL_HEIGHT, inSafeZone } from "../shared/map";
+import { firstWallHitWithNormal, hasLineOfSight, movePlayer, segmentCircle, segmentRectHit } from "../shared/physics";
+import type { BulletSnap, GameEvent, InputFrame, PlayerSnap, ZoneSnap } from "../shared/protocol";
 import {
+  ABILITY_IDS,
+  ANTIOXIDANT_HEAL,
+  ANTIOXIDANT_SPEED,
+  ANTIOXIDANT_TIME,
   BOSS_DAMAGE_BONUS,
   STUDENT_LIVES,
   BOSS_SPEED_BONUS,
-  DUEL_PRINCIPAL_HP,
-  HALL_PASS_DISTANCE,
-  STAFF_MEETING_TIME,
-  abilitiesFor,
+  JAM_DPS,
+  JAM_RADIUS,
+  JAM_RANGE,
+  JAM_TIME,
+  MAX_PEELS,
+  PEEL_RADIUS,
+  PEEL_TIME,
+  RIND_TIME,
+  ROLL_DISTANCE,
+  ROLL_STUN,
+  SQUIRT_DROPS,
+  abilitiesOf,
+  hasAbilities,
   DASH_DISTANCE,
   DASH_STUN,
   EXTRA_CREDIT_HEAL,
@@ -122,9 +140,13 @@ export interface PlayerState extends MatchEntry {
   stunnedUntil: number;
   /** Principal's Intercom: sees every student until this match time. */
   revealUntil: number;
-  /** Duel Principal's Staff Meeting: can't be hurt until this match time. */
+  /** Peely's Thick Rind: can't be hurt until this match time. */
   shieldUntil: number;
-  /** Principal: match time each ability is ready again. */
+  /** Barry's Antioxidants: faster until this match time. */
+  hasteUntil: number;
+  /** 3D view: how far up (positive) or down they're aiming. */
+  pitch: number;
+  /** Principal and mascots: match time each ability is ready again. */
   cooldowns: Record<AbilityId, number>;
   // Prank menu effects.
   reversedUntil: number;
@@ -157,10 +179,31 @@ interface Bullet {
   range: number;
   /** Wall bounces left (dodgeballs). */
   bounces: number;
+  /** 3D view only: height above the floor and upward speed. */
+  z: number;
+  vz: number;
+}
+
+/** Something lying on the floor from a mascot power. */
+interface Zone extends ZoneSnap {
+  owner: string;
+  until: number;
+  /** Jam: next match time it hurts whoever is standing in it. */
+  nextTick: number;
 }
 
 /** Speed a dodgeball keeps after each bounce. */
 const BOUNCE_KEEP = 0.85;
+
+// 3D throw physics.
+/** How much gravity pulls on each kind of throw: balls and blobs arc, darts and streaks fly almost flat. */
+const GRAVITY_SCALE = { ball: 1, blob: 1, streak: 0.3 } as const;
+/** Of its upward speed, a ball keeps this much when it bounces off the floor, ceiling or a desk top. */
+const FLOOR_KEEP = 0.55;
+/** And of its forward speed. */
+const FLOOR_GRIP = 0.85;
+/** Balls rolling slower than this are dead. */
+const DEAD_BALL_SPEED = 160;
 
 const IDLE: InputFrame = { seq: 0, mx: 0, my: 0, aim: 0, fire: false, reload: false, swap: -1 };
 const MAX_QUEUED_INPUTS = 8;
@@ -176,8 +219,10 @@ export class Match {
   finished = false;
 
   private bullets: Bullet[] = [];
+  private zones: Zone[] = [];
   private events: GameEvent[] = [];
   private nextBulletId = 1;
+  private nextZoneId = 1;
 
   /** Boss mode: set when the Principal is knocked out. */
   private principalDown = false;
@@ -191,13 +236,13 @@ export class Match {
   /** Boss mode: every student has used up all their lives. */
   studentsWiped() {
     if (this.mode !== "boss") return false;
-    const students = [...this.players.values()].filter((p) => !this.isPrincipal(p));
+    const students = [...this.players.values()].filter((p) => !this.isBoss(p));
     return students.length > 0 && students.every((p) => !p.alive && p.lives === 0);
   }
 
   /** Boss mode: a student is down; take a life, and with none left they stay out. */
   private loseLife(p: PlayerState) {
-    if (this.mode !== "boss" || this.isPrincipal(p)) return;
+    if (this.mode !== "boss" || this.isBoss(p)) return;
     p.lives = Math.max(0, p.lives - 1);
     if (p.lives === 0) p.respawnAt = Infinity;
   }
@@ -205,6 +250,8 @@ export class Match {
   constructor(
     entries: MatchEntry[],
     readonly mode: GameMode = "teams",
+    /** Played in the 3D view: throws fly in 3D, with gravity and bounces. */
+    readonly view3d = false,
   ) {
     for (const e of entries) this.respawn(this.createPlayer(e));
   }
@@ -224,8 +271,9 @@ export class Match {
     return this.scores[0] > this.scores[1] ? 0 : 1;
   }
 
-  isPrincipal(p: PlayerState) {
-    return p.loadout.archetype === "principal";
+  /** The Principal or a duel mascot: four powers instead of a class super, and not a patient. */
+  isBoss(p: PlayerState) {
+    return hasAbilities(p.loadout.archetype);
   }
 
   isJailed(p: PlayerState) {
@@ -241,7 +289,7 @@ export class Match {
     const old = this.players.get(oldId);
     this.players.delete(oldId);
     const p = this.addPlayer(e);
-    if (old && this.isPrincipal(old) && this.isPrincipal(p)) {
+    if (old && this.isBoss(old) && this.isBoss(p)) {
       Object.assign(p, {
         x: old.x,
         y: old.y,
@@ -311,14 +359,15 @@ export class Match {
       p.vx = (p.x - px) / DT;
       p.vy = (p.y - py) / DT;
       if (p.alive) this.updateSafeZone(p);
-      if (p.isBot && p.alive && this.isPrincipal(p)) this.botAbilities(p);
-      if (p.alive && !this.isPrincipal(p)) {
+      if (p.isBot && p.alive && this.isBoss(p)) this.botAbilities(p);
+      if (p.alive && !this.isBoss(p)) {
         p.superCharge = Math.min(1, p.superCharge + DT / SUPER_PASSIVE_SECONDS);
         if (p.isBot && p.superCharge >= 1) this.botSuper(p);
       }
     }
 
     this.updateBullets();
+    this.updateZones();
 
     const goal = winScoreFor(this.mode);
     const scoreReached = this.scores[0] >= goal || this.scores[1] >= goal;
@@ -351,12 +400,12 @@ export class Match {
         zone: r1(p.zoneTime),
         visits: p.zoneVisits.length,
         maxHp: p.maxHp,
-        ...(this.mode === "boss" && !this.isPrincipal(p) && { lives: p.lives }),
+        ...(this.mode === "boss" && !this.isBoss(p) && { lives: p.lives }),
         jailed: p.alive ? r1(Math.max(0, p.jailedUntil - this.time)) : 0,
         stunned: p.alive && this.time < p.stunnedUntil,
         reveal: p.alive && this.time < p.revealUntil,
-        ...(this.isPrincipal(p) && {
-          cds: abilitiesFor(this.mode).map((a) => r1(Math.max(0, p.cooldowns[a.id] - this.time))),
+        ...(this.isBoss(p) && {
+          cds: abilitiesOf(p.loadout.archetype).map((a) => r1(Math.max(0, p.cooldowns[a.id] - this.time))),
         }),
         ...(this.speedMult(p) !== 1 && { speed: this.speedMult(p) }),
         ...(this.time < p.reversedUntil && { reversed: true }),
@@ -377,7 +426,9 @@ export class Match {
       vy: Math.round(b.vy),
       team: b.team,
       w: b.weapon,
+      ...(this.view3d && { z: r1(b.z) }),
     }));
+    const zones: ZoneSnap[] = this.zones.map((z) => ({ id: z.id, k: z.k, x: r1(z.x), y: r1(z.y), r: z.r, team: z.team }));
     const events = this.events;
     this.events = [];
     return {
@@ -386,6 +437,7 @@ export class Match {
       timeLeft: Math.ceil(this.timeLeft),
       players,
       bullets,
+      zones,
       events,
     };
   }
@@ -433,17 +485,10 @@ export class Match {
       jailedUntil: 0,
       stunnedUntil: 0,
       revealUntil: 0,
-      cooldowns: {
-        detention: 0,
-        lecture: 0,
-        quiz: 0,
-        intercom: 0,
-        hallpass: 0,
-        suspension: 0,
-        staffmeeting: 0,
-        reportcard: 0,
-      },
+      cooldowns: Object.fromEntries(ABILITY_IDS.map((a) => [a, 0])) as Record<AbilityId, number>,
       shieldUntil: 0,
+      hasteUntil: 0,
+      pitch: 0,
       reversedUntil: 0,
       slowUntil: 0,
       turbo: false,
@@ -476,6 +521,7 @@ export class Match {
     }
 
     if (Number.isFinite(input.aim)) p.aim = input.aim;
+    if (this.view3d && Number.isFinite(input.pitch)) p.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, input.pitch!));
 
     if ((input.swap === 0 || input.swap === 1) && input.swap !== p.slot) {
       p.slot = input.swap;
@@ -510,7 +556,7 @@ export class Match {
       p.reloadEnd < 0 &&
       this.time >= p.nextFire &&
       this.time >= p.swapReadyAt &&
-      (this.isPrincipal(p) || !inSafeZone(p.x, p.y));
+      (this.isBoss(p) || !inSafeZone(p.x, p.y));
     if (wantsFire && ready) {
       if (p.ammo[p.slot] > 0) {
         this.fire(p, weapon.id);
@@ -533,69 +579,242 @@ export class Match {
     if (!p.infAmmo) p.ammo[p.slot]--;
     p.nextFire = this.time + 1 / (weapon.fireRate * (this.time < p.overclockUntil ? 2 : 1));
     p.protectedUntil = 0;
+    const pitch = this.pitchOf(p, weaponId);
     for (let i = 0; i < weapon.pellets; i++) {
       const angle = p.aim + (Math.random() * 2 - 1) * weapon.spread;
       const speed = weapon.projectileSpeed * (weapon.pellets > 1 ? 0.9 + Math.random() * 0.2 : 1);
-      this.bullets.push({
-        id: this.nextBulletId++,
-        owner: p.id,
-        team: p.team,
-        weapon: weaponId,
-        x: p.x,
-        y: p.y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        damage: weapon.damage * this.damageMult(p),
-        travelled: 0,
-        bounces: weapon.bounces ?? 0,
-        range: weapon.range,
-      });
+      // Shotgun-style throws spread up and down a little too.
+      const tilt = pitch + (weapon.pellets > 1 ? (Math.random() * 2 - 1) * weapon.spread * 0.5 : 0);
+      this.launch(p, weaponId, p.x, p.y, THROW_HEIGHT, angle, tilt, speed, weapon.damage * this.damageMult(p));
     }
     this.events.push({ k: "shot", by: p.id, weapon: weaponId });
     if (p.ammo[p.slot] === 0) this.startReload(p);
   }
 
-  private updateBullets() {
-    const remaining: Bullet[] = [];
-    for (const b of this.bullets) {
-      const nx = b.x + b.vx * DT;
-      const ny = b.y + b.vy * DT;
-      const wall = firstWallHitWithNormal(b.x, b.y, nx, ny);
-      let hitT = wall?.t ?? null;
-      let target: PlayerState | null = null;
-      for (const p of this.players.values()) {
-        if (!p.alive || p.team === b.team) continue;
-        const t = segmentCircle(b.x, b.y, nx, ny, p.x, p.y, p.radius + WEAPONS[b.weapon].radius);
-        if (t !== null && (hitT === null || t < hitT)) {
-          hitT = t;
-          target = p;
-        }
-      }
-      if (hitT !== null) {
-        const hx = b.x + (nx - b.x) * hitT;
-        const hy = b.y + (ny - b.y) * hitT;
-        if (target) this.damage(target, b, hx, hy);
-        else this.events.push({ k: "impact", x: r1(hx), y: r1(hy) });
-        // Dodgeballs bounce off walls: reflect, lose a little speed, keep going.
-        if (!target && wall && b.bounces > 0) {
-          const dot = b.vx * wall.nx + b.vy * wall.ny;
-          b.vx = (b.vx - 2 * dot * wall.nx) * BOUNCE_KEEP;
-          b.vy = (b.vy - 2 * dot * wall.ny) * BOUNCE_KEEP;
-          b.travelled += Math.hypot(hx - b.x, hy - b.y);
-          // Step just off the wall so it doesn't hit the same face again.
-          b.x = hx + wall.nx * 0.5;
-          b.y = hy + wall.ny * 0.5;
-          b.bounces--;
-          if (b.travelled < b.range) remaining.push(b);
-        }
-        continue;
-      }
-      b.x = nx;
-      b.y = ny;
-      b.travelled += Math.hypot(b.vx, b.vy) * DT;
-      if (b.travelled < b.range) remaining.push(b);
+  /**
+   * Send a projectile flying. Top-down it just goes along `angle`; in 3D it
+   * starts at height `z` and is tilted up or down by `pitch`.
+   */
+  private launch(
+    owner: { id: string; team: Team },
+    weapon: WeaponId,
+    x: number,
+    y: number,
+    z: number,
+    angle: number,
+    pitch: number,
+    speed: number,
+    damage: number,
+  ) {
+    const w = WEAPONS[weapon];
+    const flat = this.view3d ? Math.cos(pitch) : 1;
+    this.bullets.push({
+      id: this.nextBulletId++,
+      owner: owner.id,
+      team: owner.team,
+      weapon,
+      x,
+      y,
+      vx: Math.cos(angle) * speed * flat,
+      vy: Math.sin(angle) * speed * flat,
+      damage,
+      travelled: 0,
+      range: w.range,
+      bounces: w.bounces ?? 0,
+      z,
+      vz: this.view3d ? Math.sin(pitch) * speed : 0,
+    });
+  }
+
+  /**
+   * How far up to throw, in 3D. People throw where they look; bots lob just
+   * high enough to reach whoever they're aiming at.
+   */
+  private pitchOf(p: PlayerState, weapon: WeaponId) {
+    if (!this.view3d) return 0;
+    if (!p.isBot) return p.pitch;
+    const w = WEAPONS[weapon];
+    let dist = Infinity;
+    for (const t of this.players.values()) {
+      if (!t.alive || t.team === p.team) continue;
+      let diff = Math.atan2(t.y - p.y, t.x - p.x) - p.aim;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      if (Math.abs(diff) < 0.35) dist = Math.min(dist, Math.hypot(t.x - p.x, t.y - p.y));
     }
-    this.bullets = remaining;
+    if (!Number.isFinite(dist)) return 0;
+    // The low arc that comes back down to throwing height at that distance.
+    const s = (GRAVITY * GRAVITY_SCALE[w.style] * dist) / w.projectileSpeed ** 2;
+    return s >= 1 ? 0.6 : Math.min(0.6, 0.5 * Math.asin(s));
+  }
+
+  private updateBullets() {
+    const moving = this.bullets;
+    // Bursts launched while moving land here and start flying next tick.
+    this.bullets = [];
+    const remaining: Bullet[] = [];
+    for (const b of moving) {
+      if (this.view3d ? this.moveBullet3D(b) : this.moveBullet2D(b)) remaining.push(b);
+      else this.burst(b);
+    }
+    this.bullets = [...remaining, ...this.bullets];
+  }
+
+  /** Move a projectile one tick, top-down. Returns false once it's done. */
+  private moveBullet2D(b: Bullet) {
+    const nx = b.x + b.vx * DT;
+    const ny = b.y + b.vy * DT;
+    const wall = firstWallHitWithNormal(b.x, b.y, nx, ny);
+    let hitT = wall?.t ?? null;
+    let target: PlayerState | null = null;
+    for (const p of this.players.values()) {
+      if (!p.alive || p.team === b.team) continue;
+      const t = segmentCircle(b.x, b.y, nx, ny, p.x, p.y, p.radius + WEAPONS[b.weapon].radius);
+      if (t !== null && (hitT === null || t < hitT)) {
+        hitT = t;
+        target = p;
+      }
+    }
+    if (hitT !== null) {
+      const hx = b.x + (nx - b.x) * hitT;
+      const hy = b.y + (ny - b.y) * hitT;
+      if (target) this.damage(target, b, hx, hy);
+      else this.events.push({ k: "impact", x: r1(hx), y: r1(hy) });
+      // Dodgeballs bounce off walls: reflect, lose a little speed, keep going.
+      if (!target && wall && b.bounces > 0) {
+        this.bounceOffWall(b, hx, hy, wall);
+        return b.travelled < b.range;
+      }
+      b.x = hx;
+      b.y = hy;
+      return false;
+    }
+    b.x = nx;
+    b.y = ny;
+    b.travelled += Math.hypot(b.vx, b.vy) * DT;
+    return b.travelled < b.range;
+  }
+
+  /** Reflect off a wall face, losing a little speed. */
+  private bounceOffWall(b: Bullet, hx: number, hy: number, wall: { nx: number; ny: number }) {
+    const dot = b.vx * wall.nx + b.vy * wall.ny;
+    b.vx = (b.vx - 2 * dot * wall.nx) * BOUNCE_KEEP;
+    b.vy = (b.vy - 2 * dot * wall.ny) * BOUNCE_KEEP;
+    b.travelled += Math.hypot(hx - b.x, hy - b.y);
+    // Step just off the wall so it doesn't hit the same face again.
+    b.x = hx + wall.nx * 0.5;
+    b.y = hy + wall.ny * 0.5;
+    b.bounces--;
+  }
+
+  /**
+   * Move a projectile one tick in 3D: gravity pulls it into an arc, it can
+   * fly over desks and tables and over people's heads, and balls bounce off
+   * the floor, the ceiling and furniture tops, then roll to a stop. Splats
+   * and darts end where they land. Returns false once it's done.
+   */
+  private moveBullet3D(b: Bullet) {
+    const w = WEAPONS[b.weapon];
+    const r = w.radius;
+    const isBall = w.style === "ball" && !w.burst;
+    const vz = b.vz - GRAVITY * GRAVITY_SCALE[w.style] * DT;
+    const nx = b.x + b.vx * DT;
+    const ny = b.y + b.vy * DT;
+    const nz = b.z + ((b.vz + vz) / 2) * DT;
+    const zAt = (t: number) => b.z + (nz - b.z) * t;
+
+    // Walls and furniture, unless it passes over the top.
+    let wall: { t: number; nx: number; ny: number } | null = null;
+    for (const rect of WALLS) {
+      const hit = segmentRectHit(b.x, b.y, nx, ny, rect);
+      if (!hit || (wall && hit.t >= wall.t)) continue;
+      if (zAt(hit.t) - r > WALL_HEIGHT[rect.kind]) continue;
+      wall = hit;
+    }
+    let hitT = wall?.t ?? null;
+    let target: PlayerState | null = null;
+    for (const p of this.players.values()) {
+      if (!p.alive || p.team === b.team) continue;
+      const t = segmentCircle(b.x, b.y, nx, ny, p.x, p.y, p.radius + r);
+      if (t === null || (hitT !== null && t >= hitT)) continue;
+      // Over their head is a miss.
+      if (zAt(t) - r > PLAYER_HEIGHT * (p.radius / PLAYER_RADIUS)) continue;
+      hitT = t;
+      target = p;
+    }
+    if (hitT !== null) {
+      const hx = b.x + (nx - b.x) * hitT;
+      const hy = b.y + (ny - b.y) * hitT;
+      b.z = zAt(hitT);
+      if (target) this.damage(target, b, hx, hy);
+      else this.events.push({ k: "impact", x: r1(hx), y: r1(hy) });
+      if (!target && wall && b.bounces > 0) {
+        this.bounceOffWall(b, hx, hy, wall);
+        b.vz = vz;
+        b.z = Math.max(b.z, r);
+        return b.travelled < b.range;
+      }
+      b.x = hx;
+      b.y = hy;
+      return false;
+    }
+
+    b.travelled += Math.hypot(nx - b.x, ny - b.y);
+    b.x = nx;
+    b.y = ny;
+    b.z = nz;
+    b.vz = vz;
+
+    // What's under it: a desk or table top, or the floor.
+    let ground = 0;
+    for (const rect of WALLS) {
+      const h = WALL_HEIGHT[rect.kind];
+      if (h >= CEILING_HEIGHT || h > ground) continue;
+      if (b.x >= rect.x && b.x <= rect.x + rect.w && b.y >= rect.y && b.y <= rect.y + rect.h) ground = h;
+    }
+    if (b.z - r < ground) {
+      if (!isBall) {
+        this.events.push({ k: "impact", x: r1(b.x), y: r1(b.y) });
+        return false;
+      }
+      b.z = ground + r;
+      if (b.vz < -80) {
+        // A bounce: up again with less speed, and a little slower forward.
+        b.vz = -b.vz * FLOOR_KEEP;
+        b.vx *= FLOOR_GRIP;
+        b.vy *= FLOOR_GRIP;
+      } else {
+        // Rolling along the floor, slowing down.
+        b.vz = 0;
+        const roll = 1 - 1.5 * DT;
+        b.vx *= roll;
+        b.vy *= roll;
+      }
+    } else if (b.z + r > CEILING_HEIGHT) {
+      if (!isBall) {
+        this.events.push({ k: "impact", x: r1(b.x), y: r1(b.y) });
+        return false;
+      }
+      b.z = CEILING_HEIGHT - r;
+      b.vz = -Math.abs(b.vz) * FLOOR_KEEP;
+    }
+    if (isBall && Math.hypot(b.vx, b.vy) < DEAD_BALL_SPEED) return false;
+    return b.travelled < b.range;
+  }
+
+  /** A projectile that bursts (the Big Orange) scatters its pieces where it ended. */
+  private burst(b: Bullet) {
+    const burst = WEAPONS[b.weapon].burst;
+    if (!burst) return;
+    const piece = WEAPONS[burst.weapon];
+    const owner = this.players.get(b.owner);
+    const damage = piece.damage * (owner ? this.damageMult(owner) : 1);
+    const z = Math.max(piece.radius + 4, Math.min(CEILING_HEIGHT - piece.radius, b.z));
+    for (let i = 0; i < burst.count; i++) {
+      const a = (i / burst.count) * Math.PI * 2;
+      this.launch({ id: b.owner, team: b.team }, burst.weapon, b.x, b.y, z, a, 0.35, piece.projectileSpeed, damage);
+    }
+    this.events.push({ k: "impact", x: r1(b.x), y: r1(b.y) });
   }
 
   private damage(
@@ -604,7 +823,7 @@ export class Match {
     x: number,
     y: number,
   ) {
-    const zoneProtected = inSafeZone(target.x, target.y) && !this.isPrincipal(target);
+    const zoneProtected = inSafeZone(target.x, target.y) && !this.isBoss(target);
     const shielded = this.time < target.shieldUntil;
     if (this.time < target.protectedUntil || zoneProtected || this.isJailed(target) || target.god || shielded) {
       this.events.push({ k: "impact", x: r1(x), y: r1(y) });
@@ -616,6 +835,8 @@ export class Match {
     this.events.push({ k: "hit", by: b.owner, target: target.id, x: r1(x), y: r1(y), dmg: Math.round(dmg) });
     const stun = WEAPONS[b.weapon].stun;
     if (stun) target.stunnedUntil = Math.max(target.stunnedUntil, this.time + stun);
+    const slow = WEAPONS[b.weapon].slow;
+    if (slow) target.slowUntil = Math.max(target.slowUntil, this.time + slow);
     const attacker = this.players.get(b.owner);
     if (attacker) {
       // Dealing damage fills your super (but not damage from supers themselves) and earns class XP.
@@ -639,7 +860,7 @@ export class Match {
     }
     this.scores[b.team]++;
     this.events.push({ k: "kill", killer: b.owner, victim: target.id, weapon: b.weapon });
-    if (this.mode === "boss" && this.isPrincipal(target)) this.principalDown = true;
+    if (this.mode === "boss" && this.isBoss(target)) this.principalDown = true;
   }
 
   private respawn(p: PlayerState) {
@@ -682,7 +903,7 @@ export class Match {
    */
   private updateSafeZone(p: PlayerState) {
     // The Principal isn't a patient: no healing, no protection, no timer.
-    if (this.isPrincipal(p)) return;
+    if (this.isBoss(p)) return;
     p.zoneVisits = p.zoneVisits.filter((t) => this.time - t < SAFE_ZONE_VISIT_WINDOW);
     if (!inSafeZone(p.x, p.y)) {
       if (p.inZone) p.zoneLeftAt = this.time;
@@ -715,18 +936,18 @@ export class Match {
     this.events.push({ k: "passout", victim: p.id, reason });
   }
 
-  // ---------------------------------------------------------------- Principal abilities
+  // ---------------------------------------------------------------- Principal and mascot abilities
 
-  /** Use one of the Principal's abilities. Returns why it failed, or null on success. */
+  /** Use one of the Principal's or a mascot's abilities. Returns why it failed, or null on success. */
   useAbility(id: string, ability: AbilityId, targetId?: string, score?: number): string | null {
     const p = this.players.get(id);
-    if (!p || !p.alive || !this.isPrincipal(p)) return "Only the Principal can do that.";
+    if (!p || !p.alive || !this.isBoss(p)) return "Only the Principal and the mascots can do that.";
     if (!(ability in p.cooldowns)) return "Unknown ability.";
     if (this.time < p.cooldowns[ability]) return null;
     if (this.time < p.stunnedUntil) return null;
-    // Each mode has its own set of four; only those can be used.
-    const def = abilitiesFor(this.mode).find((a) => a.id === ability);
-    if (!def) return "That power isn't available in this mode.";
+    // Each character has its own set of four; only those can be used.
+    const def = abilitiesOf(p.loadout.archetype).find((a) => a.id === ability);
+    if (!def) return "That power isn't yours.";
 
     switch (ability) {
       case "detention": {
@@ -766,20 +987,8 @@ export class Match {
         const w = WEAPONS.quiz;
         for (let i = 0; i < QUIZ_PAPERS; i++) {
           const a = p.aim + (i / QUIZ_PAPERS) * Math.PI * 2;
-          this.bullets.push({
-            id: this.nextBulletId++,
-            owner: p.id,
-            team: p.team,
-            weapon: "quiz",
-            x: p.x,
-            y: p.y,
-            vx: Math.cos(a) * w.projectileSpeed,
-            vy: Math.sin(a) * w.projectileSpeed,
-            damage: w.damage * this.damageMult(p),
-            travelled: 0,
-            bounces: 0,
-            range: w.range,
-          });
+          // In 3D the papers flutter out in a gentle upward ring.
+          this.launch(p, "quiz", p.x, p.y, THROW_HEIGHT, a, 0.15, w.projectileSpeed, w.damage * this.damageMult(p));
         }
         this.events.push({ k: "shot", by: p.id, weapon: "quiz" });
         break;
@@ -787,26 +996,46 @@ export class Match {
       case "intercom":
         p.revealUntil = this.time + INTERCOM_TIME;
         break;
-      case "hallpass": {
-        const dx = Math.cos(p.aim);
-        const dy = Math.sin(p.aim);
-        for (let d = 0; d < HALL_PASS_DISTANCE; d += 25) {
-          const bx = p.x;
-          const by = p.y;
-          movePlayer(p, dx, dy, 25 / DT, DT, p.radius);
-          if (Math.hypot(p.x - bx, p.y - by) < 8) break;
-        }
-        p.inputs = [];
+      // Barry the Blueberry.
+      case "berryblast":
+        this.fan(p, "berryblast", 5, 0.4);
+        break;
+      case "rollout":
+        this.charge(p, ROLL_DISTANCE, "rollout", ROLL_STUN);
+        break;
+      case "jam": {
+        // Splat it where you aim: up to JAM_RANGE away (closer when looking down in 3D), short of any wall.
+        let reach = JAM_RANGE;
+        const foe = p.isBot && targetId ? this.players.get(targetId) : undefined;
+        if (foe) reach = Math.min(reach, Math.hypot(foe.x - p.x, foe.y - p.y));
+        else if (this.view3d && p.pitch < -0.05) reach = Math.min(reach, 32 / Math.tan(-p.pitch));
+        const ex = p.x + Math.cos(p.aim) * reach;
+        const ey = p.y + Math.sin(p.aim) * reach;
+        const wall = firstWallHitWithNormal(p.x, p.y, ex, ey);
+        const d = wall ? Math.max(0, wall.t * reach - 20) : reach;
+        this.addZone(p, "jam", p.x + Math.cos(p.aim) * d, p.y + Math.sin(p.aim) * d, JAM_RADIUS, JAM_TIME);
         break;
       }
-      case "suspension":
-        this.fan(p, "suspension", 1, 0);
+      case "antioxidants":
+        p.hp = Math.min(p.maxHp, p.hp + ANTIOXIDANT_HEAL);
+        p.hasteUntil = this.time + ANTIOXIDANT_TIME;
         break;
-      case "reportcard":
-        this.fan(p, "reportcard", 1, 0);
+      // Peely the Orange.
+      case "squirt":
+        this.fan(p, "squirt", SQUIRT_DROPS, 0.3);
         break;
-      case "staffmeeting":
-        p.shieldUntil = this.time + STAFF_MEETING_TIME;
+      case "peel": {
+        // Only so many peels down at once: the oldest goes.
+        const mine = this.zones.filter((z) => z.k === "peel" && z.owner === p.id);
+        if (mine.length >= MAX_PEELS) this.zones = this.zones.filter((z) => z !== mine[0]);
+        this.addZone(p, "peel", p.x, p.y, PEEL_RADIUS, PEEL_TIME);
+        break;
+      }
+      case "rind":
+        p.shieldUntil = this.time + RIND_TIME;
+        break;
+      case "bigorange":
+        this.fan(p, "bigorange", 1, 0);
         break;
     }
     p.cooldowns[ability] = this.time + def.cooldown;
@@ -824,19 +1053,17 @@ export class Match {
   /** Higher class levels hit harder. */
   damageMult(p: PlayerState) {
     // 7v1 buff: the boss Principal hits 20% harder.
-    const boss = this.mode === "boss" && this.isPrincipal(p) ? BOSS_DAMAGE_BONUS : 1;
+    const boss = this.mode === "boss" && this.isBoss(p) ? BOSS_DAMAGE_BONUS : 1;
     return levelBonus(this.levelOf(p)) * boss;
   }
 
   private maxHpOf(loadout: Loadout, levels: ClassLevels) {
-    // Duel Principals are built for a fair 1v1, not a 7v1 siege.
-    const base = this.mode === "duel" && loadout.archetype === "principal" ? DUEL_PRINCIPAL_HP : maxHpFor(loadout.archetype);
-    return Math.round(base * levelBonus(levels[loadout.archetype] ?? 1));
+    return Math.round(maxHpFor(loadout.archetype) * levelBonus(levels[loadout.archetype] ?? 1));
   }
 
   /** Earn XP for the class you're playing (the Principal isn't a class you level). */
   addXp(p: PlayerState, amount: number) {
-    if (p.isBot || this.isPrincipal(p) || amount <= 0) return;
+    if (p.isBot || this.isBoss(p) || amount <= 0) return;
     const id = p.loadout.archetype;
     p.xp[id] = (p.xp[id] ?? 0) + amount;
   }
@@ -852,7 +1079,7 @@ export class Match {
   /** Use your class super if it's fully charged. Fires where you're aiming. */
   useSuper(id: string) {
     const p = this.players.get(id);
-    if (!p || !p.alive || p.superCharge < 1 || this.isPrincipal(p)) return;
+    if (!p || !p.alive || p.superCharge < 1 || this.isBoss(p)) return;
     if (this.isJailed(p) || this.time < p.stunnedUntil) return;
     // Same rule as throwing: no supers from inside the Nurse's Office.
     if (inSafeZone(p.x, p.y)) return;
@@ -875,29 +1102,9 @@ export class Match {
       case "pies":
         this.fan(p, "pie", 5, 0.25);
         break;
-      case "dash": {
-        const dx = Math.cos(p.aim);
-        const dy = Math.sin(p.aim);
-        const hit = new Set<PlayerState>();
-        const step = 30;
-        for (let d = 0; d < DASH_DISTANCE; d += step) {
-          const bx = p.x;
-          const by = p.y;
-          movePlayer(p, dx, dy, step / DT, DT, p.radius);
-          // Stop early if a wall stopped us.
-          if (Math.hypot(p.x - bx, p.y - by) < step * 0.3) break;
-          for (const t of this.players.values()) {
-            if (!t.alive || t.team === p.team || hit.has(t)) continue;
-            if (Math.hypot(t.x - p.x, t.y - p.y) < p.radius + t.radius + 10) hit.add(t);
-          }
-        }
-        for (const t of hit) {
-          this.damage(t, this.superShot(p, "tackle"), t.x, t.y);
-          if (t.alive) t.stunnedUntil = this.time + DASH_STUN;
-        }
-        p.inputs = [];
+      case "dash":
+        this.charge(p, DASH_DISTANCE, "tackle", DASH_STUN);
         break;
-      }
       case "paintbomb":
         for (const t of this.players.values()) {
           if (!t.alive || t.team === p.team || this.isJailed(t)) continue;
@@ -914,6 +1121,65 @@ export class Match {
     this.events.push({ k: "super", by: p.id, super: def.id, x: r1(p.x), y: r1(p.y) });
   }
 
+  /**
+   * Charge forward up to `distance` where you aim (the Jock's Touchdown Dash,
+   * Barry's Roll Out), hitting and stunning everyone you run into.
+   */
+  private charge(p: PlayerState, distance: number, weapon: WeaponId, stun: number) {
+    const dx = Math.cos(p.aim);
+    const dy = Math.sin(p.aim);
+    const hit = new Set<PlayerState>();
+    const step = 30;
+    for (let d = 0; d < distance; d += step) {
+      const bx = p.x;
+      const by = p.y;
+      movePlayer(p, dx, dy, step / DT, DT, p.radius);
+      // Stop early if a wall stopped us.
+      if (Math.hypot(p.x - bx, p.y - by) < step * 0.3) break;
+      for (const t of this.players.values()) {
+        if (!t.alive || t.team === p.team || hit.has(t)) continue;
+        if (Math.hypot(t.x - p.x, t.y - p.y) < p.radius + t.radius + 10) hit.add(t);
+      }
+    }
+    for (const t of hit) {
+      this.damage(t, this.superShot(p, weapon), t.x, t.y);
+      if (t.alive) t.stunnedUntil = this.time + stun;
+    }
+    p.inputs = [];
+  }
+
+  // ---------------------------------------------------------------- floor zones
+
+  private addZone(p: PlayerState, k: Zone["k"], x: number, y: number, r: number, secs: number) {
+    this.zones.push({ id: this.nextZoneId++, k, x, y, r, team: p.team, owner: p.id, until: this.time + secs, nextTick: this.time });
+  }
+
+  /**
+   * Jam Puddles slow everyone on the other side standing in them and hurt
+   * every half second; a Peel Trap trips the first enemy to step on it.
+   */
+  private updateZones() {
+    this.zones = this.zones.filter((z) => {
+      if (this.time >= z.until) return false;
+      const owner = this.players.get(z.owner);
+      const mult = owner ? this.damageMult(owner) : 1;
+      const tick = z.k === "jam" && this.time >= z.nextTick;
+      if (tick) z.nextTick = this.time + 0.5;
+      for (const t of this.players.values()) {
+        if (!t.alive || t.team === z.team || this.isJailed(t)) continue;
+        if (Math.hypot(t.x - z.x, t.y - z.y) > z.r + t.radius * 0.5) continue;
+        if (z.k === "jam") {
+          t.slowUntil = Math.max(t.slowUntil, this.time + 0.3);
+          if (tick) this.damage(t, { owner: z.owner, team: z.team, weapon: "jam", damage: (JAM_DPS / 2) * mult }, t.x, t.y);
+        } else {
+          this.damage(t, { owner: z.owner, team: z.team, weapon: "peel", damage: WEAPONS.peel.damage * mult }, t.x, t.y);
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
   /** A damage source for a super, scaled by the user's level. */
   private superShot(p: PlayerState, weapon: WeaponId) {
     return { owner: p.id, team: p.team, weapon, damage: WEAPONS[weapon].damage * this.damageMult(p) };
@@ -922,22 +1188,10 @@ export class Match {
   /** Throw `count` projectiles in a fan `spread` radians wide either side of your aim. */
   private fan(p: PlayerState, weapon: WeaponId, count: number, spread: number) {
     const w = WEAPONS[weapon];
+    const pitch = this.pitchOf(p, weapon);
     for (let i = 0; i < count; i++) {
       const a = p.aim + (count === 1 ? 0 : -spread + (2 * spread * i) / (count - 1));
-      this.bullets.push({
-        id: this.nextBulletId++,
-        owner: p.id,
-        team: p.team,
-        weapon,
-        x: p.x,
-        y: p.y,
-        vx: Math.cos(a) * w.projectileSpeed,
-        vy: Math.sin(a) * w.projectileSpeed,
-        damage: w.damage * this.damageMult(p),
-        travelled: 0,
-        range: w.range,
-        bounces: 0,
-      });
+      this.launch(p, weapon, p.x, p.y, THROW_HEIGHT, a, pitch, w.projectileSpeed, w.damage * this.damageMult(p));
     }
     this.events.push({ k: "shot", by: p.id, weapon });
   }
@@ -971,9 +1225,11 @@ export class Match {
   /** Movement speed multiplier from pranks (turbo, slow). */
   speedMult(p: PlayerState) {
     const boost =
-      (p.superSpeed ? SUPER_MULT : p.turbo ? TURBO_MULT : 1) * (this.time < p.overclockUntil ? OVERCLOCK_SPEED : 1);
+      (p.superSpeed ? SUPER_MULT : p.turbo ? TURBO_MULT : 1) *
+      (this.time < p.overclockUntil ? OVERCLOCK_SPEED : 1) *
+      (this.time < p.hasteUntil ? ANTIOXIDANT_SPEED : 1);
     // 7v1 buff: the boss Principal is a bit quicker.
-    const boss = this.mode === "boss" && this.isPrincipal(p) ? BOSS_SPEED_BONUS : 1;
+    const boss = this.mode === "boss" && this.isBoss(p) ? BOSS_SPEED_BONUS : 1;
     return boost * boss * (this.time < p.slowUntil ? SLOW_MULT : 1);
   }
 
@@ -1052,14 +1308,14 @@ export class Match {
         t.inputs = [];
         this.events.push({ k: "passout", victim: t.id, reason: "prank" });
         // In boss mode, knocking out the Principal still ends the match.
-        if (this.mode === "boss" && this.isPrincipal(t)) this.principalDown = true;
+        if (this.mode === "boss" && this.isBoss(t)) this.principalDown = true;
         break;
     }
     return null;
   }
 
-  /** A bot duel Principal: shield when hurt, shoot when it has a clear shot, dash away when cornered. */
-  private botDuelAbilities(p: PlayerState) {
+  /** A bot duel mascot uses its four powers when they'd help. */
+  private botMascotAbilities(p: PlayerState) {
     if (Math.random() > 0.08) return;
     const ready = (a: AbilityId) => this.time >= p.cooldowns[a];
     let foe: PlayerState | null = null;
@@ -1072,22 +1328,25 @@ export class Match {
         foe = t;
       }
     }
-    if (ready("staffmeeting") && foe && p.hp < p.maxHp * 0.35) {
-      this.useAbility(p.id, "staffmeeting");
-      return;
-    }
-    if (!foe) return;
-    const aimAtFoe = Math.atan2(foe.y - p.y, foe.x - p.x);
-    if (ready("hallpass") && dist < 220 && p.hp < p.maxHp * 0.5) {
-      // Dash away from them.
-      p.aim = aimAtFoe + Math.PI;
-      this.useAbility(p.id, "hallpass");
-    } else if (ready("suspension")) {
-      p.aim = aimAtFoe;
-      this.useAbility(p.id, "suspension");
-    } else if (ready("reportcard") && dist < 600) {
-      p.aim = aimAtFoe;
-      this.useAbility(p.id, "reportcard");
+    const hurt = p.hp < p.maxHp * 0.45;
+    const fire = (a: AbilityId, aim?: number) => {
+      if (aim !== undefined) p.aim = aim;
+      this.useAbility(p.id, a, foe?.id);
+    };
+    if (p.loadout.archetype === "blueberry") {
+      if (ready("antioxidants") && hurt) return fire("antioxidants");
+      if (!foe) return;
+      const at = Math.atan2(foe.y - p.y, foe.x - p.x);
+      if (ready("jam") && dist < JAM_RANGE + JAM_RADIUS) fire("jam", at);
+      else if (ready("rollout") && dist < 380) fire("rollout", at);
+      else if (ready("berryblast") && dist < 700) fire("berryblast", at);
+    } else {
+      if (ready("rind") && foe && hurt) return fire("rind");
+      if (!foe) return;
+      const at = Math.atan2(foe.y - p.y, foe.x - p.x);
+      if (ready("peel") && dist < 260) fire("peel");
+      else if (ready("squirt") && dist < 420) fire("squirt", at);
+      else if (ready("bigorange") && dist < 700) fire("bigorange", at);
     }
   }
 
@@ -1100,10 +1359,10 @@ export class Match {
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  /** A bot Principal uses its abilities when they'd help. */
+  /** A bot Principal (or mascot) uses its abilities when they'd help. */
   private botAbilities(p: PlayerState) {
-    if (this.mode === "duel") {
-      this.botDuelAbilities(p);
+    if (p.loadout.archetype !== "principal") {
+      this.botMascotAbilities(p);
       return;
     }
     const ready = (a: AbilityId) => this.time >= p.cooldowns[a];

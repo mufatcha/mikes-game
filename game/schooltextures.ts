@@ -1,4 +1,4 @@
-import { HALLS, MAP_HEIGHT, MAP_WIDTH, ROOMS, type FloorPattern, type WallKind } from "@/shared/map";
+import { HALLS, MAP_HEIGHT, MAP_WIDTH, ROOMS, WALL_HEIGHT, type FloorPattern, type WallKind } from "@/shared/map";
 
 /**
  * Procedural textures for the first-person school: painted cinderblock walls
@@ -27,16 +27,7 @@ export const TEX_UNITS: Record<Surface, number> = {
 };
 
 /** How tall each surface is, in world units (also the texture height). */
-export const SURFACE_HEIGHT: Record<Surface, number> = {
-  wall: 80,
-  outer: 80,
-  locker: 80,
-  shelf: 64,
-  desk: 22,
-  table: 26,
-  bleacher: 30,
-  easel: 46,
-};
+export const SURFACE_HEIGHT: Record<Surface, number> = { ...WALL_HEIGHT, outer: WALL_HEIGHT.wall };
 
 /** Small deterministic hash, 0 to 1, so every client draws the same school. */
 export function hash(a: number, b: number) {

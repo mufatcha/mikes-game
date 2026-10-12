@@ -1,7 +1,7 @@
 import { ABILITY_ACTIONS, getKeybinds } from "@/lib/settings";
 import type { InputFrame } from "@/shared/protocol";
 import { CHEAT_CODE } from "@/shared/pranks";
-import { MAX_PITCH } from "./firstperson";
+import { MAX_PITCH } from "@/shared/constants";
 
 export interface InputHandlers {
   onMenu(): void;
@@ -260,6 +260,7 @@ export class InputController {
       mx,
       my,
       aim: Math.round(aim * 1000) / 1000,
+      ...(this.fpsMode && { pitch: Math.round(this.pitch * 1000) / 1000 }),
       fire: this.enabled && (this.firing || touchFire),
       reload: this.reloadQueued,
       swap,

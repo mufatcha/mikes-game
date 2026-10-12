@@ -37,12 +37,23 @@ To test with friends on the same network, open the web app at your machine's LAN
 
 **3D first person (any mode).** Under **View** in the lobby, the host can switch any mode (Team Battle, Fog of War, the Principal 7v1 and the Duel) to 3D. Everyone is a 3D figure in their class outfit, walking, holding their throw, and you see your own arm and ball. Click the game to grab the mouse, then move the mouse to look in any direction (all the way around, and up and down); W/A/S/D walk and strafe relative to where you're facing, and left click throws. Esc gives the mouse back and opens the menu. The minimap shows which way you're facing. In Fog of War the school goes dark just past the circle you can see; the Principal's Intercom shows students through walls with a red outline, and Detention picks the student closest to your crosshair. On phones, the aim stick turns you side to side and tilts your view up and down.
 
-**Principal Duel (1v1).** Two Principals fight with their own set of powers (same keys as the 7v1 abilities). Each has 1500 health and respawns; first to 3 knockouts wins, or whoever leads after 5 minutes. A duel room holds two players.
+**3D throw physics.** In 3D, everything you throw flies in 3D: it goes where you look (aim up to lob, down to bounce it off the floor), gravity pulls it into an arc, and its shadow on the floor shows where it'll come down. Balls bounce off the floor, the ceiling and desk tops and roll to a stop; splats and darts end where they land. Throws sail over desks, tables and bleachers if they're high enough (but not lockers, shelves or walls), and a throw that passes over someone's head misses. Bots lob far enough to reach you.
 
-- 📋 **Hall Pass** (E, 7s): teleport-dash 350 units where you aim.
-- ⏸️ **Suspension Slip** (F, 11s): a fast slip that stuns for 2 seconds.
-- 🛡️ **Staff Meeting** (C, 16s): nothing can hurt you for 2.5 seconds.
-- 📉 **Report Card** (X, 9s): a huge, slow shot for 90 damage.
+**Mascot Duel (1v1).** The two school mascots fight it out: Barry the Blueberry (Blueberries) against Peely the Orange (Orange Peels). Each has 1500 health, their own two weapons and four powers of their own (same keys as the 7v1 abilities), and respawns; first to 3 knockouts wins, or whoever leads after 5 minutes. A duel room holds two players.
+
+🫐 **Barry the Blueberry** throws Blueberries (fast) and Giant Berries (bouncy, heavy):
+
+- 🫐 **Berry Blast** (E, 6s): a fan of 5 bouncy blueberries that ricochet off walls.
+- 🌀 **Roll Out** (F, 8s): roll where you aim, flattening anyone in the way for 45 damage and a 1-second stun.
+- 🍇 **Jam Puddle** (C, 14s): splat sticky jam where you aim; enemies in it are slowed and take 40 damage a second for 5 seconds.
+- 💙 **Antioxidants** (X, 18s): heal 300 health and move 30% faster for 4 seconds.
+
+🍊 **Peely the Orange** throws Orange Seeds (rapid) and Orange Wedges (hard-hitting):
+
+- 💦 **Juice Squirt** (E, 5s): spray 7 drops of sticky juice in a cone; every hit slows them for 2 seconds.
+- 🟠 **Peel Trap** (F, 8s): drop a slippery peel; the first enemy to step on it takes 30 damage and is stunned 1.5 seconds. Up to 3 at once.
+- 🛡️ **Thick Rind** (C, 16s): nothing can hurt you for 2.5 seconds.
+- 🍊 **Big Orange** (X, 9s): lob a huge orange (60 damage) that bursts into 8 segments when it hits something or lands.
 
 Controls: WASD to move, mouse to aim, left click to shoot, R to reload, 1/2/Q/mouse wheel to switch weapons, Space for your super, Tab for the scoreboard, B to change class (it applies on respawn), Esc for the menu. To change the keys, click the gear icon on the home screen or in the Esc menu.
 

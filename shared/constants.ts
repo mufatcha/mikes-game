@@ -9,6 +9,19 @@ export const PLAYER_RADIUS = 18;
 export const BASE_SPEED = 250;
 export const MAX_HP = 100;
 
+/** How tall a regular player is, for 3D hits and drawing (bigger classes scale with their radius). */
+export const PLAYER_HEIGHT = 56;
+
+// 3D throw physics, used only when a match is played in the 3D view.
+/** Downward pull on thrown things, in units per second squared. */
+export const GRAVITY = 600;
+/** Throws leave your hand at this height. */
+export const THROW_HEIGHT = 38;
+/** The ceiling (and the top of the walls). */
+export const CEILING_HEIGHT = 80;
+/** How far you can look (and throw) up or down, in radians. */
+export const MAX_PITCH = 1.0;
+
 export const RESPAWN_TIME = 3;
 export const SPAWN_PROTECTION = 2;
 export const SWAP_TIME = 0.35;
@@ -36,7 +49,7 @@ export type Team = 0 | 1;
  * - "teams": the classic 4v4.
  * - "fog": 4v4 where you only see a small circle around you.
  * - "boss": 7 students against 1 Principal.
- * - "duel": 1v1, two Principals with their own set of powers.
+ * - "duel": 1v1, the two school mascots, each with their own powers.
  * Every mode can be played top-down or in 3D first person (see VIEWS).
  */
 export type GameMode = "teams" | "fog" | "boss" | "duel";
@@ -57,9 +70,9 @@ export const GAME_MODES: { id: GameMode; name: string; emoji: string; blurb: str
   },
   {
     id: "duel",
-    name: "Principal Duel · 1v1",
+    name: "Mascot Duel · 1v1",
     emoji: "🥊",
-    blurb: "Two Principals, one school. Different powers from the 7v1. First to 3 knockouts.",
+    blurb: "Barry the Blueberry vs Peely the Orange, each with their own four powers. First to 3 knockouts.",
   },
 ];
 
@@ -83,11 +96,11 @@ export function teamSizeFor(mode: GameMode, team: Team) {
 
 export function teamNamesFor(mode: GameMode): readonly [string, string] {
   if (mode === "boss") return ["Students", "Principal"];
-  if (mode === "duel") return ["Blueberry Principal", "Orange Peel Principal"];
+  if (mode === "duel") return ["Barry the Blueberry", "Peely the Orange"];
   return TEAM_NAMES;
 }
 
-/** Teams whose seat is always the Principal. */
+/** Seats with a fixed character instead of a class pick: the 7v1 Principal, and both duel mascots. */
 export function isPrincipalSeat(mode: GameMode, team: Team) {
   return mode === "duel" || (mode === "boss" && team === 1);
 }

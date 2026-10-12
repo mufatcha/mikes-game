@@ -4,30 +4,40 @@ import {
   ARCHETYPES,
   BOSS_DAMAGE_BONUS,
   BOSS_SPEED_BONUS,
-  DUEL_PRINCIPAL_HP,
   STUDENT_LIVES,
-  abilitiesFor,
+  WEAPONS,
+  abilitiesOf,
+  type ArchetypeId,
 } from "@/shared/archetypes";
 import { winScoreFor, type GameMode } from "@/shared/constants";
 import { ABILITY_ACTIONS, keyLabel, useKeybinds } from "@/lib/settings";
 import SkinPortrait from "./SkinPortrait";
 
-/** What the Principal can do in this mode, shown to whoever takes a Principal seat. */
-export default function PrincipalCard({ mode }: { mode: GameMode }) {
+/**
+ * What a fixed seat's character can do, shown to whoever takes it: the 7v1
+ * Principal, or Barry the Blueberry or Peely the Orange in the duel.
+ */
+export default function PrincipalCard({ mode, archetype }: { mode: GameMode; archetype: ArchetypeId }) {
   const binds = useKeybinds();
-  const p = ARCHETYPES.principal;
+  const p = ARCHETYPES[archetype];
   const duel = mode === "duel";
   return (
-    <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 p-4">
+    <div
+      className={`rounded-xl border p-4 ${
+        archetype === "blueberry" ? "border-indigo-500/40 bg-indigo-500/10" : "border-orange-500/40 bg-orange-500/10"
+      }`}
+    >
       <p className="flex items-center gap-2 text-lg font-bold text-white">
-        <SkinPortrait archetype="principal" size={44} />
-        You are {duel ? "a dueling Principal" : "the Principal"}
+        <SkinPortrait archetype={archetype} size={44} />
+        You are {duel ? p.name : "the Principal"}
       </p>
+      {duel && <p className="mt-1 text-sm italic text-zinc-400">{p.tagline}</p>}
       <p className="mt-1 text-sm text-zinc-300">
         {duel ? (
           <>
-            {DUEL_PRINCIPAL_HP} health and takes {Math.round((1 - p.defense) * 100)}% damage. You respawn, and the first
-            Principal to {winScoreFor(mode)} knockouts wins.
+            {p.maxHp} health and takes {Math.round((1 - p.defense) * 100)}% damage. Throws {p.emoji}{" "}
+            {weaponNames(archetype)}. You respawn, and the first mascot to {winScoreFor(mode)} knockouts
+            wins.
           </>
         ) : (
           <>
@@ -39,7 +49,7 @@ export default function PrincipalCard({ mode }: { mode: GameMode }) {
         )}
       </p>
       <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-        {abilitiesFor(mode).map((a, i) => (
+        {abilitiesOf(archetype).map((a, i) => (
           <li key={a.id} className="rounded-lg bg-black/30 p-3">
             <p className="font-semibold text-white">
               {a.emoji} {a.name}{" "}
@@ -54,4 +64,10 @@ export default function PrincipalCard({ mode }: { mode: GameMode }) {
       </ul>
     </div>
   );
+}
+
+/** "Blueberries and Giant Berry": the two weapons a character holds. */
+function weaponNames(archetype: ArchetypeId) {
+  const a = ARCHETYPES[archetype];
+  return `${WEAPONS[a.primary].name} and ${WEAPONS[a.secondary].name}`;
 }

@@ -12,6 +12,8 @@ export interface InputFrame {
   my: number;
   /** Aim angle in radians. */
   aim: number;
+  /** 3D view: how far up (positive) or down you're aiming, in radians. */
+  pitch?: number;
   fire: boolean;
   reload: boolean;
   /** Slot to switch to (0 primary, 1 secondary), or -1 for no change. */
@@ -31,7 +33,7 @@ export type ClientMessage =
   | { t: "mode"; mode: GameMode }
   /** Host only, in the lobby: play this match in 3D first person, or top-down. */
   | { t: "view"; view3d: boolean }
-  /** Principal only. `target` and `score` (skill check, 0 to 1) are for Detention. */
+  /** Principal and mascots only. `target` and `score` (skill check, 0 to 1) are for Detention. */
   | { t: "ability"; ability: AbilityId; target?: string; score?: number }
   /** Secret prank menu: "unlock" with the cheat code first, then pranks. */
   | { t: "prank"; action: "unlock" | PrankAction; code?: string; target?: string }
@@ -89,7 +91,7 @@ export interface PlayerSnap {
   stunned: boolean;
   /** Principal's Intercom is on: they can see every student. */
   reveal: boolean;
-  /** Principal only: seconds until each ability is ready, in ABILITIES order. */
+  /** Principal and mascots: seconds until each ability is ready, in abilitiesOf(archetype) order. */
   cds?: number[];
   /** Prank effects, only sent when active. Movement speed multiplier. */
   speed?: number;
@@ -99,7 +101,7 @@ export interface PlayerSnap {
   infAmmo?: boolean;
   turbo?: boolean;
   superSpeed?: boolean;
-  /** Duel Principal's Staff Meeting is on: can't be hurt. */
+  /** Peely the Orange's Thick Rind is on: can't be hurt. */
   shielded?: boolean;
   /** Super charge, 0 to 1. */
   sup: number;
@@ -115,6 +117,19 @@ export interface BulletSnap {
   vy: number;
   team: Team;
   w: WeaponId;
+  /** 3D view only: height above the floor. */
+  z?: number;
+}
+
+/** Something lying on the floor from a mascot power. */
+export interface ZoneSnap {
+  id: number;
+  /** A Jam Puddle (slows and hurts) or a Peel Trap (stuns the first enemy to step on it). */
+  k: "jam" | "peel";
+  x: number;
+  y: number;
+  r: number;
+  team: Team;
 }
 
 export type GameEvent =
@@ -139,6 +154,7 @@ export interface Snapshot {
   timeLeft: number;
   players: PlayerSnap[];
   bullets: BulletSnap[];
+  zones: ZoneSnap[];
   events: GameEvent[];
 }
 

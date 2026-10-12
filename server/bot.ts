@@ -28,8 +28,17 @@ const PREFERRED_RANGE: Record<WeaponId, number> = {
   pie: 450,
   tackle: 200,
   paintbomb: 200,
-  suspension: 500,
-  reportcard: 500,
+  berry: 420,
+  bigberry: 280,
+  berryblast: 450,
+  rollout: 250,
+  jam: 250,
+  seeds: 380,
+  wedge: 450,
+  squirt: 300,
+  peel: 150,
+  bigorange: 450,
+  segment: 300,
 };
 
 function wrapAngle(a: number) {
@@ -99,8 +108,8 @@ export class BotBrain {
     // Nurse's Office: go heal when hurt and nothing is around; leave once healed or before passing out.
     const inZone = inSafeZone(self.x, self.y);
     const leaveZone = inZone && (self.zoneTime > 18 || self.hp >= self.maxHp);
-    // The Principal gets nothing from the nurse.
-    const wantsHeal = !target && !inZone && self.hp < 40 && !match.isPrincipal(self);
+    // The Principal and the mascots get nothing from the nurse.
+    const wantsHeal = !target && !inZone && self.hp < 40 && !match.isBoss(self);
 
     if (target && target.id !== this.targetId) {
       this.acquiredAt = t;

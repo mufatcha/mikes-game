@@ -1,7 +1,7 @@
-import type { Team } from "@/shared/constants";
+import { MAX_PITCH, THROW_HEIGHT, type Team } from "@/shared/constants";
 import { MAP_HEIGHT, MAP_WIDTH, WALLS, type Wall } from "@/shared/map";
 import { segmentRectHit } from "@/shared/physics";
-import type { BulletSnap, PlayerSnap, RosterEntry } from "@/shared/protocol";
+import type { BulletSnap, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
 import { WEAPONS, radiusFor } from "@/shared/archetypes";
 import {
   PPU,
@@ -14,7 +14,15 @@ import {
   wallVariant,
   type Surface,
 } from "./schooltextures";
-import { FIGURE_HEIGHT, drawAvatar, drawBall3D, drawViewModel, type AvatarDraw, type Camera3D } from "./avatar3d";
+import {
+  FIGURE_HEIGHT,
+  drawAvatar,
+  drawBall3D,
+  drawFloorZone3D,
+  drawViewModel,
+  type AvatarDraw,
+  type Camera3D,
+} from "./avatar3d";
 import { FOG_SIGHT } from "./vision";
 
 /**
@@ -33,8 +41,6 @@ const MAX_VIEW = 2600;
 const EYE = 32;
 const CEILING = 80;
 const PLAYER_HEIGHT = FIGURE_HEIGHT;
-/** How far you can look up or down, in radians. */
-export const MAX_PITCH = 1.0;
 /** Darkness things fade into with distance (a dim school hallway, not black). */
 const HALL_FOG: [number, number, number] = [24, 24, 28];
 const HALL_FOG_DIST = 2200;
@@ -206,6 +212,8 @@ export interface FirstPersonScene {
   shakeY: number;
   players: PlayerSnap[];
   bullets: BulletSnap[];
+  /** Jam Puddles and Peel Traps on the floor. */
+  zones: ZoneSnap[];
   roster: Map<string, RosterEntry>;
   myId: string | null;
   now: number;
@@ -234,6 +242,8 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
   const cam: Camera3D = { x, y, eye: EYE, yaw, w, horizon, proj, shakeX: s.shakeX };
 
   drawFloorAndCeiling(ctx, w, h, x, y, yaw, horizon, proj);
+  // Things lying on the floor go down before the walls, so the walls hide the ones behind them.
+  for (const z of s.zones) drawFloorZone3D(ctx, cam, z, fogAmount(Math.hypot(z.x - x, z.y - y)), now);
 
   // Walls, one textured slice per few columns, with a depth buffer for sprites.
   const step = Math.max(2, Math.ceil(w / 640));
@@ -354,7 +364,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
       reach: Math.max(3, wpn.radius) * 1.5,
       draw: () => {
         const color = wpn.color === "rainbow" ? PAINT_COLORS[b.id % PAINT_COLORS.length] : wpn.color;
-        drawBall3D(ctx, cam, b.x, b.y, Math.max(3, wpn.radius), color, fog);
+        drawBall3D(ctx, cam, b.x, b.y, b.z ?? THROW_HEIGHT, Math.max(3, wpn.radius), color, fog);
       },
     });
   }

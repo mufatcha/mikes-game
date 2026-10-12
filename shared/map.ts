@@ -2,6 +2,17 @@ import type { ArchetypeId } from "./archetypes";
 
 export type WallKind = "wall" | "desk" | "shelf" | "table" | "bleacher" | "locker" | "easel";
 
+/** How tall each kind of wall or furniture is, in world units. In 3D, throws can fly over the low ones. */
+export const WALL_HEIGHT: Record<WallKind, number> = {
+  wall: 80,
+  locker: 80,
+  shelf: 64,
+  desk: 22,
+  table: 26,
+  bleacher: 30,
+  easel: 46,
+};
+
 export interface Rect {
   x: number;
   y: number;
@@ -194,6 +205,17 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
   principal: [
     { x: 150, y: 850 },
     { x: 2450, y: 850 },
+  ],
+  // The duel mascots: Barry on the Blueberry (west) side, Peely on the Orange Peel (east) side.
+  blueberry: [
+    { x: 150, y: 850 },
+    { x: 438, y: 580 },
+    { x: 438, y: 1250 },
+  ],
+  orangepeel: [
+    { x: 2450, y: 850 },
+    { x: 2260, y: 600 },
+    { x: 2300, y: 1320 },
   ],
   jock: [
     { x: 100, y: 200 },

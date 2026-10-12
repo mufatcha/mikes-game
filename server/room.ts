@@ -14,7 +14,8 @@ import {
   ARCHETYPES,
   ARCHETYPE_IDS,
   DEFAULT_LOADOUT,
-  PRINCIPAL_LOADOUT,
+  hasAbilities,
+  seatLoadout,
   sanitizeLoadout,
   type AbilityId,
   type ArchetypeId,
@@ -244,14 +245,14 @@ export class Room {
     }
   }
 
-  /** In boss mode, team 1 is the Principal's one seat. */
+  /** The 7v1 Principal seat and both duel mascot seats play a fixed character. */
   private isPrincipalSeat(team: Team) {
     return isPrincipalSeat(this.mode, team);
   }
 
   /** The class a player actually plays: the Principal seat overrides their pick. */
   private effectiveLoadout(team: Team, picked: Loadout): Loadout {
-    return this.isPrincipalSeat(team) ? PRINCIPAL_LOADOUT : picked;
+    return seatLoadout(this.mode, team) ?? picked;
   }
 
   /** After a mode change, move people off teams that are now over their size. */
@@ -286,7 +287,7 @@ export class Room {
         entries.push(this.makeBot(team, entries));
       }
     }
-    this.match = new Match(entries, this.mode);
+    this.match = new Match(entries, this.mode, this.view3d);
     this.phase = "match";
   }
 
@@ -388,7 +389,7 @@ export class Room {
     const name = freeNames[Math.floor(Math.random() * freeNames.length)] ?? `Bot ${this.botSeq}`;
     let loadout: Loadout;
     if (this.isPrincipalSeat(team)) {
-      loadout = PRINCIPAL_LOADOUT;
+      loadout = seatLoadout(this.mode, team)!;
     } else {
       // Prefer a class nobody on the team has yet, even when sharing is allowed.
       const used = new Set([
@@ -427,7 +428,7 @@ export class Room {
         id: p.id,
         name: p.name,
         team: p.team,
-        loadout: p.loadout.archetype === "principal" ? p.loadout : (this.clients.get(p.id)?.loadout ?? p.loadout),
+        loadout: hasAbilities(p.loadout.archetype) ? p.loadout : (this.clients.get(p.id)?.loadout ?? p.loadout),
         isBot: p.isBot,
         isHost: p.id === this.hostId,
         level: this.match!.levelOf(p),
