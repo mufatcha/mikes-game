@@ -43,6 +43,7 @@ import { ABILITY_ACTIONS, getKeybinds, keyLabel } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
 import { drawFirstPerson } from "./firstperson";
+import { drawInstrument2D, instrumentOf } from "./instruments";
 import { drawFace } from "./skins";
 import { CONE_HALF, FAR_SIGHT, FOG_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
 
@@ -1197,22 +1198,27 @@ export class Renderer {
     ctx.arc(x + 4, y + 6, r, 0, Math.PI * 2);
     ctx.fill();
 
-    // Held item: a hand holding the next projectile, pointing where we aim.
+    // Held item: a hand holding the next projectile (or the instrument they play), pointing where we aim.
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(aim);
-    const hx = r + Math.max(4, weapon.radius) + 1;
+    let hx = r + Math.max(4, weapon.radius) + 1;
     ctx.fillStyle = "#f1c27d";
     ctx.beginPath();
     ctx.arc(r - 1, 0, 6, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = weapon.color === "rainbow" ? PAINT_COLORS[Math.floor(now / 400) % PAINT_COLORS.length] : weapon.color;
-    if (weapon.style === "streak") {
-      ctx.fillRect(r - 2, -2, 16, 4);
+    const instrument = instrumentOf(p.weapon);
+    if (instrument) {
+      hx = drawInstrument2D(ctx, instrument, r) - 8;
     } else {
-      ctx.beginPath();
-      ctx.arc(hx, 0, Math.max(3, weapon.radius), 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = weapon.color === "rainbow" ? PAINT_COLORS[Math.floor(now / 400) % PAINT_COLORS.length] : weapon.color;
+      if (weapon.style === "streak") {
+        ctx.fillRect(r - 2, -2, 16, 4);
+      } else {
+        ctx.beginPath();
+        ctx.arc(hx, 0, Math.max(3, weapon.radius), 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     const flashUntil = this.muzzle.get(p.id) ?? 0;
     if (now < flashUntil) {

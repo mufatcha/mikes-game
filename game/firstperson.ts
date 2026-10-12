@@ -25,6 +25,7 @@ import {
   type Camera3D,
 } from "./avatar3d";
 import { FOG_SIGHT } from "./vision";
+import { instrumentOf } from "./instruments";
 
 /**
  * First-person view (the 3D view, in any mode): a classic raycaster over the same
@@ -359,6 +360,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
             scale: r / 18,
             ballColor: wpn.color === "rainbow" ? PAINT_COLORS[p.ammo % PAINT_COLORS.length] : wpn.color,
             ballRadius: Math.min(6, Math.max(3, wpn.radius)),
+            instrument: instrumentOf(p.weapon),
             now,
             stunned: p.stunned,
           },
@@ -455,6 +457,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
         archetype: me.archetype,
         team: myTeam ?? 0,
         ballColor: wpn.color === "rainbow" ? PAINT_COLORS[Math.floor(now / 400) % PAINT_COLORS.length] : wpn.color,
+        instrument: instrumentOf(me.weapon),
         now,
       },
     );

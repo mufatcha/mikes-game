@@ -1,6 +1,7 @@
 import { PLAYER_HEIGHT, TEAM_COLORS, type Team } from "@/shared/constants";
 import type { ArchetypeId } from "@/shared/archetypes";
 import { SKIN, drawFace, drawOutfit } from "./skins";
+import type { Instrument } from "./instruments";
 
 /**
  * Real 3D players for the first-person view. Each player is a small blocky
@@ -424,6 +425,168 @@ function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number)
   return parts;
 }
 
+// ---------------------------------------------------------------- instruments
+
+const GOLD = "#eab308";
+const GOLD_DARK = "#a16207";
+const SILVER = "#e5e7eb";
+const WOOD = "#92400e";
+const WOOD_DARK = "#451a03";
+const BOW = "#d6d3d1";
+
+/** A violin-family body: lower and upper bouts with a narrower waist, plus the neck. */
+function stringParts(c: V3, size: number, upright: boolean): Part[] {
+  const [s, f, z] = c;
+  if (upright) {
+    // Cello and bass: standing on the floor, neck up.
+    return [
+      { c: [s, f, z - 2.6 * size], h: [3.2 * size, 1.4 * size, 3.4 * size], color: WOOD },
+      { c: [s, f, z + 3 * size], h: [2.6 * size, 1.3 * size, 2.6 * size], color: WOOD },
+      { c: [s, f, z + 8 * size], h: [0.5 * size, 0.5 * size, 3 * size], color: WOOD_DARK },
+    ];
+  }
+  // Violin and viola: lying along f, under the chin.
+  return [
+    { c: [s, f - 1.6 * size, z], h: [1.8 * size, 1.8 * size, 0.6 * size], color: WOOD },
+    { c: [s, f + 1.6 * size, z], h: [1.5 * size, 1.5 * size, 0.6 * size], color: WOOD },
+    { c: [s, f + 5 * size, z + 0.2], h: [0.35 * size, 2 * size, 0.3 * size], color: WOOD_DARK },
+  ];
+}
+
+/** An instrument held by a figure, in the figure's own space (s right, f forward, z up). */
+function instrumentParts(kind: Instrument): Part[] {
+  switch (kind) {
+    case "trumpet":
+      return [
+        { c: [1.5, 13, 46], h: [0.8, 6, 0.8], color: GOLD },
+        { c: [1.5, 11, 47.8], h: [0.9, 1.6, 1.1], color: GOLD_DARK },
+        { c: [1.5, 20, 46], h: [2.6, 1.2, 2.6], color: GOLD },
+      ];
+    case "trombone":
+      return [
+        { c: [0.5, 21, 46.5], h: [0.45, 13, 0.45], color: GOLD },
+        { c: [0.5, 21, 44.5], h: [0.45, 13, 0.45], color: GOLD },
+        { c: [0.5, 34, 45.5], h: [0.45, 0.45, 1.5], color: GOLD },
+        { c: [3.5, 12, 47.5], h: [2.8, 1, 2.8], color: GOLD },
+      ];
+    case "tuba":
+      return [
+        { c: [0, 9, 34], h: [5, 3.5, 7], color: GOLD },
+        { c: [2, 8, 44], h: [5, 5, 1.8], color: GOLD },
+        { c: [2, 8, 45.9], h: [3.6, 3.6, 0.3], color: GOLD_DARK },
+      ];
+    case "sax":
+      return [
+        { c: [1, 8.5, 42], h: [0.6, 0.6, 4], color: GOLD },
+        { c: [1, 9, 33], h: [1.4, 1.4, 6], color: GOLD },
+        { c: [1, 11, 26.5], h: [2.6, 2.6, 1.5], color: GOLD },
+      ];
+    case "flute":
+      return [{ c: [7, 8, 46], h: [8, 0.5, 0.5], color: SILVER }];
+    case "drum":
+      return [
+        { c: [0, 10, 28], h: [6, 6, 2.6], color: "#f8fafc" },
+        { c: [0, 10, 30.8], h: [6.2, 6.2, 0.3], color: "#dc2626" },
+        { c: [-5, 9, 35], h: [0.4, 5, 0.4], color: "#d6a76b" },
+        { c: [5, 9, 35], h: [0.4, 5, 0.4], color: "#d6a76b" },
+      ];
+    case "cymbals":
+      return [
+        { c: [-11, 10, 38], h: [0.4, 5, 5], color: GOLD },
+        { c: [11, 10, 38], h: [0.4, 5, 5], color: GOLD },
+      ];
+    case "violin":
+    case "viola": {
+      const size = kind === "viola" ? 1.15 : 1;
+      return [...stringParts([-5, 9, 43], size, false), { c: [5, 10, 41], h: [8 * size, 0.3, 0.3], color: BOW }];
+    }
+    case "cello":
+    case "bass": {
+      const size = kind === "bass" ? 1.45 : 1;
+      return [...stringParts([0, 10, 13 * size], size * 1.6, true), { c: [0, 13, 18 * size], h: [9 * size, 0.35, 0.35], color: BOW }];
+    }
+  }
+}
+
+/** The same instrument as you see it in your own hands, in first person (relative to your eye). */
+function heldInstrumentParts(kind: Instrument, bobS: number, bobZ: number): Part[] {
+  const at = (p: Part): Part => ({ ...p, c: [p.c[0] + bobS, p.c[1], p.c[2] + bobZ] });
+  // Your view reaches about 0.4 units down for every unit forward, so these sit a little way out.
+  let parts: Part[];
+  switch (kind) {
+    case "trumpet":
+      // Up to your lips, pointing where you aim.
+      parts = [
+        { c: [1.5, 23, -4], h: [0.4, 11, 0.4], color: GOLD },
+        { c: [1.5, 18, -2.8], h: [0.5, 1.5, 0.8], color: GOLD_DARK },
+        { c: [1.5, 35, -4], h: [2.2, 0.8, 2.2], color: GOLD },
+      ];
+      break;
+    case "trombone":
+      parts = [
+        { c: [1, 30, -4.5], h: [0.3, 18, 0.3], color: GOLD },
+        { c: [1, 30, -6], h: [0.3, 18, 0.3], color: GOLD },
+        { c: [1, 48, -5.25], h: [0.3, 0.3, 0.9], color: GOLD },
+        { c: [5, 22, -3], h: [2, 0.8, 2], color: GOLD },
+      ];
+      break;
+    case "tuba":
+      // The big bell rises up at your right.
+      parts = [
+        { c: [10, 26, -10], h: [3.5, 2.5, 4], color: GOLD },
+        { c: [10, 26, -6], h: [4.5, 4.5, 1], color: GOLD },
+        { c: [10, 26, -4.9], h: [3.3, 3.3, 0.2], color: GOLD_DARK },
+      ];
+      break;
+    case "sax":
+      parts = [
+        { c: [2, 16, -4], h: [0.4, 3, 0.4], color: GOLD },
+        { c: [5, 24, -8], h: [0.9, 0.9, 4], color: GOLD },
+        { c: [5, 25, -11], h: [2, 2, 1], color: GOLD },
+      ];
+      break;
+    case "flute":
+      // Held sideways, off to the right.
+      parts = [{ c: [6, 16, -3.5], h: [9, 0.35, 0.35], color: SILVER }];
+      break;
+    case "drum":
+      // A snare drum in front of you, sticks ready.
+      parts = [
+        { c: [0, 34, -12], h: [6, 6, 1.4], color: "#f8fafc" },
+        { c: [0, 34, -10.5], h: [6.2, 6.2, 0.2], color: "#dc2626" },
+        { c: [-4, 24, -7], h: [0.3, 6, 0.3], color: "#d6a76b", pivot: [18, -7], swing: -0.4 },
+        { c: [4, 24, -7], h: [0.3, 6, 0.3], color: "#d6a76b", pivot: [18, -7], swing: -0.4 },
+      ];
+      break;
+    case "cymbals":
+      parts = [
+        { c: [-9, 24, -6], h: [0.25, 4, 4], color: GOLD },
+        { c: [9, 24, -6], h: [0.25, 4, 4], color: GOLD },
+      ];
+      break;
+    case "violin":
+    case "viola": {
+      // Tucked under your chin on the left, with the bow across it.
+      const size = kind === "viola" ? 1.15 : 1;
+      parts = [...stringParts([-5, 22, -4], size * 1.2, false), { c: [2, 24, -6], h: [8 * size, 0.25, 0.25], color: BOW }];
+      break;
+    }
+    case "cello":
+    case "bass": {
+      // Standing in front of you, neck up, bow across the strings.
+      const bass = kind === "bass";
+      const size = bass ? 2 : 1.6;
+      const f = bass ? 38 : 34;
+      parts = [
+        ...stringParts([bass ? 8 : 7, f, bass ? -13 : -12], size, true),
+        { c: [3, f - 4, -12], h: [8, 0.3, 0.3], color: BOW },
+      ];
+      break;
+    }
+  }
+  return parts.map(at);
+}
+
 /** Walk cycle per player, from how far they moved since the last frame. */
 const gait = new Map<string, { x: number; y: number; t: number; phase: number; amp: number }>();
 
@@ -471,6 +634,8 @@ export function drawAvatar(
     scale: number;
     ballColor: string;
     ballRadius: number;
+    /** The instrument they're playing, held in place of a ball. */
+    instrument: Instrument | null;
     now: number;
     stunned: boolean;
   },
@@ -502,24 +667,29 @@ export function drawAvatar(
 
   const out: Drawable[] = [];
   addParts(out, ctx, cam, figureParts(o.archetype, o.team, walk, throwArm), at, fog, fogColor);
-  // The ball sits at the end of the raised right arm.
-  const reach = 17;
-  const hf = Math.sin(throwArm) * reach + 1.5;
-  const hz = 40 - Math.cos(throwArm) * reach + 3;
-  const fx = Math.cos(angle);
-  const fy = Math.sin(angle);
-  const bs = 12.5;
-  addBall(
-    out,
-    ctx,
-    cam,
-    o.x + (hf * fx - bs * fy) * k,
-    o.y + (hf * fy + bs * fx) * k,
-    at.z + hz * k,
-    o.ballRadius * k,
-    o.ballColor,
-    fogAmt,
-  );
+  if (o.instrument) {
+    // Band and orchestra kids hold their instrument instead of a ball.
+    addParts(out, ctx, cam, instrumentParts(o.instrument), at, fog, fogColor);
+  } else {
+    // The ball sits at the end of the raised right arm.
+    const reach = 17;
+    const hf = Math.sin(throwArm) * reach + 1.5;
+    const hz = 40 - Math.cos(throwArm) * reach + 3;
+    const fx = Math.cos(angle);
+    const fy = Math.sin(angle);
+    const bs = 12.5;
+    addBall(
+      out,
+      ctx,
+      cam,
+      o.x + (hf * fx - bs * fy) * k,
+      o.y + (hf * fy + bs * fx) * k,
+      at.z + hz * k,
+      o.ballRadius * k,
+      o.ballColor,
+      fogAmt,
+    );
+  }
   flush(out);
 
   // Mascots have a big fruit head on top.
@@ -619,7 +789,17 @@ export function drawFloorZone3D(
 export function drawViewModel(
   ctx: CanvasRenderingContext2D,
   cam: Camera3D,
-  o: { id: string; x: number; y: number; archetype: ArchetypeId; team: Team; ballColor: string; now: number },
+  o: {
+    id: string;
+    x: number;
+    y: number;
+    archetype: ArchetypeId;
+    team: Team;
+    ballColor: string;
+    /** Playing an instrument: shown in your hands instead of the ball. */
+    instrument: Instrument | null;
+    now: number;
+  },
 ) {
   const g = walkFor(`me:${o.id}`, o.x, o.y, o.now);
   const bobS = Math.cos(g.phase * 0.5) * 1.2 * g.amp;
@@ -637,11 +817,17 @@ export function drawViewModel(
   ];
   const out: Drawable[] = [];
   const none = () => 0;
-  addParts(out, ctx, cam, parts, { x: cam.x, y: cam.y, z: cam.eye, angle: cam.yaw, k: 1 }, none, [0, 0, 0]);
-  const fx = Math.cos(cam.yaw);
-  const fy = Math.sin(cam.yaw);
-  const s = 10.3 + bobS;
-  const f = 31;
-  addBall(out, ctx, cam, cam.x + f * fx - s * fy, cam.y + f * fy + s * fx, cam.eye - 8.4 + bobZ, 2.4, o.ballColor, 0);
+  const here: Placement = { x: cam.x, y: cam.y, z: cam.eye, angle: cam.yaw, k: 1 };
+  if (o.instrument) {
+    // Your instrument, held up to play.
+    addParts(out, ctx, cam, [...parts, ...heldInstrumentParts(o.instrument, bobS, bobZ)], here, none, [0, 0, 0]);
+  } else {
+    addParts(out, ctx, cam, parts, here, none, [0, 0, 0]);
+    const fx = Math.cos(cam.yaw);
+    const fy = Math.sin(cam.yaw);
+    const s = 10.3 + bobS;
+    const f = 31;
+    addBall(out, ctx, cam, cam.x + f * fx - s * fy, cam.y + f * fy + s * fx, cam.eye - 8.4 + bobZ, 2.4, o.ballColor, 0);
+  }
   flush(out);
 }
