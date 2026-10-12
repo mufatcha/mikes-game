@@ -370,14 +370,14 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   // The Gamer.
   pixel: {
-    id: "pixel", name: "Pixel Blaster", damage: 12, fireRate: 8, magSize: 32, reloadTime: 1.6,
+    id: "pixel", name: "Pixel Blaster", damage: 14, fireRate: 8, magSize: 32, reloadTime: 1.6,
     projectileSpeed: 1550, spread: 0.05, pellets: 1, range: 750, auto: true,
     radius: 3, color: "#4ade80", style: "blob",
   },
   controller: {
     id: "controller", name: "Controller Toss", damage: 40, fireRate: 1.5, magSize: 4, reloadTime: 1.9,
     projectileSpeed: 1200, spread: 0.02, pellets: 1, range: 850, auto: false,
-    radius: 7, color: "#1f2937", style: "ball",
+    radius: 7, color: "#1f2937", style: "ball", bounces: 1,
   },
   // What the Gamer shoots while playing as Cuphead, Mugman or Captain Churchill (never runs out).
   fingergun: {
@@ -488,8 +488,8 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
   gamer: {
     id: "gamer", name: "Gamer", emoji: "🎮",
     tagline: "Pixel-perfect aim, and a super that turns you into Cuphead, Mugman or Captain Churchill.",
-    defense: 0.05, speed: 1.05, primary: "pixel", secondary: "controller",
-    ratings: { attack: 3, defense: 1, speed: 4, range: 3 },
+    defense: 0.15, speed: 1.1, primary: "pixel", secondary: "controller",
+    ratings: { attack: 4, defense: 2, speed: 4, range: 3 },
   },
   pyro: {
     id: "pyro", name: "Pyro", emoji: "🔥",
@@ -806,7 +806,7 @@ export const SUPERS: Partial<Record<ArchetypeId, SuperDef>> = {
   },
   gamer: {
     id: "summon", name: "Character Select", emoji: "🎮",
-    description: "Roll a character and play as them: Cuphead or Mugman for 12 seconds, or (rarer) Captain Churchill in his tank for 10.",
+    description: "Roll a character and play as them: Cuphead or Mugman for 15 seconds, or (rarer) Captain Churchill in his tank for 12.",
   },
   pyro: {
     id: "airblast", name: "Airblast", emoji: "💨",
@@ -831,9 +831,9 @@ export const COMPANIONS: Record<
     defense: number;
   }
 > = {
-  cuphead: { name: "Cuphead", emoji: "☕", chance: 0.4, secs: 12, weapon: "fingergun", speed: 1.15, defense: 0.1 },
-  mugman: { name: "Mugman", emoji: "🍺", chance: 0.4, secs: 12, weapon: "spreadshot", speed: 1.15, defense: 0.1 },
-  churchill: { name: "Captain Churchill", emoji: "🪖", chance: 0.2, secs: 10, weapon: "tankshell", speed: 0.8, defense: 0.55 },
+  cuphead: { name: "Cuphead", emoji: "☕", chance: 0.4, secs: 15, weapon: "fingergun", speed: 1.15, defense: 0.1 },
+  mugman: { name: "Mugman", emoji: "🍺", chance: 0.4, secs: 15, weapon: "spreadshot", speed: 1.15, defense: 0.1 },
+  churchill: { name: "Captain Churchill", emoji: "🪖", chance: 0.2, secs: 12, weapon: "tankshell", speed: 0.8, defense: 0.55 },
 };
 
 /** Roll the Gamer's super. */
