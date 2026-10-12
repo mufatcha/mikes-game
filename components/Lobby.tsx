@@ -247,6 +247,8 @@ export default function Lobby({
         <ul className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
           <li><Key>{[binds.up, binds.left, binds.down, binds.right].map(keyLabel).join(" ")}</Key> move</li>
           <li><Key>Mouse</Key> aim, <Key>Left click</Key> shoot</li>
+          <li><Key>{keyLabel(binds.jump)}</Key> jump, <Key>{keyLabel(binds.sprint)}</Key> sprint, <Key>{keyLabel(binds.crouch)}</Key> crouch</li>
+          <li><Key>{keyLabel(binds.super)}</Key> super</li>
           <li><Key>{keyLabel(binds.reload)}</Key> reload</li>
           <li><Key>{keyLabel(binds.weapon1)}</Key> <Key>{keyLabel(binds.weapon2)}</Key> / <Key>{keyLabel(binds.swap)}</Key> / <Key>Wheel</Key> switch weapon</li>
           <li><Key>{keyLabel(binds.scoreboard)}</Key> scoreboard</li>

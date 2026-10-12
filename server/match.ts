@@ -38,7 +38,16 @@ import {
   atTardisExit,
   inSafeZone,
 } from "../shared/map";
-import { firstWallHitWithNormal, hasLineOfSight, movePlayer, segmentCircle, segmentRectHit } from "../shared/physics";
+import {
+  CROUCH_SCALE,
+  firstWallHitWithNormal,
+  hasLineOfSight,
+  movePlayer,
+  segmentCircle,
+  segmentRectHit,
+  stanceSpeed,
+  stepVertical,
+} from "../shared/physics";
 import type { BulletSnap, GameEvent, InputFrame, PlayerSnap, ZoneSnap } from "../shared/protocol";
 import {
   ABILITY_IDS,
@@ -165,6 +174,11 @@ export interface PlayerState extends MatchEntry {
   tardisReadyAt: number;
   /** Barry's Antioxidants: faster until this match time. */
   hasteUntil: number;
+  /** Feet off the floor (jumping, or up on a desk), and rising speed. */
+  z: number;
+  vz: number;
+  /** Holding crouch: shorter and slower. */
+  crouching: boolean;
   /** 3D view: how far up (positive) or down they're aiming. */
   pitch: number;
   /** Principal and mascots: match time each ability is ready again. */
@@ -414,6 +428,9 @@ export class Match {
         weapon: this.currentWeapon(p),
         archetype: p.loadout.archetype,
         ...(p.loadout.section && { section: p.loadout.section }),
+        ...(p.alive && p.z > 0 && { z: p.z }),
+        ...(p.alive && p.vz !== 0 && { vz: p.vz }),
+        ...(p.alive && p.crouching && { crouch: true }),
         slot: p.slot,
         ammo: p.ammo[p.slot],
         reload:
@@ -516,6 +533,9 @@ export class Match {
       hasteUntil: 0,
       tardisReadyAt: 0,
       pitch: 0,
+      z: 0,
+      vz: 0,
+      crouching: false,
       reversedUntil: 0,
       slowUntil: 0,
       turbo: false,
@@ -564,7 +584,11 @@ export class Match {
     const flip = this.time < p.reversedUntil ? -1 : 1;
     const mx = held ? 0 : flip * Math.max(-1, Math.min(1, input.mx || 0));
     const my = held ? 0 : flip * Math.max(-1, Math.min(1, input.my || 0));
-    movePlayer(p, mx, my, BASE_SPEED * moveSpeedFor(p.loadout.archetype) * this.speedMult(p), DT, p.radius);
+    // Sprinting is faster, crouching slower; jumping takes off from the ground.
+    const stance = held ? 1 : stanceSpeed(input.sprint, input.crouch);
+    movePlayer(p, mx, my, BASE_SPEED * moveSpeedFor(p.loadout.archetype) * this.speedMult(p) * stance, DT, p.radius);
+    stepVertical(p, !held && !!input.jump, DT, p.radius);
+    p.crouching = !held && !!input.crouch;
 
     if (p.reloadEnd >= 0 && this.time >= p.reloadEnd) {
       p.ammo[p.slot] = weapon.magSize;
@@ -612,7 +636,7 @@ export class Match {
       const speed = weapon.projectileSpeed * (weapon.pellets > 1 ? 0.9 + Math.random() * 0.2 : 1);
       // Shotgun-style throws spread up and down a little too.
       const tilt = pitch + (weapon.pellets > 1 ? (Math.random() * 2 - 1) * weapon.spread * 0.5 : 0);
-      this.launch(p, weaponId, p.x, p.y, THROW_HEIGHT, angle, tilt, speed, weapon.damage * this.damageMult(p));
+      this.launch(p, weaponId, p.x, p.y, this.handHeight(p), angle, tilt, speed, weapon.damage * this.damageMult(p));
     }
     this.events.push({ k: "shot", by: p.id, weapon: weaponId });
     if (p.ammo[p.slot] === 0) this.startReload(p);
@@ -657,6 +681,11 @@ export class Match {
    * How far up to throw, in 3D. People throw where they look; bots lob just
    * high enough to reach whoever they're aiming at.
    */
+  /** In 3D, throws leave your hand: higher mid-jump or up on a desk, lower when crouching. */
+  private handHeight(p: PlayerState) {
+    return p.z + THROW_HEIGHT * (p.crouching ? CROUCH_SCALE : 1);
+  }
+
   private pitchOf(p: PlayerState, weapon: WeaponId) {
     if (!this.view3d) return 0;
     if (!p.isBot) return p.pitch;
@@ -765,7 +794,9 @@ export class Match {
       const t = segmentCircle(b.x, b.y, nx, ny, p.x, p.y, p.radius + r);
       if (t === null || (hitT !== null && t >= hitT)) continue;
       // Over their head is a miss.
-      if (zAt(t) - r > PLAYER_HEIGHT * (p.radius / PLAYER_RADIUS)) continue;
+      // Over their head, or under their feet when they jump, is a miss.
+      const tall = PLAYER_HEIGHT * (p.radius / PLAYER_RADIUS) * (p.crouching ? CROUCH_SCALE : 1);
+      if (zAt(t) - r > p.z + tall || zAt(t) + r < p.z) continue;
       hitT = t;
       target = p;
     }
@@ -901,6 +932,9 @@ export class Match {
     p.x = spawn.x;
     p.y = spawn.y;
     p.vx = 0;
+    p.z = 0;
+    p.vz = 0;
+    p.crouching = false;
     p.vy = 0;
     p.aim = p.team === 0 ? 0 : Math.PI;
     p.hp = Math.round(p.maxHp * p.spawnHpFrac);
@@ -941,6 +975,8 @@ export class Match {
     const to = goingIn ? TARDIS_ARRIVE_INSIDE : tardisArriveOutside();
     this.events.push({ k: "tardis", who: p.id, x: r1(p.x), y: r1(p.y), tx: to.x, ty: to.y, inside: goingIn });
     p.x = to.x;
+    p.z = 0;
+    p.vz = 0;
     p.y = to.y;
     p.inputs = [];
     p.tardisReadyAt = this.time + 1;
@@ -967,6 +1003,8 @@ export class Match {
         t.x > TARDIS.x - t.radius && t.x < TARDIS.x + TARDIS.w + t.radius && t.y > TARDIS.y - t.radius && t.y < TARDIS.y + TARDIS.h + t.radius;
       if (overlaps) {
         t.x = out.x;
+        t.z = 0;
+        t.vz = 0;
         t.y = out.y;
         t.inputs = [];
       }
@@ -1070,7 +1108,7 @@ export class Match {
         for (let i = 0; i < QUIZ_PAPERS; i++) {
           const a = p.aim + (i / QUIZ_PAPERS) * Math.PI * 2;
           // In 3D the papers flutter out in a gentle upward ring.
-          this.launch(p, "quiz", p.x, p.y, THROW_HEIGHT, a, 0.15, w.projectileSpeed, w.damage * this.damageMult(p));
+          this.launch(p, "quiz", p.x, p.y, this.handHeight(p), a, 0.15, w.projectileSpeed, w.damage * this.damageMult(p));
         }
         this.events.push({ k: "shot", by: p.id, weapon: "quiz" });
         break;
@@ -1284,7 +1322,7 @@ export class Match {
     const pitch = this.pitchOf(p, weapon);
     for (let i = 0; i < count; i++) {
       const a = p.aim + (count === 1 ? 0 : -spread + (2 * spread * i) / (count - 1));
-      this.launch(p, weapon, p.x, p.y, THROW_HEIGHT, a, pitch, w.projectileSpeed, w.damage * this.damageMult(p));
+      this.launch(p, weapon, p.x, p.y, this.handHeight(p), a, pitch, w.projectileSpeed, w.damage * this.damageMult(p));
     }
     this.events.push({ k: "shot", by: p.id, weapon });
   }

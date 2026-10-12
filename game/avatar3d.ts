@@ -2,6 +2,7 @@ import { PLAYER_HEIGHT, TEAM_COLORS, type Team } from "@/shared/constants";
 import type { ArchetypeId } from "@/shared/archetypes";
 import { SKIN, drawFace, drawOutfit } from "./skins";
 import type { Instrument } from "./instruments";
+import { CROUCH_SCALE } from "@/shared/physics";
 
 /**
  * Real 3D players for the first-person view. Each player is a small blocky
@@ -181,6 +182,8 @@ interface Placement {
   z: number;
   angle: number;
   k: number;
+  /** Height scale, if different from k (squashed down when crouching). */
+  kz?: number;
 }
 
 /**
@@ -212,7 +215,7 @@ function addParts(
         lf = pf + df * cs - dz * sn;
         lz = pz + df * sn + dz * cs;
       }
-      return [at.x + (lf * fx + ls * sx) * at.k, at.y + (lf * fy + ls * sy) * at.k, at.z + lz * at.k];
+      return [at.x + (lf * fx + ls * sx) * at.k, at.y + (lf * fy + ls * sy) * at.k, at.z + lz * (at.kz ?? at.k)];
     };
     const corner = (sg: V3) =>
       toWorld(part.c[0] + sg[0] * part.h[0], part.c[1] + sg[1] * part.h[1], part.c[2] + sg[2] * part.h[2]);
@@ -667,6 +670,10 @@ export function drawAvatar(
     instrument: Instrument | null;
     now: number;
     stunned: boolean;
+    /** Feet off the floor (jumping, or up on a desk). */
+    lift: number;
+    /** Crouching: drawn squashed down. */
+    crouch: boolean;
   },
   fog: (d: number) => number,
   fogColor: V3,
@@ -680,7 +687,8 @@ export function drawAvatar(
   const angle = o.aim + (o.stunned ? Math.sin(o.now / 120) * 0.35 : 0);
   const throwArm = 1.3 + Math.sin(o.now / 400 + o.x) * 0.05 - walk * 0.1;
   const k = o.scale;
-  const at: Placement = { x: o.x, y: o.y, z: bob * k, angle, k };
+  const kz = k * (o.crouch ? CROUCH_SCALE : 1);
+  const at: Placement = { x: o.x, y: o.y, z: o.lift + bob * k, angle, k, kz };
   const fogAmt = fog(center.depth);
 
   // Shadow on the floor.
@@ -713,7 +721,7 @@ export function drawAvatar(
       cam,
       o.x + (hf * fx - bs * fy) * k,
       o.y + (hf * fy + bs * fx) * k,
-      at.z + hz * k,
+      at.z + hz * kz,
       o.ballRadius * k,
       o.ballColor,
       fogAmt,
@@ -723,7 +731,7 @@ export function drawAvatar(
 
   // Mascots have a big fruit head on top.
   const tall = o.archetype === "blueberry" || o.archetype === "orangepeel" ? 64 : FIGURE_HEIGHT;
-  const top = project(cam, o.x, o.y, at.z + tall * k);
+  const top = project(cam, o.x, o.y, at.z + tall * kz);
   return { cx: top.sx, top: top.sy, bottom: center.sy, k: cam.proj / center.depth };
 }
 

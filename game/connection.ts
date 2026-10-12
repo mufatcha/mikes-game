@@ -1,5 +1,5 @@
 import { BASE_SPEED, DT, TICK_MS } from "@/shared/constants";
-import { movePlayer } from "@/shared/physics";
+import { movePlayer, stanceSpeed, stepVertical, type Body } from "@/shared/physics";
 import { moveTardis, tardisSpotNow } from "@/shared/map";
 import type {
   ClientMessage,
@@ -40,7 +40,9 @@ export class GameConnection {
   pendingEvents: TimedEvent[] = [];
 
   /** Locally predicted position of our own player. */
-  predicted: { x: number; y: number } | null = null;
+  predicted: Body | null = null;
+  /** Crouching right now (from our latest input), for the 3D view height. */
+  crouching = false;
   /** Visual offset left over from server corrections; decays to zero. */
   correction = { x: 0, y: 0 };
   /** Set once the server accepts the cheat code. */
@@ -106,9 +108,13 @@ export class GameConnection {
       this.unacked = [];
       return;
     }
-    this.predicted ??= { x: me.x, y: me.y };
+    this.predicted ??= { x: me.x, y: me.y, z: me.z ?? 0, vz: me.vz ?? 0 };
+    this.crouching = !!input.crouch;
     const flip = me.reversed ? -1 : 1;
-    movePlayer(this.predicted, flip * input.mx, flip * input.my, this.speedOf(me), DT, radiusFor(me.archetype));
+    const r = radiusFor(me.archetype);
+    const speed = this.speedOf(me) * stanceSpeed(input.sprint, input.crouch);
+    movePlayer(this.predicted, flip * input.mx, flip * input.my, speed, DT, r);
+    stepVertical(this.predicted, !!input.jump, DT, r);
     this.unacked.push(input);
   }
 
@@ -224,10 +230,14 @@ export class GameConnection {
       this.correction = { x: 0, y: 0 };
       return;
     }
-    const pos = { x: me.x, y: me.y };
+    const pos: Body = { x: me.x, y: me.y, z: me.z ?? 0, vz: me.vz ?? 0 };
     const speed = this.speedOf(me);
     const flip = me.reversed ? -1 : 1;
-    for (const f of this.unacked) movePlayer(pos, flip * f.mx, flip * f.my, speed, DT, radiusFor(me.archetype));
+    const r = radiusFor(me.archetype);
+    for (const f of this.unacked) {
+      movePlayer(pos, flip * f.mx, flip * f.my, speed * stanceSpeed(f.sprint, f.crouch), DT, r);
+      stepVertical(pos, !!f.jump, DT, r);
+    }
 
     if (this.predicted) {
       const dx = this.predicted.x + this.correction.x - pos.x;

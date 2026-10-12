@@ -1,13 +1,31 @@
-import { PLAYER_RADIUS } from "./constants";
-import { MAP_HEIGHT, MAP_WIDTH, WALLS, inTardis, type Rect } from "./map";
+import { CEILING_HEIGHT, PLAYER_RADIUS } from "./constants";
+import { MAP_HEIGHT, MAP_WIDTH, WALLS, WALL_HEIGHT, inTardis, type Rect, type Wall } from "./map";
 
 function clamp(v: number, lo: number, hi: number) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-/** Push a circle out of every wall it overlaps, and keep it inside the map (or inside the TARDIS, which has its own walls). */
-function resolve(pos: { x: number; y: number }, r: number, walls: Rect[]) {
+/** A player's position; `z` is how high their feet are off the floor (jumping, or standing on a desk). */
+export interface Body {
+  x: number;
+  y: number;
+  z?: number;
+  vz?: number;
+}
+
+/** Low things (desks, tables, bleachers) don't block you once your feet are above them. */
+function blocks(w: Wall, z: number) {
+  return WALL_HEIGHT[w.kind] > z + 1;
+}
+
+/**
+ * Push a circle out of every wall it overlaps (unless it's above it), and keep
+ * it inside the map (or inside the TARDIS, which has its own walls).
+ */
+function resolve(pos: Body, r: number, walls: Wall[]) {
+  const z = pos.z ?? 0;
   for (const w of walls) {
+    if (!blocks(w, z)) continue;
     const cx = clamp(pos.x, w.x, w.x + w.w);
     const cy = clamp(pos.y, w.y, w.y + w.h);
     const dx = pos.x - cx;
@@ -41,7 +59,7 @@ function resolve(pos: { x: number; y: number }, r: number, walls: Rect[]) {
  * deterministic for the same inputs.
  */
 export function movePlayer(
-  pos: { x: number; y: number },
+  pos: Body,
   mx: number,
   my: number,
   speed: number,
@@ -58,6 +76,59 @@ export function movePlayer(
     pos.y += (my * s) / steps;
     resolve(pos, radius, WALLS);
   }
+}
+
+// ---------------------------------------------------------------- jumping, sprinting, crouching
+
+/** Takeoff speed of a jump, and the pull back down: about 38 units high, enough to clear a desk, a table or a bleacher. */
+export const JUMP_SPEED = 265;
+export const PLAYER_GRAVITY = 900;
+export const SPRINT_MULT = 1.35;
+export const CROUCH_MULT = 0.55;
+/** Crouching makes you this much shorter (and lowers your view in 3D). */
+export const CROUCH_SCALE = 0.62;
+
+/** Movement speed multiplier for sprinting and crouching (crouching wins). */
+export function stanceSpeed(sprint: boolean | undefined, crouch: boolean | undefined) {
+  return crouch ? CROUCH_MULT : sprint ? SPRINT_MULT : 1;
+}
+
+/** The top of the highest low thing (desk, table, bleacher…) under you that you're up on, or the floor. */
+function groundUnder(pos: Body, r: number) {
+  const z = pos.z ?? 0;
+  let ground = 0;
+  const m = r * 0.5;
+  for (const w of WALLS) {
+    const h = WALL_HEIGHT[w.kind];
+    if (h >= CEILING_HEIGHT || h > z + 1 || h <= ground) continue;
+    if (pos.x > w.x - m && pos.x < w.x + w.w + m && pos.y > w.y - m && pos.y < w.y + w.h + m) ground = h;
+  }
+  return ground;
+}
+
+/**
+ * Jumping and falling, once per tick after moving: hold jump on the ground to
+ * take off, and land on the floor or on top of whatever low furniture is
+ * under you. Walk off the edge of a desk and you drop.
+ */
+export function stepVertical(pos: Body, jump: boolean, dt: number, r = PLAYER_RADIUS) {
+  let z = pos.z ?? 0;
+  let vz = pos.vz ?? 0;
+  const ground = groundUnder(pos, r);
+  if (z <= ground + 0.01 && vz <= 0) {
+    z = ground;
+    vz = jump ? JUMP_SPEED : 0;
+  }
+  if (vz !== 0 || z > ground) {
+    vz -= PLAYER_GRAVITY * dt;
+    z += vz * dt;
+    if (z <= ground) {
+      z = ground;
+      vz = 0;
+    }
+  }
+  pos.z = Math.round(z * 100) / 100;
+  pos.vz = Math.round(vz * 100) / 100;
 }
 
 /** Returns the fraction t in [0, 1] where the segment first enters the rect, or null. */

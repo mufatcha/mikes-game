@@ -12,6 +12,10 @@ export interface InputFrame {
   my: number;
   /** Aim angle in radians. */
   aim: number;
+  /** Held this tick: jump (on the ground, takes off), sprint and crouch. */
+  jump?: boolean;
+  sprint?: boolean;
+  crouch?: boolean;
   /** 3D view: how far up (positive) or down you're aiming, in radians. */
   pitch?: number;
   fire: boolean;
@@ -75,6 +79,11 @@ export interface PlayerSnap {
   protected: boolean;
   weapon: WeaponId;
   archetype: ArchetypeId;
+  /** Feet off the floor (jumping, or standing on a desk) and rising speed; sent when not zero. */
+  z?: number;
+  vz?: number;
+  /** Crouching: shorter and slower. */
+  crouch?: boolean;
   /** Band and Orchestra Kids: the section they play in (sets their weapons). */
   section?: SectionId;
   slot: number;

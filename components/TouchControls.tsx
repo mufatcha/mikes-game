@@ -55,6 +55,8 @@ export default function TouchControls({
 }) {
   const [move, setMove] = useState<Stick | null>(null);
   const [aim, setAim] = useState<Stick | null>(null);
+  const [sprintOn, setSprintOn] = useState(false);
+  const [crouchOn, setCrouchOn] = useState(false);
   const portrait = useMediaQuery("(orientation: portrait)");
 
   useEffect(() => {
@@ -181,6 +183,48 @@ export default function TouchControls({
         )}
       </div>
 
+      <div className="pointer-events-auto absolute bottom-[204px] right-4 flex gap-3">
+        <TouchButton
+          onPointerDown={(e) => {
+            stop(e);
+            if (inputRef.current) inputRef.current.touchJump = true;
+          }}
+          onPointerUp={() => inputRef.current && (inputRef.current.touchJump = false)}
+          onPointerCancel={() => inputRef.current && (inputRef.current.touchJump = false)}
+          onPointerLeave={() => inputRef.current && (inputRef.current.touchJump = false)}
+        >
+          ⤒
+        </TouchButton>
+        <TouchButton
+          on={sprintOn}
+          onPointerDown={(e) => {
+            stop(e);
+            const input = inputRef.current;
+            if (!input) return;
+            input.touchSprint = !input.touchSprint;
+            if (input.touchSprint) input.touchCrouch = false;
+            setSprintOn(input.touchSprint);
+            setCrouchOn(input.touchCrouch);
+          }}
+        >
+          🏃
+        </TouchButton>
+        <TouchButton
+          on={crouchOn}
+          onPointerDown={(e) => {
+            stop(e);
+            const input = inputRef.current;
+            if (!input) return;
+            input.touchCrouch = !input.touchCrouch;
+            if (input.touchCrouch) input.touchSprint = false;
+            setSprintOn(input.touchSprint);
+            setCrouchOn(input.touchCrouch);
+          }}
+        >
+          🧎
+        </TouchButton>
+      </div>
+
       <div className="pointer-events-auto absolute bottom-[124px] right-4 flex gap-3">
         {onSuper && (
           <TouchButton
@@ -266,10 +310,13 @@ function StickView({ stick, color }: { stick: Stick; color: string }) {
 function TouchButton({
   children,
   big,
+  on,
   ...handlers
 }: {
   children: React.ReactNode;
   big?: boolean;
+  /** A toggle that's switched on (sprint, crouch): lit up. */
+  on?: boolean;
 } & Pick<
   React.HTMLAttributes<HTMLButtonElement>,
   "onPointerDown" | "onPointerUp" | "onPointerCancel" | "onPointerLeave"
@@ -278,9 +325,9 @@ function TouchButton({
     <button
       type="button"
       {...handlers}
-      className={`flex touch-none items-center justify-center rounded-full border border-white/20 bg-black/50 text-white active:bg-white/20 ${
-        big ? "h-16 w-16 text-2xl" : "h-11 w-11 text-lg"
-      }`}
+      className={`flex touch-none items-center justify-center rounded-full border text-white active:bg-white/20 ${
+        on ? "border-amber-300 bg-amber-400/40" : "border-white/20 bg-black/50"
+      } ${big ? "h-16 w-16 text-2xl" : "h-11 w-11 text-lg"}`}
     >
       {children}
     </button>

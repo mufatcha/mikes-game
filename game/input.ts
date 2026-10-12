@@ -204,11 +204,17 @@ export class InputController {
     this.touchFiring = angle !== null && firing;
   }
 
+  /** Touch buttons for jump (held), and sprint and crouch (toggles). */
+  touchJump = false;
+  touchSprint = false;
+  touchCrouch = false;
+
   /** Let go of both thumbsticks, e.g. when the touch controls are turned off. */
   releaseTouch() {
     this.touchMove = { x: 0, y: 0 };
     this.touchAim = null;
     this.touchFiring = false;
+    this.touchJump = false;
   }
 
   reload() {
@@ -256,11 +262,18 @@ export class InputController {
 
     let swap = this.swapTo;
     if (this.swapToggle) swap = currentSlot === 0 ? 1 : 0;
+    // Held moves, from the keyboard or the touch buttons; only sent while held.
+    const jump = this.enabled && (k.has(b.jump) || this.touchJump);
+    const sprint = this.enabled && (k.has(b.sprint) || this.touchSprint);
+    const crouch = this.enabled && (k.has(b.crouch) || this.touchCrouch);
     const frame = {
       mx,
       my,
       aim: Math.round(aim * 1000) / 1000,
       ...(this.fpsMode && { pitch: Math.round(this.pitch * 1000) / 1000 }),
+      ...(jump && { jump }),
+      ...(sprint && { sprint }),
+      ...(crouch && { crouch }),
       fire: this.enabled && (this.firing || touchFire),
       reload: this.reloadQueued,
       swap,

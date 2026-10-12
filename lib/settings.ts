@@ -83,6 +83,9 @@ export const KEY_ACTIONS = [
   { id: "swap", label: "Switch weapon" },
   { id: "scoreboard", label: "Scoreboard (hold)" },
   { id: "loadout", label: "Change class" },
+  { id: "jump", label: "Jump" },
+  { id: "sprint", label: "Sprint (hold)" },
+  { id: "crouch", label: "Crouch (hold)" },
   { id: "super", label: "Super" },
   { id: "ability1", label: "Power 1 (Detention / Berry Blast / Juice Squirt)" },
   { id: "ability2", label: "Power 2 (Lecture / Roll Out / Peel Trap)" },
@@ -108,10 +111,13 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   swap: "KeyQ",
   scoreboard: "Tab",
   loadout: "KeyB",
-  super: "Space",
+  jump: "Space",
+  sprint: "ShiftLeft",
+  crouch: "KeyC",
+  super: "KeyV",
   ability1: "KeyE",
   ability2: "KeyF",
-  ability3: "KeyC",
+  ability3: "KeyZ",
   ability4: "KeyX",
 };
 
@@ -133,6 +139,12 @@ function readKeybinds(): Keybinds {
       for (const { id } of KEY_ACTIONS) {
         const code = parsed[id];
         if (typeof code === "string" && code && code !== RESERVED_KEY) cachedBinds[id] = code;
+      }
+      // Binds saved before jump and crouch existed had Super on Space and Power 3 on C;
+      // move those to their new defaults so Space jumps and C crouches.
+      if (parsed.jump === undefined && cachedBinds.super === cachedBinds.jump) cachedBinds.super = DEFAULT_KEYBINDS.super;
+      if (parsed.crouch === undefined && cachedBinds.ability3 === cachedBinds.crouch) {
+        cachedBinds.ability3 = DEFAULT_KEYBINDS.ability3;
       }
     } catch {
       cachedBinds = DEFAULT_KEYBINDS;

@@ -1,4 +1,5 @@
 import {
+  EYE_HEIGHT,
   SAFE_ZONE_MAX_TIME,
   SAFE_ZONE_MAX_VISITS,
   SAFE_ZONE_VISIT_WINDOW,
@@ -47,6 +48,7 @@ import { ABILITY_ACTIONS, getKeybinds, keyLabel } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
 import { drawFirstPerson } from "./firstperson";
+import { CROUCH_SCALE } from "@/shared/physics";
 import { drawInstrument2D, instrumentOf } from "./instruments";
 import { drawFace } from "./skins";
 import { CONE_HALF, FAR_SIGHT, FOG_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
@@ -268,6 +270,8 @@ export class Renderer {
         reveal: !!me?.reveal,
         detentionTarget: this.detentionTarget,
         alive: !!me?.alive,
+        // Your view rises as you jump (or stand on a desk) and drops when you crouch.
+        eyeLift: (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0),
       });
       this.targetable = seen;
       // The Intercom also marks every student on the minimap, as in the top-down view.
@@ -630,7 +634,13 @@ export class Renderer {
       const pa = prev.get(pb.id);
       // Don't slide a player across the map when they respawn.
       if (!pa || !pa.alive || !pb.alive) return pb;
-      return { ...pb, x: lerp(pa.x, pb.x, f), y: lerp(pa.y, pb.y, f), aim: lerpAngle(pa.aim, pb.aim, f) };
+      return {
+        ...pb,
+        x: lerp(pa.x, pb.x, f),
+        y: lerp(pa.y, pb.y, f),
+        z: lerp(pa.z ?? 0, pb.z ?? 0, f),
+        aim: lerpAngle(pa.aim, pb.aim, f),
+      };
     });
   }
 
@@ -1290,7 +1300,41 @@ export class Renderer {
     ctx.lineCap = "butt";
   }
 
+  /** A player from above: bigger while they're up in the air (closer to the camera), smaller crouching. */
   private drawPlayer(
+    p: PlayerSnap,
+    x: number,
+    y: number,
+    aim: number,
+    info: RosterEntry | undefined,
+    isMe: boolean,
+    now: number,
+  ) {
+    // Our own height comes from prediction, so a jump shows the moment you press it.
+    const lift = (isMe ? this.conn.predicted?.z : p.z) ?? 0;
+    const crouch = isMe ? this.conn.crouching : !!p.crouch;
+    const scale = (1 + lift / 90) * (crouch ? 0.82 : 1);
+    if (scale === 1) {
+      this.drawPlayerBody(p, x, y, aim, info, isMe, now);
+      return;
+    }
+    const { ctx } = this;
+    if (lift > 0) {
+      // A shadow left on the ground below.
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.beginPath();
+      ctx.arc(x, y, radiusFor(p.archetype) * Math.max(0.5, 1 - lift / 80), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.translate(-x, -y);
+    this.drawPlayerBody(p, x, y, aim, info, isMe, now);
+    ctx.restore();
+  }
+
+  private drawPlayerBody(
     p: PlayerSnap,
     x: number,
     y: number,

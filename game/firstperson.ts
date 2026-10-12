@@ -40,7 +40,8 @@ import { instrumentOf } from "./instruments";
 const FOV = (75 * Math.PI) / 180;
 const MAX_VIEW = 2600;
 /** Heights in world units; the camera sits at eye height, the ceiling at the top of the walls. */
-const EYE = EYE_HEIGHT;
+/** Eye height this frame: raised while you jump or stand on something, lowered when you crouch. */
+let EYE = EYE_HEIGHT;
 const CEILING = 80;
 const PLAYER_HEIGHT = FIGURE_HEIGHT;
 /** Darkness things fade into with distance (a dim school hallway, not black). */
@@ -237,6 +238,8 @@ export interface FirstPersonScene {
   detentionTarget: string | null;
   /** Alive, so your own arm shows. */
   alive: boolean;
+  /** How far your eyes are above (or, crouching, below) their usual height. */
+  eyeLift: number;
 }
 
 /**
@@ -248,6 +251,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
   FOG = s.fogOfWar ? WAR_FOG : HALL_FOG;
   FOG_DIST = s.fogOfWar ? WAR_FOG_DIST : HALL_FOG_DIST;
   FOG_MAX = s.fogOfWar ? 1 : 0.85;
+  EYE = Math.max(12, Math.min(CEILING - 6, EYE_HEIGHT + s.eyeLift));
   const proj = w / 2 / Math.tan(FOV / 2);
   const pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, s.pitch));
   const horizon = h / 2 + s.shakeY + Math.tan(pitch) * proj;
@@ -369,6 +373,8 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
             instrument: instrumentOf(p.weapon),
             now,
             stunned: p.stunned,
+            lift: p.z ?? 0,
+            crouch: !!p.crouch,
           },
           fogAmount,
           FOG,
