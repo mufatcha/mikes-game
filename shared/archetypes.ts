@@ -124,6 +124,8 @@ export interface ArchetypeDef {
   secondary: WeaponId;
   /** Health; defaults to MAX_HP. */
   maxHp?: number;
+  /** How fast the super fills, compared with everyone else (1 = normal). */
+  superRate?: number;
   /** Body size; defaults to PLAYER_RADIUS. */
   radius?: number;
   /** 1–5 ratings shown in the class picker. */
@@ -370,7 +372,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   // The Gamer.
   pixel: {
-    id: "pixel", name: "Pixel Blaster", damage: 14, fireRate: 8, magSize: 32, reloadTime: 1.6,
+    id: "pixel", name: "Pixel Blaster", damage: 14, fireRate: 8, magSize: 40, reloadTime: 1.1,
     projectileSpeed: 1550, spread: 0.05, pellets: 1, range: 750, auto: true,
     radius: 3, color: "#4ade80", style: "blob",
   },
@@ -489,6 +491,7 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     id: "gamer", name: "Gamer", emoji: "🎮",
     tagline: "Pixel-perfect aim, and a super that turns you into Cuphead, Mugman or Captain Churchill.",
     defense: 0.15, speed: 1.1, primary: "pixel", secondary: "controller",
+    maxHp: 125, superRate: 1.3,
     ratings: { attack: 4, defense: 2, speed: 4, range: 3 },
   },
   pyro: {
@@ -806,7 +809,7 @@ export const SUPERS: Partial<Record<ArchetypeId, SuperDef>> = {
   },
   gamer: {
     id: "summon", name: "Character Select", emoji: "🎮",
-    description: "Roll a character and play as them: Cuphead or Mugman for 15 seconds, or (rarer) Captain Churchill in his tank for 12.",
+    description: "Roll a character and play as them (and heal 40): Cuphead or Mugman for 15 seconds, or (rarer) Captain Churchill in his tank for 12.",
   },
   pyro: {
     id: "airblast", name: "Airblast", emoji: "💨",
@@ -853,6 +856,8 @@ export const AFTERBURN_DAMAGE = 4;
 export const SUPER_CHARGE_DAMAGE = 450;
 /** It also fills on its own, from empty to full in this many seconds. */
 export const SUPER_PASSIVE_SECONDS = 75;
+/** The Gamer's Character Select heals this much: a power-up. */
+export const POWER_UP_HEAL = 40;
 
 export const EXTRA_CREDIT_HEAL = 60;
 export const EXTRA_CREDIT_RADIUS = 320;
@@ -888,3 +893,8 @@ export const SPECIAL_WEAPONS: WeaponId[] = [
   "afterburn",
   "airblast",
 ];
+
+/** How fast a class's super fills (the Gamer's fills faster). */
+export function superRateOf(archetype: ArchetypeId) {
+  return ARCHETYPES[archetype].superRate ?? 1;
+}

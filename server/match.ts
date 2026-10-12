@@ -52,6 +52,8 @@ import type { BulletSnap, GameEvent, InputFrame, PlayerSnap, ZoneSnap } from "..
 import {
   ABILITY_IDS,
   AFTERBURN_DAMAGE,
+  POWER_UP_HEAL,
+  superRateOf,
   AIRBLAST_CONE,
   AIRBLAST_PUSH,
   AIRBLAST_RANGE,
@@ -417,7 +419,7 @@ export class Match {
       if (p.alive) this.updateFormAndBurn(p);
       if (p.isBot && p.alive && this.isBoss(p)) this.botAbilities(p);
       if (p.alive && !this.isBoss(p)) {
-        p.superCharge = Math.min(1, p.superCharge + DT / SUPER_PASSIVE_SECONDS);
+        p.superCharge = Math.min(1, p.superCharge + (DT / SUPER_PASSIVE_SECONDS) * superRateOf(p.loadout.archetype));
         if (p.isBot && p.superCharge >= 1) this.botSuper(p);
       }
     }
@@ -936,7 +938,7 @@ export class Match {
     if (attacker) {
       // Dealing damage fills your super (but not damage from supers themselves) and earns class XP.
       if (!SPECIAL_WEAPONS.includes(b.weapon)) {
-        attacker.superCharge = Math.min(1, attacker.superCharge + dmg / SUPER_CHARGE_DAMAGE);
+        attacker.superCharge = Math.min(1, attacker.superCharge + (dmg / SUPER_CHARGE_DAMAGE) * superRateOf(attacker.loadout.archetype));
       }
       this.addXp(attacker, dmg * XP_PER_DAMAGE);
     }
@@ -1343,6 +1345,8 @@ export class Match {
         const who = rollCompanion();
         p.form = who;
         p.formUntil = this.time + COMPANIONS[who].secs;
+        // A power-up: patches you up too.
+        p.hp = Math.min(p.maxHp, p.hp + POWER_UP_HEAL);
         p.reloadEnd = -1;
         this.events.push({ k: "summon", by: p.id, who, x: r1(p.x), y: r1(p.y) });
         break;
