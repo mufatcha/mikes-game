@@ -26,6 +26,7 @@ const BLOCKS_SIGHT: Record<WallKind, boolean> = {
   // You can see over the console, but not through the time rotor.
   console: false,
   rotor: true,
+  strut: true,
 };
 const OCCLUDERS: Wall[] = WALLS.filter((w) => BLOCKS_SIGHT[w.kind]);
 

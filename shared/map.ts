@@ -14,7 +14,8 @@ export type WallKind =
   | "tardiswall"
   | "tardisdoor"
   | "console"
-  | "rotor";
+  | "rotor"
+  | "strut";
 
 /** How tall each kind of wall or furniture is, in world units. In 3D, throws can fly over the low ones. */
 export const WALL_HEIGHT: Record<WallKind, number> = {
@@ -31,6 +32,7 @@ export const WALL_HEIGHT: Record<WallKind, number> = {
   tardisdoor: 80,
   console: 30,
   rotor: 80,
+  strut: 80,
 };
 
 export interface Rect {
@@ -214,6 +216,11 @@ const TARDIS_ROOM: Wall[] = [
   // The console in the middle, with the time rotor rising out of it.
   box("console", TI_DOOR_X - 35, TI.y + TI.h / 2 - 35, 70, 70),
   box("rotor", TI_DOOR_X - 8, TI.y + TI.h / 2 - 8, 16, 16),
+  // Six coral struts around the console, leaving a clear path from the doors.
+  ...[0, 60, 120, 180, 240, 300].map((deg) => {
+    const a = (deg * Math.PI) / 180;
+    return box("strut", TI_DOOR_X + Math.cos(a) * 140 - 6, TI.y + TI.h / 2 + Math.sin(a) * 140 - 6, 12, 12);
+  }),
 ];
 
 export const WALLS: Wall[] = [

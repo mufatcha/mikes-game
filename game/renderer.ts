@@ -66,10 +66,11 @@ const WALL_STYLES: Record<WallKind, { fill: string; top: string }> = {
   locker: { fill: "#2f5d9e", top: "#4f83c9" },
   clinic: { fill: "#e2e8f0", top: "#ef4444" },
   tardis: { fill: "#0f3b82", top: "#1e3a8a" },
-  tardiswall: { fill: "#b89c66", top: "#e8dcc0" },
+  tardiswall: { fill: "#8a5a2b", top: "#d4a017" },
   tardisdoor: { fill: "#0f3b82", top: "#1e3a8a" },
-  console: { fill: "#334155", top: "#22d3ee" },
-  rotor: { fill: "#22d3ee", top: "#a5f3fc" },
+  console: { fill: "#9a6b2f", top: "#d4a017" },
+  rotor: { fill: "#f59e0b", top: "#fef3c7" },
+  strut: { fill: "#b4531f", top: "#fb923c" },
 };
 /** World area that fits on screen; bigger screens zoom in rather than see more. */
 const VIEW_AREA = 1500 * 860;
@@ -872,28 +873,44 @@ export class Renderer {
     this.drawTardisFloor();
   }
 
-  /** Inside the TARDIS (off the edge of the map): a metal grate floor with a ring of light round the console. */
+  /**
+   * Inside the TARDIS (off the edge of the map), the Eleventh Doctor's way:
+   * a glass floor glowing orange from below, crossed by a triangle grid, with
+   * a copper ring round the console platform.
+   */
   private drawTardisFloor() {
     const { ctx } = this;
     const t = TARDIS_INSIDE;
-    ctx.fillStyle = "#363a44";
+    const cx = t.x + t.w / 2;
+    const cy = t.y + t.h / 2;
+    const glow = ctx.createRadialGradient(cx, cy, 20, cx, cy, Math.max(t.w, t.h) * 0.7);
+    glow.addColorStop(0, "#9a5a2a");
+    glow.addColorStop(1, "#40200c");
+    ctx.fillStyle = glow;
     ctx.fillRect(t.x, t.y, t.w, t.h);
-    ctx.strokeStyle = "#1c1e24";
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(t.x, t.y, t.w, t.h);
+    ctx.clip();
+    ctx.strokeStyle = "rgba(253,186,116,0.55)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    for (let x = t.x; x <= t.x + t.w; x += 16) {
-      ctx.moveTo(x, t.y);
-      ctx.lineTo(x, t.y + t.h);
-    }
-    for (let y = t.y; y <= t.y + t.h; y += 16) {
-      ctx.moveTo(t.x, y);
-      ctx.lineTo(t.x + t.w, y);
+    const span = t.w + t.h;
+    for (let i = -span; i <= span; i += 26) {
+      // Three sets of lines at 60 degrees to each other make the triangles.
+      ctx.moveTo(t.x + i, t.y);
+      ctx.lineTo(t.x + i, t.y + t.h);
+      ctx.moveTo(t.x + i, t.y);
+      ctx.lineTo(t.x + i + t.h * 0.577, t.y + t.h);
+      ctx.moveTo(t.x + i, t.y);
+      ctx.lineTo(t.x + i - t.h * 0.577, t.y + t.h);
     }
     ctx.stroke();
-    ctx.strokeStyle = "rgba(103,232,249,0.85)";
+    ctx.restore();
+    ctx.strokeStyle = "#b87333";
     ctx.lineWidth = 8;
     ctx.beginPath();
-    ctx.arc(t.x + t.w / 2, t.y + t.h / 2, 74, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 70, 0, Math.PI * 2);
     ctx.stroke();
   }
 
