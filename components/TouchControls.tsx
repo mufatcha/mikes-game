@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useSyncExternalStore, type RefObject } from "react";
 import type { InputController } from "@/game/input";
+import { abilitySlots } from "@/game/layout";
+import { ABILITIES } from "@/shared/archetypes";
 
 /** How far, in screen pixels, a thumbstick can be pushed. */
 const STICK = 60;
@@ -40,11 +42,14 @@ export default function TouchControls({
   canvasRef,
   active,
   onMenu,
+  onAbility,
 }: {
   inputRef: RefObject<InputController | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   active: boolean;
   onMenu: () => void;
+  /** Set when you're the Principal: tap targets over the ability bar. */
+  onAbility?: (index: number) => void;
 }) {
   const [move, setMove] = useState<Stick | null>(null);
   const [aim, setAim] = useState<Stick | null>(null);
@@ -195,7 +200,22 @@ export default function TouchControls({
         </TouchButton>
       </div>
 
-      {!move && !aim && (
+      {onAbility &&
+        abilitySlots(window.innerWidth, window.innerHeight).map((s, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-label={ABILITIES[i].name}
+            className="pointer-events-auto absolute touch-none rounded-lg active:bg-white/20"
+            style={{ left: s.x, top: s.y, width: s.w, height: s.h }}
+            onPointerDown={(e) => {
+              stop(e);
+              onAbility(i);
+            }}
+          />
+        ))}
+
+      {!move && !aim && !onAbility && (
         <p className="absolute bottom-[96px] left-1/2 -translate-x-1/2 text-center text-xs text-white/50">
           Left side: move · Right side: aim, push further to throw
         </p>

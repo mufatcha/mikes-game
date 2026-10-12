@@ -1,3 +1,5 @@
+import { MAX_HP, PLAYER_RADIUS } from "./constants";
+
 export type WeaponId =
   | "chalk"
   | "stapler"
@@ -10,9 +12,13 @@ export type WeaponId =
   | "paint"
   | "crayon"
   | "food"
-  | "tots";
+  | "tots"
+  | "eraser"
+  | "redpen"
+  | "quiz"
+  | "lecture";
 
-export type ArchetypeId = "teacher" | "lunchlady" | "jock" | "artkid" | "nerd" | "clown";
+export type ArchetypeId = "teacher" | "lunchlady" | "jock" | "artkid" | "nerd" | "clown" | "principal";
 
 export interface WeaponDef {
   id: WeaponId;
@@ -47,6 +53,10 @@ export interface ArchetypeDef {
   speed: number;
   primary: WeaponId;
   secondary: WeaponId;
+  /** Health; defaults to MAX_HP. */
+  maxHp?: number;
+  /** Body size; defaults to PLAYER_RADIUS. */
+  radius?: number;
   /** 1–5 ratings shown in the class picker. */
   ratings: { attack: number; defense: number; speed: number; range: number };
 }
@@ -112,6 +122,28 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1500, spread: 0.04, pellets: 1, range: 800, auto: false,
     radius: 3, color: "#4ade80", style: "ball",
   },
+  // The Principal's weapons.
+  eraser: {
+    id: "eraser", name: "Chalkboard Eraser", damage: 30, fireRate: 3, magSize: 12, reloadTime: 1.6,
+    projectileSpeed: 1300, spread: 0.04, pellets: 1, range: 850, auto: true,
+    radius: 7, color: "#475569", style: "ball",
+  },
+  redpen: {
+    id: "redpen", name: "Red Pen", damage: 12, fireRate: 9, magSize: 30, reloadTime: 1.4,
+    projectileSpeed: 1600, spread: 0.06, pellets: 1, range: 700, auto: true,
+    radius: 2, color: "#ef4444", style: "streak",
+  },
+  // Thrown by the Principal's abilities, not held.
+  quiz: {
+    id: "quiz", name: "Pop Quiz", damage: 18, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 900, spread: 0, pellets: 1, range: 650, auto: false,
+    radius: 6, color: "#fefce8", style: "ball",
+  },
+  lecture: {
+    id: "lecture", name: "Stern Lecture", damage: 20, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "#fbbf24", style: "ball",
+  },
 };
 
 export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
@@ -151,9 +183,20 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     defense: 0, speed: 1.0, primary: "spitball", secondary: "peashooter",
     ratings: { attack: 5, defense: 1, speed: 3, range: 5 },
   },
+  // Boss of the 7v1 mode; never in the class picker.
+  principal: {
+    id: "principal", name: "Principal", emoji: "👔",
+    tagline: "Runs the school. Huge health, four special powers.",
+    defense: 0.25, speed: 0.95, primary: "eraser", secondary: "redpen",
+    maxHp: 8000, radius: 26,
+    ratings: { attack: 5, defense: 5, speed: 2, range: 4 },
+  },
 };
 
-export const ARCHETYPE_IDS = Object.keys(ARCHETYPES) as ArchetypeId[];
+export const PRINCIPAL_LOADOUT: Loadout = { archetype: "principal" };
+
+/** The classes students can pick (everything but the Principal). */
+export const ARCHETYPE_IDS: ArchetypeId[] = (Object.keys(ARCHETYPES) as ArchetypeId[]).filter((a) => a !== "principal");
 
 export interface Loadout {
   archetype: ArchetypeId;
@@ -175,4 +218,60 @@ export function weaponsOf(archetype: ArchetypeId): [WeaponId, WeaponId] {
 
 export function moveSpeedFor(archetype: ArchetypeId): number {
   return ARCHETYPES[archetype].speed;
+}
+
+export function maxHpFor(archetype: ArchetypeId): number {
+  return ARCHETYPES[archetype].maxHp ?? MAX_HP;
+}
+
+export function radiusFor(archetype: ArchetypeId): number {
+  return ARCHETYPES[archetype].radius ?? PLAYER_RADIUS;
+}
+
+// ---------------------------------------------------------------- Principal abilities
+
+export type AbilityId = "detention" | "lecture" | "quiz" | "intercom";
+
+export interface AbilityDef {
+  id: AbilityId;
+  name: string;
+  emoji: string;
+  /** Seconds before it can be used again. */
+  cooldown: number;
+  description: string;
+}
+
+export const ABILITIES: AbilityDef[] = [
+  {
+    id: "detention", name: "Detention", emoji: "🔒", cooldown: 25,
+    description: "Pick a student in sight and lock them in the Detention room for 20–30 seconds. Nail the skill check for the full 30.",
+  },
+  {
+    id: "lecture", name: "Stern Lecture", emoji: "📣", cooldown: 12,
+    description: "Shout at every nearby student you can see: 20 damage and stunned for 1.5 seconds.",
+  },
+  {
+    id: "quiz", name: "Pop Quiz", emoji: "📝", cooldown: 8,
+    description: "Throw a ring of 16 quiz papers in every direction.",
+  },
+  {
+    id: "intercom", name: "Intercom", emoji: "📢", cooldown: 25,
+    description: "See every student through walls for 6 seconds. They'll hear the announcement.",
+  },
+];
+
+export const ABILITY_IDS = ABILITIES.map((a) => a.id);
+
+export const DETENTION_RANGE = 800;
+export const DETENTION_MIN = 20;
+export const DETENTION_MAX = 30;
+export const LECTURE_RADIUS = 260;
+export const LECTURE_STUN = 1.5;
+export const QUIZ_PAPERS = 16;
+export const INTERCOM_TIME = 6;
+
+/** Skill check score (0 to 1) to seconds in detention. */
+export function detentionSeconds(score: number) {
+  const s = Math.max(0, Math.min(1, Number(score) || 0));
+  return Math.round(DETENTION_MIN + (DETENTION_MAX - DETENTION_MIN) * s);
 }

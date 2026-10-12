@@ -1,10 +1,15 @@
-import { getKeybinds } from "@/lib/settings";
+import { ABILITY_ACTIONS, getKeybinds } from "@/lib/settings";
 import type { InputFrame } from "@/shared/protocol";
+import { CHEAT_CODE } from "@/shared/pranks";
 
 export interface InputHandlers {
   onMenu(): void;
   onLoadout(): void;
   onActivity(): void;
+  /** One of the Principal's ability keys, by index in ABILITIES. */
+  onAbility(index: number): void;
+  /** The secret cheat code was typed. */
+  onCheatCode(): void;
 }
 
 /** Keyboard and mouse state, sampled once per fixed simulation step. */
@@ -19,6 +24,8 @@ export class InputController {
   private swapTo = -1;
   private swapToggle = false;
   private enabled = true;
+  /** The last few letters typed, for spotting the cheat code. */
+  private typed = "";
   private cleanup: (() => void) | null = null;
 
   constructor(
@@ -37,6 +44,14 @@ export class InputController {
   attach() {
     const onKeyDown = (e: KeyboardEvent) => {
       this.handlers.onActivity();
+      // Watch for the cheat code in the letters you type, by key position (so it's always the W/A/S/D keys).
+      if (!e.repeat && e.code.startsWith("Key")) {
+        this.typed = (this.typed + e.code.slice(3).toLowerCase()).slice(-CHEAT_CODE.length);
+        if (this.typed === CHEAT_CODE) {
+          this.typed = "";
+          this.handlers.onCheatCode();
+        }
+      }
       if (e.code === "Escape") {
         this.handlers.onMenu();
         return;
@@ -56,6 +71,12 @@ export class InputController {
       else if (e.code === binds.loadout) {
         this.handlers.onLoadout();
         return;
+      } else {
+        const ability = ABILITY_ACTIONS.findIndex((a) => binds[a] === e.code);
+        if (ability >= 0) {
+          this.handlers.onAbility(ability);
+          return;
+        }
       }
       this.keys.add(e.code);
     };

@@ -1,5 +1,6 @@
-import type { Team } from "./constants";
-import type { ArchetypeId, Loadout, WeaponId } from "./archetypes";
+import type { GameMode, Team } from "./constants";
+import type { PrankAction } from "./pranks";
+import type { AbilityId, ArchetypeId, Loadout, WeaponId } from "./archetypes";
 
 export type Phase = "lobby" | "match" | "results";
 
@@ -21,6 +22,12 @@ export type ClientMessage =
   | { t: "team"; team: Team }
   | { t: "loadout"; loadout: Loadout }
   | { t: "start" }
+  /** Host only, in the lobby. */
+  | { t: "mode"; mode: GameMode }
+  /** Principal only. `target` and `score` (skill check, 0 to 1) are for Detention. */
+  | { t: "ability"; ability: AbilityId; target?: string; score?: number }
+  /** Secret prank menu: "unlock" with the cheat code first, then pranks. */
+  | { t: "prank"; action: "unlock" | PrankAction; code?: string; target?: string }
   | { t: "end" }
   | ({ t: "input" } & InputFrame);
 
@@ -37,6 +44,7 @@ export interface RoomState {
   code: string;
   phase: Phase;
   hostId: string | null;
+  mode: GameMode;
   roster: RosterEntry[];
 }
 
@@ -60,6 +68,24 @@ export interface PlayerSnap {
   deaths: number;
   /** Seconds spent in the Nurse's Office (drains while outside). */
   zone: number;
+  /** Times you've entered the Nurse's Office recently; too many and you pass out. */
+  visits: number;
+  maxHp: number;
+  /** Seconds left in detention, or 0. */
+  jailed: number;
+  stunned: boolean;
+  /** Principal's Intercom is on: they can see every student. */
+  reveal: boolean;
+  /** Principal only: seconds until each ability is ready, in ABILITIES order. */
+  cds?: number[];
+  /** Prank effects, only sent when active. Movement speed multiplier. */
+  speed?: number;
+  /** Movement keys are flipped. */
+  reversed?: boolean;
+  god?: boolean;
+  infAmmo?: boolean;
+  turbo?: boolean;
+  superSpeed?: boolean;
 }
 
 export interface BulletSnap {
@@ -74,11 +100,14 @@ export interface BulletSnap {
 
 export type GameEvent =
   | { k: "kill"; killer: string; victim: string; weapon: WeaponId }
-  /** Stayed in the Nurse's Office too long. */
-  | { k: "passout"; victim: string }
+  /** Stayed in the Nurse's Office too long, or kept running in and out of it. */
+  | { k: "passout"; victim: string; reason: "time" | "visits" | "prank" }
   | { k: "hit"; by: string; target: string; x: number; y: number; dmg: number }
   | { k: "impact"; x: number; y: number }
-  | { k: "shot"; by: string; weapon: WeaponId };
+  | { k: "shot"; by: string; weapon: WeaponId }
+  /** The Principal used an ability (for effects and sounds). */
+  | { k: "ability"; by: string; ability: AbilityId; x: number; y: number }
+  | { k: "jailed"; by: string; target: string; secs: number };
 
 export interface Snapshot {
   t: "snap";
@@ -94,6 +123,7 @@ export interface Snapshot {
 
 export interface ResultsMessage {
   t: "results";
+  mode: GameMode;
   scores: [number, number];
   winner: Team | null;
   players: { id: string; name: string; team: Team; kills: number; deaths: number; isBot: boolean }[];
@@ -103,6 +133,8 @@ export interface ResultsMessage {
 export type ServerMessage =
   | { t: "welcome"; id: string; code: string }
   | { t: "error"; message: string; fatal?: boolean }
+  /** The cheat code worked: this player can use the prank menu. */
+  | { t: "prank-unlocked" }
   | ({ t: "room" } & RoomState)
   | Snapshot
   | ResultsMessage;

@@ -1,10 +1,11 @@
 import {
-  MAX_HP,
   SAFE_ZONE_MAX_TIME,
-  PLAYER_RADIUS,
+  SAFE_ZONE_MAX_VISITS,
+  SAFE_ZONE_VISIT_WINDOW,
   SCORE_TO_WIN,
   TEAM_COLORS,
-  TEAM_NAMES,
+  teamNamesFor,
+  type GameMode,
   type Team,
 } from "@/shared/constants";
 import {
@@ -23,8 +24,17 @@ import {
   type WallKind,
 } from "@/shared/map";
 import type { BulletSnap, GameEvent, PlayerSnap, RosterEntry } from "@/shared/protocol";
-import { ARCHETYPES, WEAPONS, weaponsOf } from "@/shared/archetypes";
-import { getKeybinds, keyLabel } from "@/lib/settings";
+import {
+  ABILITIES,
+  ARCHETYPES,
+  DETENTION_RANGE,
+  LECTURE_RADIUS,
+  WEAPONS,
+  radiusFor,
+  weaponsOf,
+} from "@/shared/archetypes";
+import { abilitySlots } from "./layout";
+import { ABILITY_ACTIONS, getKeybinds, keyLabel } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
 import { CONE_HALF, FAR_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
@@ -228,31 +238,183 @@ export class Renderer {
         (!me ||
           p.id === myId ||
           roster.get(p.id)?.team === myTeam ||
-          canSee(this.myX, this.myY, view.aim, p.x, p.y, PLAYER_RADIUS)),
+          canSee(this.myX, this.myY, view.aim, p.x, p.y, radiusFor(p.archetype))),
     );
+    // The Principal's Intercom shows every student, even through walls.
+    const revealed = me?.reveal ? players.filter((p) => p.alive && !shown.includes(p)) : [];
+    this.targetable = [...shown, ...revealed].filter((p) => roster.get(p.id)?.team !== myTeam);
     for (const p of shown) {
       const isMe = p.id === myId;
       const pos = isMe ? { x: this.myX, y: this.myY } : p;
       this.drawPlayer(p, pos.x, pos.y, isMe ? view.aim : p.aim, roster.get(p.id), isMe, now);
     }
     this.updateParticles(dt);
+    this.drawShockwaves(now);
     this.drawWalls();
     if (me) this.drawFog(view.aim);
-    for (const p of shown) {
+    for (const p of revealed) {
+      ctx.globalAlpha = 0.85;
+      this.drawPlayer(p, p.x, p.y, p.aim, roster.get(p.id), false, now);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(248,113,113,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radiusFor(p.archetype) + 10, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (const p of [...shown, ...revealed]) {
       const isMe = p.id === myId;
       this.drawNameplate(p, isMe ? this.myX : p.x, isMe ? this.myY : p.y, roster.get(p.id), isMe);
     }
+    this.drawDetentionTarget(players, now);
     this.drawFloaters(now);
 
     // Screen space.
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawHurtVignette(dt);
-    this.drawMinimap(players, roster);
-    this.drawScore();
+    this.drawMinimap(players, roster, revealed);
+    if (this.mode === "boss") this.drawBossBar(players, roster);
+    else this.drawScore();
     this.drawFeed(now);
     if (me) this.drawStatus(me, !view.crosshair);
+    if (me?.cds) this.drawAbilityBar(me, !view.crosshair);
+    this.drawBanner(now);
     if (view.scoreboard) this.drawScoreboard(roster);
     if (view.crosshair) this.drawCrosshair(view.mouseX, view.mouseY, now, me);
+  }
+
+  private get mode(): GameMode {
+    return this.conn.room?.mode ?? "teams";
+  }
+
+  // ---------------------------------------------------------------- Principal
+
+  /** Set by the game view while the Principal does a Detention skill check. */
+  detentionTarget: string | null = null;
+  /** Enemies on screen last frame, for picking a Detention target. */
+  private targetable: PlayerSnap[] = [];
+  private shockwaves: { x: number; y: number; born: number }[] = [];
+  private banner: { text: string; color: string; until: number } | null = null;
+
+  /**
+   * The student to send to detention: the one you can see closest to the
+   * cursor (or, on a touch screen, closest to where you're aiming), within range.
+   */
+  pickDetentionTarget(mouseX: number, mouseY: number, aim: number, touch: boolean): string | null {
+    const wx = this.camX + (mouseX - this.cw / 2) / this.scale;
+    const wy = this.camY + (mouseY - this.ch / 2) / this.scale;
+    let best: string | null = null;
+    let bestScore = Infinity;
+    for (const p of this.targetable) {
+      if (!p.alive || p.jailed > 0) continue;
+      const d = Math.hypot(p.x - this.myX, p.y - this.myY);
+      if (d > DETENTION_RANGE) continue;
+      let score: number;
+      if (touch) {
+        let diff = Math.atan2(p.y - this.myY, p.x - this.myX) - aim;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        score = Math.abs(diff) * 400 + d * 0.2;
+      } else {
+        score = Math.hypot(p.x - wx, p.y - wy);
+      }
+      if (score < bestScore) {
+        bestScore = score;
+        best = p.id;
+      }
+    }
+    return best;
+  }
+
+  private drawDetentionTarget(players: PlayerSnap[], now: number) {
+    const p = this.detentionTarget ? players.find((q) => q.id === this.detentionTarget) : undefined;
+    if (!p) return;
+    const { ctx } = this;
+    const r = radiusFor(p.archetype) + 14 + Math.sin(now / 80) * 3;
+    ctx.strokeStyle = "#f87171";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      ctx.moveTo(p.x + Math.cos(a) * (r - 8), p.y + Math.sin(a) * (r - 8));
+      ctx.lineTo(p.x + Math.cos(a) * (r + 8), p.y + Math.sin(a) * (r + 8));
+    }
+    ctx.stroke();
+  }
+
+  /** Expanding rings from a Stern Lecture. */
+  private drawShockwaves(now: number) {
+    const { ctx } = this;
+    this.shockwaves = this.shockwaves.filter((w) => now - w.born < 500);
+    for (const w of this.shockwaves) {
+      const f = (now - w.born) / 500;
+      ctx.strokeStyle = `rgba(251,191,36,${0.8 * (1 - f)})`;
+      ctx.lineWidth = 8 * (1 - f) + 2;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, LECTURE_RADIUS * (0.2 + 0.8 * f), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  private showBanner(text: string, color: string, ms: number) {
+    this.banner = { text, color, until: performance.now() + ms };
+  }
+
+  private drawBanner(now: number) {
+    if (!this.banner || now > this.banner.until) return;
+    const { ctx } = this;
+    ctx.font = "800 16px ui-sans-serif, system-ui, sans-serif";
+    const w = ctx.measureText(this.banner.text).width + 32;
+    this.panel(this.cw / 2 - w / 2, 128, w, 34);
+    this.text(this.banner.text, this.cw / 2, 145, 16, this.banner.color, "center", 800);
+  }
+
+  /** Boss mode: the Principal's health bar and the clock, in place of the score. */
+  private drawBossBar(players: PlayerSnap[], roster: Map<string, RosterEntry>) {
+    const snap = this.conn.latest;
+    if (!snap) return;
+    const boss = snap.players.find((p) => p.archetype === "principal") ?? players.find((p) => p.archetype === "principal");
+    const { ctx, cw } = this;
+    const w = Math.min(520, cw - 420);
+    const x = cw / 2 - w / 2;
+    this.panel(x, 12, w, 62);
+    const name = boss ? (roster.get(boss.id)?.name ?? "Principal") : "Principal";
+    this.text(`👔 ${name.toUpperCase()}`, x + 14, 28, 12, "#fdba74", "left", 800);
+    this.text(formatTime(snap.timeLeft), x + w - 14, 28, 14, "#e5e7eb", "right", 800);
+    const frac = boss ? Math.max(0, boss.hp / boss.maxHp) : 0;
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(x + 14, 40, w - 28, 16);
+    ctx.fillStyle = frac > 0.5 ? "#f97316" : frac > 0.25 ? "#facc15" : "#ef4444";
+    ctx.fillRect(x + 14, 40, (w - 28) * frac, 16);
+    this.text(boss ? `${boss.hp} / ${boss.maxHp}` : "", cw / 2, 48, 11, "#f9fafb", "center", 800);
+    this.text(`Students knocked out: ${snap.scores[1]}`, cw / 2, 66, 10, "#9ca3af", "center", 600);
+  }
+
+  /** The Principal's four abilities with their keys and cooldowns. */
+  private drawAbilityBar(me: PlayerSnap, touch: boolean) {
+    const { ctx } = this;
+    const binds = getKeybinds();
+    const slots = abilitySlots(this.cw, this.ch);
+    ABILITIES.forEach((a, i) => {
+      const s = slots[i];
+      const cd = me.cds?.[i] ?? 0;
+      const ready = cd <= 0 && me.alive && !me.stunned;
+      this.panel(s.x, s.y, s.w, s.h);
+      if (ready) {
+        ctx.strokeStyle = "rgba(251,191,36,0.8)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(s.x + 1, s.y + 1, s.w - 2, s.h - 2, 8);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = ready ? 1 : 0.4;
+      this.text(a.emoji, s.x + s.w / 2, s.y + 24, 24, "#fff", "center", 400);
+      ctx.globalAlpha = 1;
+      if (cd > 0) this.text(`${Math.ceil(cd)}`, s.x + s.w / 2, s.y + 24, 18, "#f9fafb", "center", 800);
+      const label = touch ? a.name.split(" ").pop()! : keyLabel(binds[ABILITY_ACTIONS[i]]);
+      this.text(label, s.x + s.w / 2, s.y + s.h - 9, 10, "#d1d5db", "center", 700);
+    });
   }
 
   /**
@@ -400,17 +562,61 @@ export class Renderer {
           if (victim && team !== undefined) this.burst(victim.x, victim.y, TEAM_COLORS[team], 22, 260);
           break;
         }
+        case "jailed": {
+          this.feed.push({
+            killer: roster.get(e.by),
+            victim: roster.get(e.target),
+            weapon: `🔒 detention ${e.secs}s`,
+            born: now,
+          });
+          if (this.feed.length > 6) this.feed.shift();
+          if (e.target === myId) {
+            this.showBanner(`🔒 Sent to detention for ${e.secs} seconds!`, "#f87171", 3000);
+            this.sfx.hurt();
+          } else if (e.by === myId) {
+            this.showBanner(`🔒 ${roster.get(e.target)?.name ?? "Student"} is in detention for ${e.secs}s`, "#fde68a", 2500);
+            this.sfx.kill();
+          }
+          break;
+        }
+        case "ability": {
+          const mine = e.by === myId;
+          if (e.ability === "lecture") {
+            this.shockwaves.push({ x: e.x, y: e.y, born: now });
+            const dist = Math.hypot(e.x - this.myX, e.y - this.myY);
+            this.sfx.shot("lecture", mine ? 0.9 : Math.max(0, 1 - dist / HEARING_RANGE));
+            if (dist < LECTURE_RADIUS + 60) this.shake = Math.max(this.shake, 8);
+          } else if (e.ability === "intercom") {
+            this.showBanner(
+              mine ? "📢 Intercom: you can see every student" : "📢 INTERCOM: The Principal can see everyone!",
+              mine ? "#fde68a" : "#f87171",
+              4000,
+            );
+          }
+          break;
+        }
         case "passout": {
+          // A prank knockout stays secret: no feed entry, just a puzzled victim.
+          if (e.reason === "prank") {
+            if (e.victim === myId) {
+              this.deathMessage = "👻 You mysteriously fainted…";
+              this.passedOut = false;
+            }
+            break;
+          }
           this.feed.push({
             killer: undefined,
             killerLabel: "🏥 Nurse's Office",
             victim: roster.get(e.victim),
-            weapon: "stayed too long",
+            weapon: e.reason === "visits" ? "kept running in and out" : "stayed too long",
             born: now,
           });
           if (this.feed.length > 6) this.feed.shift();
           if (e.victim === myId) {
-            this.deathMessage = "You passed out in the Nurse's Office";
+            this.deathMessage =
+              e.reason === "visits"
+                ? "You passed out running in and out of the Nurse's Office"
+                : "You passed out in the Nurse's Office";
             this.passedOut = true;
           }
           break;
@@ -818,7 +1024,7 @@ export class Renderer {
     const team: Team = info?.team ?? 0;
     const weapon = WEAPONS[p.weapon];
     const archetype = ARCHETYPES[p.archetype];
-    const r = PLAYER_RADIUS;
+    const r = radiusFor(p.archetype);
 
     // Shadow
     ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -888,20 +1094,54 @@ export class Renderer {
       ctx.arc(x, y, r + 8, 0, Math.PI * 2);
       ctx.stroke();
     }
+    if (p.jailed > 0) this.drawJailBars(x, y, r, p.jailed);
+    if (p.stunned) {
+      // Little stars circling the head.
+      ctx.font = `${r * 0.7}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+      for (let i = 0; i < 3; i++) {
+        const a = now / 200 + (i * Math.PI * 2) / 3;
+        ctx.fillText("⭐", x + Math.cos(a) * (r + 6), y - r * 0.6 + Math.sin(a) * 6);
+      }
+    }
+  }
+
+  /** A detention cage around a locked-up student, with the time left. */
+  private drawJailBars(x: number, y: number, r: number, secs: number) {
+    const { ctx } = this;
+    const half = r + 12;
+    ctx.fillStyle = "rgba(15,23,42,0.35)";
+    ctx.fillRect(x - half, y - half, half * 2, half * 2);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x - half, y - half, half * 2, half * 2);
+    ctx.beginPath();
+    for (let i = 1; i < 5; i++) {
+      const bx = x - half + (i * half * 2) / 5;
+      ctx.moveTo(bx, y - half);
+      ctx.lineTo(bx, y + half);
+    }
+    ctx.stroke();
+    const k = 1 / this.scale;
+    ctx.font = `800 ${12 * k}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#fca5a5";
+    ctx.fillText(`🔒 ${Math.ceil(secs)}s`, x, y + half + 3);
   }
 
   private drawNameplate(p: PlayerSnap, x: number, y: number, info: RosterEntry | undefined, isMe: boolean) {
     const { ctx } = this;
     const k = 1 / this.scale;
     const team: Team = info?.team ?? 0;
-    const top = y - PLAYER_RADIUS - 14 * k;
-    const bw = 44 * k;
+    const top = y - radiusFor(p.archetype) - 14 * k;
+    const bw = (p.archetype === "principal" ? 70 : 44) * k;
     const bh = 5 * k;
+    const frac = p.hp / p.maxHp;
 
     ctx.fillStyle = "rgba(0,0,0,0.6)";
     ctx.fillRect(x - bw / 2, top, bw, bh);
-    ctx.fillStyle = p.hp > 50 ? "#4ade80" : p.hp > 25 ? "#facc15" : "#ef4444";
-    ctx.fillRect(x - bw / 2, top, (bw * p.hp) / MAX_HP, bh);
+    ctx.fillStyle = frac > 0.5 ? "#4ade80" : frac > 0.25 ? "#facc15" : "#ef4444";
+    ctx.fillRect(x - bw / 2, top, bw * frac, bh);
 
     if (!isMe && info) {
       ctx.font = `600 ${12 * k}px ui-sans-serif, system-ui, sans-serif`;
@@ -1028,8 +1268,9 @@ export class Renderer {
     this.text(`${arch.emoji} ${arch.name.toUpperCase()}${arch.defense > 0 ? ` · ${Math.round(arch.defense * 100)}% DEF` : ""}`, 30, ch - 60, 11, "#9ca3af");
     ctx.fillStyle = "rgba(255,255,255,0.08)";
     ctx.fillRect(30, ch - 46, 180, 14);
-    ctx.fillStyle = me.hp > 50 ? "#4ade80" : me.hp > 25 ? "#facc15" : "#ef4444";
-    ctx.fillRect(30, ch - 46, (180 * me.hp) / MAX_HP, 14);
+    const hpFrac = me.hp / me.maxHp;
+    ctx.fillStyle = hpFrac > 0.5 ? "#4ade80" : hpFrac > 0.25 ? "#facc15" : "#ef4444";
+    ctx.fillRect(30, ch - 46, 180 * hpFrac, 14);
     this.text(String(me.hp), 262, ch - 39, 22, "#f9fafb", "right", 800);
 
     // Weapon
@@ -1077,7 +1318,14 @@ export class Renderer {
     } else {
       this.deathMessage = null;
       this.passedOut = false;
-      this.drawZoneTimer(me);
+      if (me.archetype !== "principal") this.drawZoneTimer(me);
+      if (me.jailed > 0) {
+        this.panel(cw / 2 - 170, ch / 2 - 110, 340, 56);
+        this.text(`🔒 IN DETENTION · ${Math.ceil(me.jailed)}s`, cw / 2, ch / 2 - 92, 18, "#f87171", "center", 800);
+        this.text("You can't move or throw, but nobody can hurt you.", cw / 2, ch / 2 - 68, 11, "#9ca3af", "center");
+      } else if (me.stunned) {
+        this.text("😵 STUNNED", cw / 2, ch / 2 - 70, 16, "#fbbf24", "center", 800);
+      }
       if (me.reload >= 0) this.text("RELOADING", cw / 2, ch / 2 + 70, 13, "#fbbf24", "center", 700);
       else if (me.ammo === 0) this.text(touch ? "TAP ↻ TO RELOAD" : `PRESS ${keyLabel(binds.reload)} TO RELOAD`, cw / 2, ch / 2 + 70, 13, "#f87171", "center", 700);
     }
@@ -1086,18 +1334,36 @@ export class Renderer {
     }
   }
 
-  /** While in (or recently in) the Nurse's Office, show how long until you pass out. */
+  /**
+   * While in (or recently in) the Nurse's Office, show how long until you pass
+   * out, and how many more times you can go in before running in and out knocks you out.
+   */
   private drawZoneTimer(me: PlayerSnap) {
     const inside = inSafeZone(this.myX, this.myY);
-    if (!inside && me.zone <= 0) return;
+    if (!inside && me.zone <= 0 && me.visits === 0) return;
     const { ctx, cw, ch } = this;
     const left = Math.max(0, SAFE_ZONE_MAX_TIME - me.zone);
     const frac = me.zone / SAFE_ZONE_MAX_TIME;
     const danger = left < 10;
     const w = 320;
     const x = cw / 2 - w / 2;
-    const y = ch - 130;
-    this.panel(x, y, w, 46);
+    const showVisits = me.visits > 0;
+    const y = ch - (showVisits ? 148 : 130);
+    this.panel(x, y, w, showVisits ? 64 : 46);
+    if (showVisits) {
+      const lastChance = me.visits >= SAFE_ZONE_MAX_VISITS - 1;
+      this.text(
+        lastChance
+          ? `Visit ${me.visits}/${SAFE_ZONE_MAX_VISITS} · go back in within ${SAFE_ZONE_VISIT_WINDOW}s and you pass out`
+          : `Visit ${me.visits}/${SAFE_ZONE_MAX_VISITS} · don't keep running in and out`,
+        cw / 2,
+        y + 52,
+        11,
+        lastChance ? "#f87171" : "#facc15",
+        "center",
+        700,
+      );
+    }
     this.text(
       inside ? "🏥 NURSE'S OFFICE · healing, can't throw" : "🏥 Nurse's Office timer cooling down",
       cw / 2,
@@ -1114,7 +1380,7 @@ export class Renderer {
     this.text(`${Math.ceil(left)}s`, x + w - 14, y + 32, 13, danger ? "#f87171" : "#f9fafb", "right", 800);
   }
 
-  private drawMinimap(players: PlayerSnap[], roster: Map<string, RosterEntry>) {
+  private drawMinimap(players: PlayerSnap[], roster: Map<string, RosterEntry>, revealed: PlayerSnap[]) {
     const { ctx } = this;
     const w = 180;
     const h = (w * MAP_HEIGHT) / MAP_WIDTH;
@@ -1137,6 +1403,13 @@ export class Renderer {
       ctx.arc(x0 + p.x * k, y0 + p.y * k, 3, 0, Math.PI * 2);
       ctx.fill();
     }
+    // Intercom: every student shows up in red.
+    ctx.fillStyle = "#f87171";
+    for (const p of revealed) {
+      ctx.beginPath();
+      ctx.arc(x0 + p.x * k, y0 + p.y * k, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.fillStyle = "#fff";
     ctx.beginPath();
     ctx.arc(x0 + this.myX * k, y0 + this.myY * k, 3.5, 0, Math.PI * 2);
@@ -1150,10 +1423,12 @@ export class Renderer {
     const colW = w / 2;
     const x0 = (this.cw - w) / 2;
     const y0 = 110;
-    this.panel(x0, y0, w, 260);
+    const maxRows = Math.max(4, ...([0, 1] as Team[]).map((t) => snap.players.filter((p) => roster.get(p.id)?.team === t).length));
+    this.panel(x0, y0, w, 80 + maxRows * 44);
+    const names = teamNamesFor(this.mode);
     for (const team of [0, 1] as Team[]) {
       const cx = x0 + team * colW + 20;
-      this.text(`${TEAM_NAMES[team].toUpperCase()}  ${snap.scores[team]}`, cx, y0 + 24, 16, TEAM_COLORS[team], "left", 800);
+      this.text(`${names[team].toUpperCase()}  ${snap.scores[team]}`, cx, y0 + 24, 16, TEAM_COLORS[team], "left", 800);
       this.text("K", cx + colW - 90, y0 + 24, 12, "#9ca3af", "right");
       this.text("D", cx + colW - 50, y0 + 24, 12, "#9ca3af", "right");
       const rows = snap.players

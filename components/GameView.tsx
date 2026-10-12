@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { TICK_MS, TEAM_NAMES } from "@/shared/constants";
+import { TICK_MS, teamNamesFor } from "@/shared/constants";
 import type { ResultsMessage } from "@/shared/protocol";
-import { WEAPONS, type ArchetypeId, type Loadout } from "@/shared/archetypes";
+import { ABILITIES, WEAPONS, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { Sfx } from "@/game/audio";
 import type { GameConnection } from "@/game/connection";
 import { InputController } from "@/game/input";
@@ -11,11 +11,15 @@ import { Renderer } from "@/game/renderer";
 import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import LoadoutPicker from "./LoadoutPicker";
 import { CopyButton, inviteLink } from "./Lobby";
-import { useTouchControlsMode } from "@/lib/settings";
+import { keyLabel, useKeybinds, useTouchControlsMode } from "@/lib/settings";
 import Modal from "./Modal";
+import PrankMenu from "./PrankMenu";
+import { CHEAT_CODE } from "@/shared/pranks";
+import PrincipalCard from "./PrincipalCard";
+import SkillCheck, { type SkillCheckHandle } from "./SkillCheck";
 import TouchControls, { useMediaQuery } from "./TouchControls";
 
-type Overlay = "none" | "menu" | "loadout" | "settings";
+type Overlay = "none" | "menu" | "loadout" | "settings" | "pranks";
 
 export default function GameView({
   conn,
@@ -42,15 +46,68 @@ export default function GameView({
   const touchMode = useTouchControlsMode();
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   const isTouch = touchMode === "on" || (touchMode === "auto" && coarsePointer);
+  const isPrincipal = loadout.archetype === "principal";
+  const binds = useKeybinds();
+  // Detention skill check in progress: who's being sent, and a handle to stop the needle.
+  const [skill, setSkill] = useState<{ target: string; name: string } | null>(null);
+  const skillRef = useRef<SkillCheckHandle>(null);
+  const abilityRef = useRef<((index: number) => void) | null>(null);
+  const finishSkillRef = useRef<((score: number) => void) | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(null), 2500);
+    return () => clearTimeout(id);
+  }, [notice]);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
     const sfx = new Sfx();
     const renderer = new Renderer(canvas, conn, sfx);
+    let aimNow = 0;
+    let skillTarget: string | null = null;
+
+    /** A Principal ability key or button. Detention opens the skill check (or stops it if it's open). */
+    const useAbility = (index: number) => {
+      const me = conn.me;
+      const ability = ABILITIES[index];
+      if (!me || !ability || me.archetype !== "principal" || !me.alive) return;
+      if (ability.id !== "detention") {
+        conn.send({ t: "ability", ability: ability.id });
+        return;
+      }
+      if (skillTarget) {
+        skillRef.current?.stop();
+        return;
+      }
+      if ((me.cds?.[index] ?? 0) > 0) return;
+      const target = renderer.pickDetentionTarget(input.mouseX, input.mouseY, aimNow, input.touchMode);
+      if (!target) {
+        setNotice("No student in sight to send to detention.");
+        return;
+      }
+      skillTarget = target;
+      renderer.detentionTarget = target;
+      const name = conn.room?.roster.find((r) => r.id === target)?.name ?? "a student";
+      setSkill({ target, name });
+    };
+    abilityRef.current = useAbility;
+    // Typing the cheat code (again) opens the prank menu once the server accepts it.
+    const stopPrankListener = conn.listenForPrankUnlock(() => setOverlay("pranks"));
+    finishSkillRef.current = (score) => {
+      if (skillTarget) conn.send({ t: "ability", ability: "detention", target: skillTarget, score });
+      skillTarget = null;
+      renderer.detentionTarget = null;
+      setSkill(null);
+    };
+
     const input = new InputController(canvas, {
       onMenu: () => setOverlay((o) => (o === "none" || o === "settings" ? "menu" : "none")),
       onLoadout: () => setOverlay("loadout"),
       onActivity: () => sfx.unlock(),
+      onAbility: useAbility,
+      onCheatCode: () => conn.send({ t: "prank", action: "unlock", code: CHEAT_CODE }),
     });
     inputRef.current = input;
     input.attach();
@@ -73,6 +130,7 @@ export default function GameView({
       }
       const dt = renderer.updateCamera(now, input.mouseX, input.mouseY);
       const aim = touch ? input.touchAimAngle() : renderer.aimFrom(input.mouseX, input.mouseY);
+      aimNow = aim;
       const me = conn.me;
       let steps = 0;
       while (acc >= TICK_MS && steps < 5) {
@@ -98,6 +156,9 @@ export default function GameView({
       input.detach();
       sfx.dispose();
       inputRef.current = null;
+      abilityRef.current = null;
+      stopPrankListener();
+      finishSkillRef.current = null;
     };
   }, [conn]);
 
@@ -123,7 +184,24 @@ export default function GameView({
           canvasRef={canvasRef}
           active={overlay === "none" && !results}
           onMenu={() => setOverlay("menu")}
+          onAbility={isPrincipal ? (i) => abilityRef.current?.(i) : undefined}
         />
+      )}
+
+      {skill && !results && (
+        <SkillCheck
+          ref={skillRef}
+          targetName={skill.name}
+          keyLabel={keyLabel(binds.ability1)}
+          touch={isTouch}
+          onDone={(score) => finishSkillRef.current?.(score)}
+        />
+      )}
+
+      {notice && (
+        <div className="pointer-events-none absolute left-1/2 top-24 -translate-x-1/2 rounded-lg bg-black/80 px-4 py-2 text-sm font-semibold text-amber-200">
+          {notice}
+        </div>
       )}
 
       {overlay === "menu" && !results && (
@@ -170,8 +248,23 @@ export default function GameView({
               Done
             </button>
           </div>
-          <p className="text-sm text-zinc-400">Changes apply the next time you respawn. Each team can have only one of each class.</p>
-          <LoadoutPicker loadout={loadout} taken={taken} onChange={onLoadoutChange} />
+          {isPrincipal ? (
+            <PrincipalCard />
+          ) : (
+            <>
+              <p className="text-sm text-zinc-400">
+                Changes apply the next time you respawn.
+                {conn.room?.mode === "boss" ? "" : " Each team can have only one of each class."}
+              </p>
+              <LoadoutPicker loadout={loadout} taken={taken} onChange={onLoadoutChange} />
+            </>
+          )}
+        </Modal>
+      )}
+
+      {overlay === "pranks" && !results && (
+        <Modal onClose={() => setOverlay("none")}>
+          <PrankMenu conn={conn} onClose={() => setOverlay("none")} />
         </Modal>
       )}
 
@@ -207,6 +300,7 @@ function Results({ results, myId }: { results: ResultsMessage; myId: string | nu
     return () => clearInterval(id);
   }, []);
   const me = results.players.find((p) => p.id === myId);
+  const names = teamNamesFor(results.mode);
   const title =
     results.winner === null
       ? "Draw"
@@ -214,13 +308,20 @@ function Results({ results, myId }: { results: ResultsMessage; myId: string | nu
         ? "Victory"
         : me
           ? "Defeat"
-          : `${TEAM_NAMES[results.winner]} wins`;
+          : `${names[results.winner]} win${results.winner === 1 && results.mode === "boss" ? "s" : ""}`;
+  const subtitle =
+    results.mode !== "boss" || results.winner === null
+      ? null
+      : results.winner === 0
+        ? "The Principal has been knocked out!"
+        : "The Principal survived until the bell.";
 
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-4">
       <div className="w-full max-w-2xl rounded-xl border border-white/10 bg-zinc-950 p-6">
         <p className="text-center text-sm uppercase tracking-widest text-zinc-400">Match over</p>
         <h2 className="text-center text-5xl font-black text-white">{title}</h2>
+        {subtitle && <p className="mt-1 text-center text-zinc-300">{subtitle}</p>}
         <p className="mt-2 text-center text-3xl font-bold">
           <span className="text-blue-400">{results.scores[0]}</span>
           <span className="mx-3 text-zinc-500">–</span>

@@ -23,8 +23,15 @@ To test with friends on the same network, open the web app at your machine's LAN
 - Friends can join mid-match and take over a bot. If someone leaves, a bot takes their place.
 - The map is one big school with street-style hallways (asphalt with road markings) lined with lockers. Every room is shared by both teams, and each class spawns in its own room: Teacher in the Classroom, Lunch Lady in the Cafeteria, Jock in the Gym, Art Kid in the Art Room, Nerd in the Library, Class Clown in Detention.
 - Each team can have only one of each class (e.g. one Lunch Lady per team). Taken classes are greyed out in the picker.
-- The Nurse's Office in the middle of the main hall heals you and protects you from damage, but you can't throw from inside it. Stay longer than 30 seconds and you pass out, then respawn with half health.
+- The Nurse's Office in the middle of the main hall heals you and protects you from damage, but you can't throw from inside it. Stay longer than 30 seconds, or go in 3 times within 20 seconds (ducking in and out to heal), and you pass out, then respawn with half health.
 - First team to 50 kills wins, or whoever leads when the 8-minute timer runs out.
+
+**The Principal (7v1).** The host can switch the lobby to this mode. Seven students (who can share classes) take on one Principal: a bigger, slower boss with 8000 health and 25% damage resistance, who doesn't respawn and gets nothing from the Nurse's Office. Students win by knocking the Principal out; the Principal wins by surviving the 6-minute timer. Click **Be the Principal** in the lobby to take the seat, or a bot plays it. The Principal's abilities (keys can be changed in Settings; phones get buttons):
+
+- 🔒 **Detention** (E, 25s cooldown): pick a student in sight, then stop the skill-check needle. The closer to the center, the longer they're locked in the Detention room: 20–30 seconds. Locked-up students can't move or throw, and can't be hurt.
+- 📣 **Stern Lecture** (F, 12s): 20 damage and a 1.5-second stun to every student nearby in sight.
+- 📝 **Pop Quiz** (C, 8s): a ring of 16 quiz papers in every direction.
+- 📢 **Intercom** (X, 25s): see every student through walls for 6 seconds; students get a warning.
 
 Controls: WASD to move, mouse to aim, left click to shoot, R to reload, 1/2/Q/mouse wheel to switch weapons, Tab for the scoreboard, B to change class (it applies on respawn), Esc for the menu. To change the keys, click the gear icon on the home screen or in the Esc menu.
 

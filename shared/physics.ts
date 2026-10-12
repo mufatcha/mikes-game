@@ -45,16 +45,17 @@ export function movePlayer(
   my: number,
   speed: number,
   dt: number,
+  radius = PLAYER_RADIUS,
 ) {
   const len = Math.hypot(mx, my);
-  if (len < 1e-3) return;
+  if (len < 1e-3 || speed <= 0) return;
   const s = (speed * dt) / Math.max(1, len);
   // Move in small substeps so fast movement cannot tunnel through thin walls.
   const steps = 2;
   for (let i = 0; i < steps; i++) {
     pos.x += (mx * s) / steps;
     pos.y += (my * s) / steps;
-    resolve(pos, PLAYER_RADIUS, WALLS);
+    resolve(pos, radius, WALLS);
   }
 }
 

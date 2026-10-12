@@ -10,7 +10,7 @@ import type {
   ServerMessage,
   Snapshot,
 } from "@/shared/protocol";
-import { moveSpeedFor, type Loadout } from "@/shared/archetypes";
+import { moveSpeedFor, radiusFor, type Loadout } from "@/shared/archetypes";
 import { gameSocketUrl } from "@/lib/settings";
 
 /** How far behind the newest snapshot other entities are drawn. */
@@ -41,6 +41,17 @@ export class GameConnection {
   predicted: { x: number; y: number } | null = null;
   /** Visual offset left over from server corrections; decays to zero. */
   correction = { x: 0, y: 0 };
+  /** Set once the server accepts the cheat code. */
+  prankUnlocked = false;
+  private prankListener: (() => void) | null = null;
+
+  /** Call `fn` whenever the server accepts the cheat code. Returns an unsubscribe function. */
+  listenForPrankUnlock(fn: () => void) {
+    this.prankListener = fn;
+    return () => {
+      if (this.prankListener === fn) this.prankListener = null;
+    };
+  }
 
   private ws: WebSocket;
   private seq = 0;
@@ -94,7 +105,8 @@ export class GameConnection {
       return;
     }
     this.predicted ??= { x: me.x, y: me.y };
-    movePlayer(this.predicted, input.mx, input.my, this.speedOf(me), DT);
+    const flip = me.reversed ? -1 : 1;
+    movePlayer(this.predicted, flip * input.mx, flip * input.my, this.speedOf(me), DT, radiusFor(me.archetype));
     this.unacked.push(input);
   }
 
@@ -135,8 +147,10 @@ export class GameConnection {
     return ready;
   }
 
+  /** Our move speed; zero while locked in detention or stunned, so prediction matches the server. */
   private speedOf(me: PlayerSnap) {
-    return BASE_SPEED * moveSpeedFor(me.archetype);
+    if (me.jailed > 0 || me.stunned) return 0;
+    return BASE_SPEED * moveSpeedFor(me.archetype) * (me.speed ?? 1);
   }
 
   private onMessage(msg: ServerMessage) {
@@ -155,6 +169,10 @@ export class GameConnection {
         break;
       case "results":
         this.events.onResults(msg);
+        break;
+      case "prank-unlocked":
+        this.prankUnlocked = true;
+        this.prankListener?.();
         break;
       case "error":
         this.events.onError(msg.message, !!msg.fatal);
@@ -203,7 +221,8 @@ export class GameConnection {
     }
     const pos = { x: me.x, y: me.y };
     const speed = this.speedOf(me);
-    for (const f of this.unacked) movePlayer(pos, f.mx, f.my, speed, DT);
+    const flip = me.reversed ? -1 : 1;
+    for (const f of this.unacked) movePlayer(pos, flip * f.mx, flip * f.my, speed, DT, radiusFor(me.archetype));
 
     if (this.predicted) {
       const dx = this.predicted.x + this.correction.x - pos.x;

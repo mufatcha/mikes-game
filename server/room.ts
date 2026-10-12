@@ -1,15 +1,19 @@
 import type { ServerWebSocket } from "bun";
-import { MAX_HUMANS, RESULTS_DURATION, TEAM_SIZE, type Team } from "../shared/constants";
+import { MAX_HUMANS, RESULTS_DURATION, teamSizeFor, type GameMode, type Team } from "../shared/constants";
 import type { ClientMessage, InputFrame, RosterEntry, ServerMessage } from "../shared/protocol";
 import {
+  ABILITY_IDS,
   ARCHETYPES,
   ARCHETYPE_IDS,
   DEFAULT_LOADOUT,
+  PRINCIPAL_LOADOUT,
   sanitizeLoadout,
+  type AbilityId,
   type ArchetypeId,
   type Loadout,
 } from "../shared/archetypes";
 import { Match, type MatchEntry } from "./match";
+import { CHEAT_CODE, PRANK_IDS } from "../shared/pranks";
 
 export interface SocketData {
   code: string;
@@ -21,6 +25,7 @@ interface Client {
   ws: ServerWebSocket<SocketData>;
   name: string;
   team: Team;
+  /** The student class this player picked (kept even while they're the Principal). */
   loadout: Loadout;
   /** False until the client sends hello; until then it doesn't reserve a class. */
   ready: boolean;
@@ -40,12 +45,15 @@ export class Room {
   readonly clients = new Map<string, Client>();
   hostId: string | null = null;
   phase: "lobby" | "match" | "results" = "lobby";
+  mode: GameMode = "teams";
   match: Match | null = null;
   /** Last time the room had nobody in it; used for cleanup. */
   emptySince = Date.now();
 
   private resultsUntil = 0;
   private botSeq = 0;
+  /** Players who entered the cheat code; they keep the prank menu for the rest of their visit. */
+  private pranksters = new Set<string>();
 
   constructor(readonly code: string) {}
 
@@ -81,13 +89,11 @@ export class Room {
     const client = this.clients.get(id);
     if (!client) return;
     this.clients.delete(id);
+    this.pranksters.delete(id);
     if (this.hostId === id) this.hostId = this.clients.keys().next().value ?? null;
     if (this.clients.size === 0) this.emptySince = Date.now();
 
-    if (this.match) {
-      this.match.removePlayer(id);
-      this.match.addPlayer(this.makeBot(client.team));
-    }
+    if (this.match) this.match.replacePlayer(id, this.makeBot(client.team));
     this.broadcastRoom();
   }
 
@@ -105,6 +111,32 @@ export class Room {
       case "input":
         if (this.match && this.phase === "match") this.match.queueInput(id, sanitizeInput(msg));
         return;
+      case "ability": {
+        if (!this.match || this.phase !== "match") return;
+        if (!ABILITY_IDS.includes(msg.ability)) return;
+        const error = this.match.useAbility(
+          id,
+          msg.ability as AbilityId,
+          typeof msg.target === "string" ? msg.target : undefined,
+          Number(msg.score),
+        );
+        if (error) this.send(client.ws, { t: "error", message: error });
+        return;
+      }
+      case "prank": {
+        if (msg.action === "unlock") {
+          if (msg.code === CHEAT_CODE) {
+            this.pranksters.add(id);
+            this.send(client.ws, { t: "prank-unlocked" });
+          }
+          return;
+        }
+        if (!this.pranksters.has(id) || !this.match || this.phase !== "match") return;
+        if (!PRANK_IDS.includes(msg.action)) return;
+        const error = this.match.prank(id, msg.action, typeof msg.target === "string" ? msg.target : undefined);
+        if (error) this.send(client.ws, { t: "error", message: error });
+        return;
+      }
       case "hello":
         client.name = cleanName(msg.name);
         client.ready = true;
@@ -119,15 +151,26 @@ export class Room {
           break;
         }
         client.loadout = wanted;
-        this.match?.setLoadout(id, client.loadout);
+        // The Principal stays the Principal; the pick applies if they go back to being a student.
+        if (!this.isPrincipalSeat(client.team)) this.match?.setLoadout(id, client.loadout);
         break;
       }
       case "team": {
         if (this.phase !== "lobby") return;
         const team: Team = msg.team === 1 ? 1 : 0;
-        if (team === client.team || this.humansOn(team) >= TEAM_SIZE) return;
+        if (team === client.team || this.humansOn(team) >= teamSizeFor(this.mode, team)) return;
         client.team = team;
         client.loadout = this.claimClass(team, id, client.loadout);
+        break;
+      }
+      case "mode": {
+        if (id !== this.hostId || this.phase !== "lobby") return;
+        if (msg.mode !== "teams" && msg.mode !== "boss") return;
+        if (msg.mode === this.mode) return;
+        this.mode = msg.mode;
+        // Nobody becomes the Principal without choosing it: everyone starts as a student.
+        if (this.mode === "boss") for (const c of this.clients.values()) c.team = 0;
+        this.rebalance();
         break;
       }
       case "start":
@@ -157,15 +200,48 @@ export class Room {
     }
   }
 
+  /** In boss mode, team 1 is the Principal's one seat. */
+  private isPrincipalSeat(team: Team) {
+    return this.mode === "boss" && team === 1;
+  }
+
+  /** The class a player actually plays: the Principal seat overrides their pick. */
+  private effectiveLoadout(team: Team, picked: Loadout): Loadout {
+    return this.isPrincipalSeat(team) ? PRINCIPAL_LOADOUT : picked;
+  }
+
+  /** After a mode change, move people off teams that are now over their size. */
+  private rebalance() {
+    for (const team of [1, 0] as Team[]) {
+      const other: Team = team === 0 ? 1 : 0;
+      const members = [...this.clients.values()].filter((c) => c.team === team);
+      // Keep the host where they are if possible.
+      members.sort((a, b) => (a.id === this.hostId ? -1 : b.id === this.hostId ? 1 : 0));
+      for (const c of members.slice(teamSizeFor(this.mode, team))) {
+        if (this.humansOn(other) >= teamSizeFor(this.mode, other)) break;
+        c.team = other;
+      }
+    }
+    for (const c of this.clients.values()) c.loadout = this.claimClass(c.team, c.id, c.loadout);
+  }
+
   private startMatch() {
     const entries: MatchEntry[] = [];
     for (const c of this.clients.values()) {
-      entries.push({ id: c.id, name: c.name, team: c.team, loadout: c.loadout, isBot: false });
+      entries.push({
+        id: c.id,
+        name: c.name,
+        team: c.team,
+        loadout: this.effectiveLoadout(c.team, c.loadout),
+        isBot: false,
+      });
     }
     for (const team of [0, 1] as Team[]) {
-      for (let n = this.humansOn(team); n < TEAM_SIZE; n++) entries.push(this.makeBot(team, entries));
+      for (let n = this.humansOn(team); n < teamSizeFor(this.mode, team); n++) {
+        entries.push(this.makeBot(team, entries));
+      }
     }
-    this.match = new Match(entries);
+    this.match = new Match(entries, this.mode);
     this.phase = "match";
   }
 
@@ -178,6 +254,7 @@ export class Room {
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     this.broadcast({
       t: "results",
+      mode: match.mode,
       scores: match.scores,
       winner: match.winner,
       players,
@@ -191,14 +268,24 @@ export class Room {
     const match = this.match!;
     const bots = [...match.players.values()].filter((p) => p.isBot && p.team === client.team);
     const bot = bots.find((p) => p.loadout.archetype === client.loadout.archetype) ?? bots[0];
-    if (bot) match.removePlayer(bot.id);
     client.loadout = this.claimClass(client.team, client.id, client.loadout);
-    match.addPlayer({ id: client.id, name: client.name, team: client.team, loadout: client.loadout, isBot: false });
+    const entry: MatchEntry = {
+      id: client.id,
+      name: client.name,
+      team: client.team,
+      loadout: this.effectiveLoadout(client.team, client.loadout),
+      isBot: false,
+    };
+    if (bot) match.replacePlayer(bot.id, entry);
+    else match.addPlayer(entry);
   }
 
   private syncToMatch(client: Client) {
     const p = this.match?.players.get(client.id);
-    if (!p) return;
+    if (!p || this.isPrincipalSeat(client.team)) {
+      if (p) p.name = client.name;
+      return;
+    }
     p.name = client.name;
     // A freshly joined player hasn't fired yet, so apply the loadout immediately.
     if (p.kills === 0 && p.deaths === 0) {
@@ -211,6 +298,8 @@ export class Room {
   /** Classes already held (or queued for next respawn) by teammates other than `exceptId`. */
   private takenClasses(team: Team, exceptId: string | null, extra: MatchEntry[] = []) {
     const taken = new Set<ArchetypeId>();
+    // Seven students and six classes: in boss mode, students can share.
+    if (this.mode === "boss") return taken;
     for (const c of this.clients.values()) {
       if (c.ready && c.team === team && c.id !== exceptId) taken.add(c.loadout.archetype);
     }
@@ -237,15 +326,24 @@ export class Room {
     ]);
     const freeNames = BOT_NAMES.filter((n) => !usedNames.has(`${n} [BOT]`));
     const name = freeNames[Math.floor(Math.random() * freeNames.length)] ?? `Bot ${this.botSeq}`;
-    const taken = this.takenClasses(team, null, extra);
-    const freeClasses = ARCHETYPE_IDS.filter((a) => !taken.has(a));
-    const pool = freeClasses.length > 0 ? freeClasses : ARCHETYPE_IDS;
-    const archetype = pool[Math.floor(Math.random() * pool.length)];
+    let loadout: Loadout;
+    if (this.isPrincipalSeat(team)) {
+      loadout = PRINCIPAL_LOADOUT;
+    } else {
+      // Prefer a class nobody on the team has yet, even when sharing is allowed.
+      const used = new Set([
+        ...this.takenClasses(team, null, extra),
+        ...extra.filter((e) => e.team === team).map((e) => e.loadout.archetype),
+      ]);
+      const freeClasses = ARCHETYPE_IDS.filter((a) => !used.has(a));
+      const pool = freeClasses.length > 0 ? freeClasses : ARCHETYPE_IDS;
+      loadout = { archetype: pool[Math.floor(Math.random() * pool.length)] };
+    }
     return {
       id: `bot-${++this.botSeq}`,
       name: `${name} [BOT]`,
       team,
-      loadout: { archetype },
+      loadout,
       isBot: true,
     };
   }
@@ -256,8 +354,11 @@ export class Room {
     return n;
   }
 
+  /** Newcomers join whichever team has the most open seats. */
   private teamWithRoom(): Team {
-    return this.humansOn(1) < this.humansOn(0) ? 1 : 0;
+    const open0 = teamSizeFor(this.mode, 0) - this.humansOn(0);
+    const open1 = teamSizeFor(this.mode, 1) - this.humansOn(1);
+    return open1 > open0 ? 1 : 0;
   }
 
   private roster(): RosterEntry[] {
@@ -266,7 +367,7 @@ export class Room {
         id: p.id,
         name: p.name,
         team: p.team,
-        loadout: this.clients.get(p.id)?.loadout ?? p.loadout,
+        loadout: p.loadout.archetype === "principal" ? p.loadout : (this.clients.get(p.id)?.loadout ?? p.loadout),
         isBot: p.isBot,
         isHost: p.id === this.hostId,
       }));
@@ -275,14 +376,21 @@ export class Room {
       id: c.id,
       name: c.name,
       team: c.team,
-      loadout: c.loadout,
+      loadout: this.effectiveLoadout(c.team, c.loadout),
       isBot: false,
       isHost: c.id === this.hostId,
     }));
   }
 
   private broadcastRoom() {
-    this.broadcast({ t: "room", code: this.code, phase: this.phase, hostId: this.hostId, roster: this.roster() });
+    this.broadcast({
+      t: "room",
+      code: this.code,
+      phase: this.phase,
+      hostId: this.hostId,
+      mode: this.mode,
+      roster: this.roster(),
+    });
   }
 
   private broadcastSnapshot() {

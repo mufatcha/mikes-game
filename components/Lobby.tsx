@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { TEAM_NAMES, TEAM_SIZE, type Team } from "@/shared/constants";
+import { GAME_MODES, teamNamesFor, teamSizeFor, type GameMode, type Team } from "@/shared/constants";
 import type { RoomState } from "@/shared/protocol";
 import { ARCHETYPES, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { keyLabel, useKeybinds } from "@/lib/settings";
 import LoadoutPicker from "./LoadoutPicker";
+import PrincipalCard from "./PrincipalCard";
 
 const TEAM_STYLES = [
   { text: "text-blue-400", border: "border-blue-500/40", bg: "bg-blue-500/10", button: "bg-blue-500 hover:bg-blue-400" },
@@ -45,6 +46,7 @@ export default function Lobby({
   onLoadoutChange,
   onTeam,
   onStart,
+  onMode,
 }: {
   room: RoomState;
   myId: string | null;
@@ -53,11 +55,15 @@ export default function Lobby({
   onLoadoutChange: (l: Loadout) => void;
   onTeam: (t: Team) => void;
   onStart: () => void;
+  onMode: (mode: GameMode) => void;
 }) {
   const me = room.roster.find((r) => r.id === myId);
   const isHost = room.hostId === myId;
   const humans = room.roster.length;
-  const bots = TEAM_SIZE * 2 - humans;
+  const mode = room.mode;
+  const names = teamNamesFor(mode);
+  const bots = teamSizeFor(mode, 0) + teamSizeFor(mode, 1) - humans;
+  const amPrincipal = mode === "boss" && me?.team === 1;
   const binds = useKeybinds();
 
   return (
@@ -74,16 +80,48 @@ export default function Lobby({
         </div>
       </header>
 
+      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-lg font-bold text-white">Game mode</h2>
+          {!isHost && <p className="text-sm text-zinc-500">The host picks the mode.</p>}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {GAME_MODES.map((m) => {
+            const selected = m.id === mode;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                disabled={!isHost}
+                onClick={() => onMode(m.id)}
+                className={`rounded-xl border p-4 text-left transition ${
+                  selected
+                    ? "border-amber-400 bg-amber-400/10"
+                    : "border-white/10 bg-black/20 enabled:hover:border-white/30"
+                } disabled:cursor-default`}
+              >
+                <p className={`font-bold ${selected ? "text-amber-300" : "text-white"}`}>
+                  {m.id === "boss" ? "👔 " : "⚔️ "}
+                  {m.name}
+                </p>
+                <p className="mt-1 text-sm text-zinc-400">{m.blurb}</p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="grid gap-4 md:grid-cols-2">
         {([0, 1] as Team[]).map((team) => {
           const members = room.roster.filter((r) => r.team === team);
           const style = TEAM_STYLES[team];
-          const canJoin = me && me.team !== team && members.length < TEAM_SIZE;
+          const size = teamSizeFor(mode, team);
+          const canJoin = me && me.team !== team && members.length < size;
           return (
             <div key={team} className={`rounded-xl border ${style.border} ${style.bg} p-4`}>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className={`text-lg font-bold uppercase tracking-wider ${style.text}`}>
-                  {TEAM_NAMES[team]} team
+                  {names[team]}
                 </h2>
                 {canJoin && (
                   <button
@@ -91,12 +129,12 @@ export default function Lobby({
                     onClick={() => onTeam(team)}
                     className={`rounded-md px-3 py-1 text-sm font-semibold text-white ${style.button}`}
                   >
-                    Switch here
+                    {mode === "boss" && team === 1 ? "Be the Principal" : "Switch here"}
                   </button>
                 )}
               </div>
               <ul className="flex flex-col gap-2">
-                {Array.from({ length: TEAM_SIZE }, (_, i) => {
+                {Array.from({ length: size }, (_, i) => {
                   const m = members[i];
                   if (!m) {
                     return (
@@ -104,7 +142,7 @@ export default function Lobby({
                         key={`empty-${i}`}
                         className="rounded-lg border border-dashed border-white/10 px-3 py-2.5 text-sm text-zinc-500"
                       >
-                        Open slot (a bot will play)
+                        {mode === "boss" && team === 1 ? "Open: a bot Principal will play" : "Open slot (a bot will play)"}
                       </li>
                     );
                   }
@@ -145,7 +183,7 @@ export default function Lobby({
               Start match
             </button>
             <p className="text-sm text-zinc-400">
-              {bots > 0 ? `${bots} bot${bots === 1 ? "" : "s"} will fill the open slots.` : "Full 4v4, no bots needed."}{" "}
+              {bots > 0 ? `${bots} bot${bots === 1 ? "" : "s"} will fill the open slots.` : "Every seat is taken, no bots needed."}{" "}
               Friends can still join mid-match and take over a bot.
             </p>
           </>
@@ -155,9 +193,19 @@ export default function Lobby({
       </section>
 
       <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-        <h2 className="mb-4 text-lg font-bold text-white">Pick your class</h2>
-        <p className="-mt-2 mb-4 text-sm text-zinc-400">Each team can have only one of each class.</p>
-        <LoadoutPicker loadout={loadout} taken={taken} onChange={onLoadoutChange} />
+        {amPrincipal ? (
+          <PrincipalCard />
+        ) : (
+          <>
+            <h2 className="mb-4 text-lg font-bold text-white">Pick your class</h2>
+            <p className="-mt-2 mb-4 text-sm text-zinc-400">
+              {mode === "boss"
+                ? "Students can share classes. Work together to take down the Principal."
+                : "Each team can have only one of each class."}
+            </p>
+            <LoadoutPicker loadout={loadout} taken={taken} onChange={onLoadoutChange} />
+          </>
+        )}
       </section>
 
       <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5 text-sm text-zinc-300">

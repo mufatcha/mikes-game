@@ -48,12 +48,12 @@ function Session({ code, name }: { code: string; name: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
 
-  // The server has the final say on our class (one of each per team).
+  // The server has the final say on our class (one of each per team, except in boss mode).
   const meEntry = room?.roster.find((r) => r.id === myId);
   const loadout = meEntry?.loadout ?? savedLoadout;
   const taken = new Map<ArchetypeId, string>(
     (room?.roster ?? [])
-      .filter((r) => meEntry && r.team === meEntry.team && r.id !== myId)
+      .filter((r) => room?.mode !== "boss" && meEntry && r.team === meEntry.team && r.id !== myId)
       .map((r) => [r.loadout.archetype, r.name]),
   );
 
@@ -172,6 +172,7 @@ function Session({ code, name }: { code: string; name: string }) {
           onLoadoutChange={changeLoadout}
           onTeam={(team) => conn.send({ t: "team", team })}
           onStart={() => conn.send({ t: "start" })}
+          onMode={(mode) => conn.send({ t: "mode", mode })}
         />
       </main>
     );

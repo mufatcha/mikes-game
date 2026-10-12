@@ -82,7 +82,14 @@ export const KEY_ACTIONS = [
   { id: "swap", label: "Switch weapon" },
   { id: "scoreboard", label: "Scoreboard (hold)" },
   { id: "loadout", label: "Change class" },
+  { id: "ability1", label: "Principal: Detention" },
+  { id: "ability2", label: "Principal: Stern Lecture" },
+  { id: "ability3", label: "Principal: Pop Quiz" },
+  { id: "ability4", label: "Principal: Intercom" },
 ] as const;
+
+/** Key actions for the Principal's abilities, in ABILITIES order. */
+export const ABILITY_ACTIONS = ["ability1", "ability2", "ability3", "ability4"] as const;
 
 export type KeyAction = (typeof KEY_ACTIONS)[number]["id"];
 export type Keybinds = Record<KeyAction, string>;
@@ -99,6 +106,10 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   swap: "KeyQ",
   scoreboard: "Tab",
   loadout: "KeyB",
+  ability1: "KeyE",
+  ability2: "KeyF",
+  ability3: "KeyC",
+  ability4: "KeyX",
 };
 
 /** Esc always opens the menu, so it can't be bound to anything else. */

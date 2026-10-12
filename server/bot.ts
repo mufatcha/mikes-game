@@ -1,4 +1,3 @@
-import { MAX_HP } from "../shared/constants";
 import { MAP_HEIGHT, MAP_WIDTH, SAFE_ZONE, inSafeZone, type Point } from "../shared/map";
 import { hasLineOfSight } from "../shared/physics";
 import type { InputFrame } from "../shared/protocol";
@@ -21,6 +20,10 @@ const PREFERRED_RANGE: Record<WeaponId, number> = {
   pencil: 400,
   spitball: 800,
   peashooter: 400,
+  eraser: 450,
+  redpen: 350,
+  quiz: 400,
+  lecture: 200,
 };
 
 function wrapAngle(a: number) {
@@ -89,8 +92,9 @@ export class BotBrain {
     const target = this.pickTarget(self, match);
     // Nurse's Office: go heal when hurt and nothing is around; leave once healed or before passing out.
     const inZone = inSafeZone(self.x, self.y);
-    const leaveZone = inZone && (self.zoneTime > 18 || self.hp >= MAX_HP);
-    const wantsHeal = !target && !inZone && self.hp < 40;
+    const leaveZone = inZone && (self.zoneTime > 18 || self.hp >= self.maxHp);
+    // The Principal gets nothing from the nurse.
+    const wantsHeal = !target && !inZone && self.hp < 40 && !match.isPrincipal(self);
 
     if (target && target.id !== this.targetId) {
       this.acquiredAt = t;
@@ -179,7 +183,8 @@ export class BotBrain {
     let best: PlayerState | null = null;
     let bestScore = Infinity;
     for (const p of match.players.values()) {
-      if (!p.alive || p.team === self.team) continue;
+      // Students in detention can't be hurt, so leave them be.
+      if (!p.alive || p.team === self.team || match.isJailed(p)) continue;
       const d = Math.hypot(p.x - self.x, p.y - self.y);
       if (d > VIEW_RANGE) continue;
       if (!hasLineOfSight(self.x, self.y, p.x, p.y)) continue;

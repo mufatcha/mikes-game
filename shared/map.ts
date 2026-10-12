@@ -190,6 +190,11 @@ export function inSafeZone(x: number, y: number) {
 }
 
 export const SPAWNS: Record<ArchetypeId, Point[]> = {
+  // The Principal starts at either end of the main hall, away from the classrooms.
+  principal: [
+    { x: 150, y: 850 },
+    { x: 2450, y: 850 },
+  ],
   jock: [
     { x: 100, y: 200 },
     { x: 776, y: 200 },

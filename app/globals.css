@@ -20,3 +20,46 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Title screen fighters: bob on their feet, throw jabs, and the VS clash pulses. */
+@keyframes title-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes title-jab-right {
+  0%, 70%, 100% { transform: translateX(0); }
+  80% { transform: translateX(12px); }
+}
+@keyframes title-jab-left {
+  0%, 30%, 60%, 100% { transform: translateX(0); }
+  45% { transform: translateX(-12px); }
+}
+@keyframes title-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+.title-bob { animation: title-bob 0.9s ease-in-out infinite; }
+.title-bob-late { animation-delay: -0.45s; }
+.title-jab-right { animation: title-jab-right 1.8s ease-out infinite; }
+.title-jab-left { animation: title-jab-left 1.8s ease-out infinite; }
+.title-pulse {
+  animation: title-pulse 1.2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .title-bob, .title-jab-right, .title-jab-left, .title-pulse { animation: none; }
+}
+
+/* Title screen: blue on the left, orange on the right, a bright clash line down the middle. */
+.title-bg {
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(254, 243, 199, 0.55), transparent 35%),
+    linear-gradient(100deg, #1e3a8a 0%, #2f55d4 30%, #4f7cff 47%, #fef3c7 49.6%, #fef3c7 50.4%, #ff9b42 53%, #f97316 70%, #9a3412 100%);
+}
+/* Comic-book dots over the background. */
+.title-halftone {
+  background-image: radial-gradient(rgba(0, 0, 0, 0.22) 1.2px, transparent 1.6px);
+  background-size: 14px 14px;
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+}

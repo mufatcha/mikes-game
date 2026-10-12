@@ -21,6 +21,10 @@ const SHOT_SOUNDS: Record<WeaponId, ShotSound> = {
   pencil: { freq: 2000, q: 2, duration: 0.06, gain: 0.35, thump: 250 },
   spitball: { freq: 1500, q: 0.8, duration: 0.2, gain: 0.55, thump: 90 },
   peashooter: { freq: 1800, q: 1.5, duration: 0.07, gain: 0.35, thump: 200 },
+  eraser: { freq: 500, q: 0.7, duration: 0.12, gain: 0.55, thump: 90 },
+  redpen: { freq: 3600, q: 3, duration: 0.04, gain: 0.3, thump: 350 },
+  quiz: { freq: 1100, q: 0.6, duration: 0.3, gain: 0.6, thump: 100 },
+  lecture: { freq: 300, q: 0.5, duration: 0.4, gain: 0.8, thump: 50 },
 };
 
 /** Tiny synthesized sound effects, so the game needs no audio files. */
