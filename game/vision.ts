@@ -20,6 +20,7 @@ const BLOCKS_SIGHT: Record<WallKind, boolean> = {
   bleacher: false,
   easel: false,
   clinic: true,
+  tardis: true,
 };
 const OCCLUDERS: Wall[] = WALLS.filter((w) => BLOCKS_SIGHT[w.kind]);
 

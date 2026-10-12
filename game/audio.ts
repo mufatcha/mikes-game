@@ -137,6 +137,45 @@ export class Sfx {
     osc.stop(t + duration + 0.01);
   }
 
+  /** The TARDIS dematerializing: a wheezing "vworp, vworp" over a low grinding hum. */
+  tardis(volume: number) {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || !this.noise || volume <= 0.01) return;
+    const t = ctx.currentTime;
+    const len = 2.4;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.Q.value = 6;
+    // Three rising-and-falling wheezes.
+    for (let i = 0; i < 3; i++) {
+      filter.frequency.setValueAtTime(300, t + i * 0.8);
+      filter.frequency.exponentialRampToValueAtTime(1400, t + i * 0.8 + 0.45);
+      filter.frequency.exponentialRampToValueAtTime(300, t + i * 0.8 + 0.8);
+    }
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, t);
+    gain.gain.exponentialRampToValueAtTime(0.7 * volume, t + 0.3);
+    gain.gain.setValueAtTime(0.7 * volume, t + len - 0.6);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + len);
+    src.connect(filter).connect(gain).connect(this.master);
+    src.start(t);
+    src.stop(t + len);
+    const hum = ctx.createOscillator();
+    hum.type = "sawtooth";
+    hum.frequency.setValueAtTime(70, t);
+    hum.frequency.linearRampToValueAtTime(55, t + len);
+    const hg = ctx.createGain();
+    hg.gain.setValueAtTime(0.001, t);
+    hg.gain.exponentialRampToValueAtTime(0.12 * volume, t + 0.3);
+    hg.gain.exponentialRampToValueAtTime(0.001, t + len);
+    hum.connect(hg).connect(this.master);
+    hum.start(t);
+    hum.stop(t + len);
+  }
+
   hit() {
     this.blip(1250, 0.05, 0.12);
   }

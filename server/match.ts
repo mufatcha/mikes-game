@@ -22,7 +22,7 @@ import {
   type GameMode,
   type Team,
 } from "../shared/constants";
-import { SPAWNS, WALLS, WALL_HEIGHT, inSafeZone } from "../shared/map";
+import { SPAWNS, WALLS, WALL_HEIGHT, atTardisDoor, inSafeZone } from "../shared/map";
 import { firstWallHitWithNormal, hasLineOfSight, movePlayer, segmentCircle, segmentRectHit } from "../shared/physics";
 import type { BulletSnap, GameEvent, InputFrame, PlayerSnap, ZoneSnap } from "../shared/protocol";
 import {
@@ -146,6 +146,8 @@ export interface PlayerState extends MatchEntry {
   revealUntil: number;
   /** Peely's Thick Rind: can't be hurt until this match time. */
   shieldUntil: number;
+  /** Can't ride the TARDIS again until this match time. */
+  tardisReadyAt: number;
   /** Barry's Antioxidants: faster until this match time. */
   hasteUntil: number;
   /** 3D view: how far up (positive) or down they're aiming. */
@@ -363,6 +365,7 @@ export class Match {
       p.vx = (p.x - px) / DT;
       p.vy = (p.y - py) / DT;
       if (p.alive) this.updateSafeZone(p);
+      if (p.alive) this.rideTardis(p);
       if (p.isBot && p.alive && this.isBoss(p)) this.botAbilities(p);
       if (p.alive && !this.isBoss(p)) {
         p.superCharge = Math.min(1, p.superCharge + DT / SUPER_PASSIVE_SECONDS);
@@ -493,6 +496,7 @@ export class Match {
       cooldowns: Object.fromEntries(ABILITY_IDS.map((a) => [a, 0])) as Record<AbilityId, number>,
       shieldUntil: 0,
       hasteUntil: 0,
+      tardisReadyAt: 0,
       pitch: 0,
       reversedUntil: 0,
       slowUntil: 0,
@@ -906,6 +910,25 @@ export class Match {
    * Heal inside the Nurse's Office. Stay too long, or keep ducking in and out,
    * and you pass out.
    */
+  /**
+   * The TARDIS hidden in the Library: walk into its doors and it's bigger on
+   * the inside, letting you out at a random spot in some other room.
+   */
+  private rideTardis(p: PlayerState) {
+    if (this.time < p.tardisReadyAt || this.isJailed(p) || !atTardisDoor(p.x, p.y)) return;
+    // Anywhere but the Library, where you got in.
+    const spots = Object.entries(SPAWNS)
+      .filter(([a]) => a !== "nerd")
+      .flatMap(([, list]) => list);
+    const to = spots[Math.floor(Math.random() * spots.length)];
+    this.events.push({ k: "tardis", who: p.id, x: r1(p.x), y: r1(p.y), tx: to.x, ty: to.y });
+    p.x = to.x;
+    p.y = to.y;
+    p.inputs = [];
+    p.brain?.reset();
+    p.tardisReadyAt = this.time + 3;
+  }
+
   private updateSafeZone(p: PlayerState) {
     // The Principal isn't a patient: no healing, no protection, no timer.
     if (this.isBoss(p)) return;

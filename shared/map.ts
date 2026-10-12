@@ -1,6 +1,6 @@
 import type { ArchetypeId } from "./archetypes";
 
-export type WallKind = "wall" | "desk" | "shelf" | "table" | "bleacher" | "locker" | "easel" | "clinic";
+export type WallKind = "wall" | "desk" | "shelf" | "table" | "bleacher" | "locker" | "easel" | "clinic" | "tardis";
 
 /** How tall each kind of wall or furniture is, in world units. In 3D, throws can fly over the low ones. */
 export const WALL_HEIGHT: Record<WallKind, number> = {
@@ -12,6 +12,7 @@ export const WALL_HEIGHT: Record<WallKind, number> = {
   bleacher: 30,
   easel: 46,
   clinic: 80,
+  tardis: 72,
 };
 
 export interface Rect {
@@ -145,6 +146,17 @@ const NURSE = { x: 1190, y: 780, w: 220, h: 140 };
 const NURSE_WALL = 10;
 const NURSE_DOOR: [number, number] = [NURSE.y + NURSE.h / 2 - 35, NURSE.y + NURSE.h / 2 + 35];
 
+/**
+ * Somebody parked a TARDIS in the back corner of the Library, behind the
+ * shelves. Its doors face into the room; it's bigger on the inside.
+ */
+export const TARDIS: Rect = { x: 1634, y: 2, w: 38, h: 38 };
+
+/** Walking into the TARDIS doors (in front of its south face) takes you somewhere else. */
+export function atTardisDoor(x: number, y: number) {
+  return x > TARDIS.x + 6 && x < TARDIS.x + TARDIS.w - 6 && y > TARDIS.y + TARDIS.h && y < TARDIS.y + TARDIS.h + 26;
+}
+
 export const WALLS: Wall[] = [
   // Gym
   ...lockerWallV(0, MAIN_HALL.y1, HALL_A.x1 - T, "right", [[250, 370]]),
@@ -186,6 +198,9 @@ export const WALLS: Wall[] = [
   // Locker banks in the main hall for cover, either side of the Nurse's Office
   box("locker", 420, 830, 160, 40),
   box("locker", 2020, 830, 160, 40),
+
+  // Shh.
+  box("tardis", TARDIS.x, TARDIS.y, TARDIS.w, TARDIS.h),
 
   // The Nurse's Office building.
   ...stripH("clinic", NURSE.x, NURSE.x + NURSE.w, NURSE.y, NURSE_WALL, []),

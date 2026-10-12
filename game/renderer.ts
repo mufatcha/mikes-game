@@ -63,6 +63,7 @@ const WALL_STYLES: Record<WallKind, { fill: string; top: string }> = {
   easel: { fill: "#7c5e3c", top: "#c084fc" },
   locker: { fill: "#2f5d9e", top: "#4f83c9" },
   clinic: { fill: "#e2e8f0", top: "#ef4444" },
+  tardis: { fill: "#0f3b82", top: "#1e3a8a" },
 };
 /** World area that fits on screen; bigger screens zoom in rather than see more. */
 const VIEW_AREA = 1500 * 860;
@@ -716,6 +717,19 @@ export class Renderer {
           }
           break;
         }
+        case "tardis": {
+          // Vworp, vworp: heard where they vanished and where they reappear.
+          const mine = e.who === myId;
+          const near = Math.min(
+            Math.hypot(e.x - this.myX, e.y - this.myY),
+            Math.hypot(e.tx - this.myX, e.ty - this.myY),
+          );
+          this.sfx.tardis(mine ? 0.9 : Math.max(0, 1 - near / HEARING_RANGE));
+          this.burst(e.x, e.y, "#60a5fa", 24, 160);
+          this.burst(e.tx, e.ty, "#60a5fa", 24, 160);
+          if (mine) this.showBanner("🟦 It's bigger on the inside!", "#93c5fd", 3000);
+          break;
+        }
         case "jailed": {
           this.feed.push({
             killer: roster.get(e.by),
@@ -984,6 +998,10 @@ export class Renderer {
         this.drawLockerDoors(w);
         continue;
       }
+      if (w.kind === "tardis") {
+        this.drawTardisRoof(w);
+        continue;
+      }
       ctx.fillStyle = style.top;
       ctx.fillRect(w.x, w.y, w.w, Math.min(5, w.h / 3));
       ctx.strokeStyle = "rgba(0,0,0,0.35)";
@@ -991,6 +1009,29 @@ export class Renderer {
       ctx.strokeRect(w.x + 1, w.y + 1, w.w - 2, w.h - 2);
     }
     for (const t of SCHOOL_TABLES) this.drawSchoolTable(t);
+  }
+
+  /** The police box seen from above: a stepped blue roof with the lamp on top. */
+  private drawTardisRoof(w: { x: number; y: number; w: number; h: number }) {
+    const { ctx } = this;
+    const cx = w.x + w.w / 2;
+    const cy = w.y + w.h / 2;
+    ctx.fillStyle = "#0a2a5e";
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.fillStyle = "#0f3b82";
+    ctx.fillRect(w.x + 4, w.y + 4, w.w - 8, w.h - 8);
+    ctx.fillStyle = "#1e3a8a";
+    ctx.fillRect(w.x + 9, w.y + 9, w.w - 18, w.h - 18);
+    // The lamp glows.
+    const glow = ctx.createRadialGradient(cx, cy, 1, cx, cy, 12);
+    glow.addColorStop(0, "rgba(224,242,254,0.9)");
+    glow.addColorStop(1, "rgba(224,242,254,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(cx - 12, cy - 12, 24, 24);
+    ctx.fillStyle = "#f8fafc";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   /** A rival school's logo and name painted on a lunch table. */

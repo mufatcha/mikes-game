@@ -25,6 +25,7 @@ export const TEX_UNITS: Record<Surface, number> = {
   bleacher: 40,
   easel: 40,
   clinic: 56,
+  tardis: 38,
 };
 
 /** How tall each surface is, in world units (also the texture height). */
@@ -164,6 +165,64 @@ function clinicCanvas() {
   g.fillStyle = "#dc2626";
   g.fillRect(cx - 3.5 * u, cy - 10 * u, 7 * u, 20 * u);
   g.fillRect(cx - 10 * u, cy - 3.5 * u, 20 * u, 7 * u);
+  return c;
+}
+
+/**
+ * A blue police box: the lamp and stepped roof on top, the black "POLICE
+ * BOX" sign, two doors with windows and panels, and the white notice on
+ * the left door. Only its front and left side face the room, and both of
+ * those read the right way round.
+ */
+function tardisCanvas() {
+  const c = canvas(TEX_UNITS.tardis, SURFACE_HEIGHT.tardis);
+  const g = c.getContext("2d")!;
+  const { width: w } = c;
+  const u = PPU;
+  const BLUE = "#0f3b82";
+  const DARK = "#0a2a5e";
+  // Lamp on top, then the stepped roof.
+  g.fillStyle = "#e0f2fe";
+  g.fillRect(16 * u, 0, 6 * u, 3 * u);
+  g.fillStyle = DARK;
+  g.fillRect(14 * u, 3 * u, 10 * u, 2 * u);
+  g.fillRect(3 * u, 5 * u, w - 6 * u, 2 * u);
+  g.fillRect(0, 7 * u, w, 2 * u);
+  // The body.
+  g.fillStyle = BLUE;
+  g.fillRect(0, 9 * u, w, c.height - 9 * u);
+  // The black sign with white lettering.
+  g.fillStyle = "#0b0b0f";
+  g.fillRect(2 * u, 10 * u, w - 4 * u, 5 * u);
+  g.fillStyle = "#f8fafc";
+  g.font = `800 ${3.6 * u}px ui-sans-serif, system-ui, sans-serif`;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText("POLICE BOX", w / 2, 12.6 * u);
+  // Corner posts and the post between the doors.
+  g.fillStyle = DARK;
+  g.fillRect(0, 9 * u, 2.5 * u, c.height);
+  g.fillRect(w - 2.5 * u, 9 * u, 2.5 * u, c.height);
+  g.fillRect(18.4 * u, 15 * u, 1.2 * u, c.height);
+  // Each door: a row of windows, then three panels.
+  for (const x0 of [3.5, 20.5]) {
+    g.fillStyle = "#dbeafe";
+    for (let col = 0; col < 3; col++) {
+      for (let row = 0; row < 2; row++) {
+        g.fillRect((x0 + 0.6 + col * 4.6) * u, (17 + row * 4.4) * u, 3.6 * u, 3.6 * u);
+      }
+    }
+    g.strokeStyle = DARK;
+    g.lineWidth = 0.8 * u;
+    for (let p = 0; p < 3; p++) g.strokeRect((x0 + 1) * u, (28 + p * 14.5) * u, 12 * u, 12 * u);
+  }
+  // The notice on the left door, and the door handle.
+  g.fillStyle = "#f8fafc";
+  g.fillRect(5.5 * u, 30 * u, 10 * u, 8 * u);
+  g.fillStyle = "#64748b";
+  for (let i = 0; i < 4; i++) g.fillRect(6.5 * u, (31.5 + i * 1.6) * u, 8 * u, 0.5 * u);
+  g.fillStyle = "#cbd5e1";
+  g.fillRect(16.5 * u, 44 * u, 1 * u, 3 * u);
   return c;
 }
 
@@ -328,6 +387,7 @@ export function wallTexture(surface: Surface, variant: WallVariant = "plain"): H
     else if (surface === "locker") c = lockerCanvas();
     else if (surface === "shelf") c = shelfCanvas();
     else if (surface === "clinic") c = clinicCanvas();
+    else if (surface === "tardis") c = tardisCanvas();
     else c = furnitureCanvas(surface);
     cache.set(key, c);
   }
