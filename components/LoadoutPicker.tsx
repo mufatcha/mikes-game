@@ -3,6 +3,7 @@
 import { ARCHETYPES, ARCHETYPE_IDS, SUPERS, WEAPONS, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { MAX_LEVEL, levelBonus, levelFromXp, xpForLevel } from "@/shared/progress";
 import { useClassXp } from "@/lib/settings";
+import SkinPortrait from "./SkinPortrait";
 
 const STATS = [
   ["attack", "Attack"],
@@ -82,7 +83,7 @@ export default function LoadoutPicker({
               </span>
             )}
             <div className="flex items-center gap-3">
-              <span className="text-4xl leading-none">{a.emoji}</span>
+              <SkinPortrait archetype={id} />
               <div>
                 <p className="text-lg font-bold text-white">{a.name}</p>
                 <p className="text-xs text-zinc-400">{a.tagline}</p>

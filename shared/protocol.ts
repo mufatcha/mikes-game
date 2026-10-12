@@ -29,6 +29,8 @@ export type ClientMessage =
   | { t: "start" }
   /** Host only, in the lobby. */
   | { t: "mode"; mode: GameMode }
+  /** Host only, in the lobby: play this match in 3D first person, or top-down. */
+  | { t: "view"; view3d: boolean }
   /** Principal only. `target` and `score` (skill check, 0 to 1) are for Detention. */
   | { t: "ability"; ability: AbilityId; target?: string; score?: number }
   /** Secret prank menu: "unlock" with the cheat code first, then pranks. */
@@ -52,6 +54,8 @@ export interface RoomState {
   phase: Phase;
   hostId: string | null;
   mode: GameMode;
+  /** The match is seen in 3D first person instead of top-down. */
+  view3d: boolean;
   roster: RosterEntry[];
 }
 

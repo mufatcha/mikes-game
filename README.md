@@ -35,6 +35,8 @@ To test with friends on the same network, open the web app at your machine's LAN
 
 **Fog of War (4v4).** Same rules as Team Battle, but you can only see a small circle around you: no long view cone and no seeing a whole room. Walls still block sight.
 
+**3D first person (any mode).** Under **View** in the lobby, the host can switch any mode (Team Battle, Fog of War, the Principal 7v1 and the Duel) to 3D. Everyone is a 3D figure in their class outfit, walking, holding their throw, and you see your own arm and ball. Click the game to grab the mouse, then move the mouse to look in any direction (all the way around, and up and down); W/A/S/D walk and strafe relative to where you're facing, and left click throws. Esc gives the mouse back and opens the menu. The minimap shows which way you're facing. In Fog of War the school goes dark just past the circle you can see; the Principal's Intercom shows students through walls with a red outline, and Detention picks the student closest to your crosshair. On phones, the aim stick turns you side to side and tilts your view up and down.
+
 **Principal Duel (1v1).** Two Principals fight with their own set of powers (same keys as the 7v1 abilities). Each has 1500 health and respawns; first to 3 knockouts wins, or whoever leads after 5 minutes. A duel room holds two players.
 
 - 📋 **Hall Pass** (E, 7s): teleport-dash 350 units where you aim.

@@ -57,6 +57,8 @@ export class Room {
   hostId: string | null = null;
   phase: "lobby" | "match" | "results" = "lobby";
   mode: GameMode = "teams";
+  /** Seen in 3D first person instead of top-down; works with every mode. */
+  view3d = false;
   match: Match | null = null;
   /** Last time the room had nobody in it; used for cleanup. */
   emptySince = Date.now();
@@ -206,6 +208,13 @@ export class Room {
           order.forEach((c, i) => (c.team = i === 0 ? 0 : 1));
         }
         this.rebalance();
+        break;
+      }
+      case "view": {
+        if (id !== this.hostId || this.phase !== "lobby") return;
+        const view3d = msg.view3d === true;
+        if (view3d === this.view3d) return;
+        this.view3d = view3d;
         break;
       }
       case "start":
@@ -442,6 +451,7 @@ export class Room {
       phase: this.phase,
       hostId: this.hostId,
       mode: this.mode,
+      view3d: this.view3d,
       roster: this.roster(),
     });
   }

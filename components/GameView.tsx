@@ -55,6 +55,9 @@ export default function GameView({
   const abilityRef = useRef<((index: number) => void) | null>(null);
   const finishSkillRef = useRef<((score: number) => void) | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const isFps = !!conn.room?.view3d;
+  const [locked, setLocked] = useState(false);
+  const lastUnlockRef = useRef(0);
 
   useEffect(() => {
     if (!notice) return;
@@ -68,6 +71,7 @@ export default function GameView({
     const renderer = new Renderer(canvas, conn, sfx);
     let aimNow = 0;
     let skillTarget: string | null = null;
+    let wasAlive = false;
 
     /** A Principal ability key or button. Detention opens the skill check (or stops it if it's open). */
     const useAbility = (index: number) => {
@@ -104,7 +108,11 @@ export default function GameView({
     };
 
     const input = new InputController(canvas, {
-      onMenu: () => setOverlay((o) => (o === "none" || o === "settings" ? "menu" : "none")),
+      onMenu: () => {
+        // In first person, Esc first releases the mouse (which opens the menu); don't also toggle it shut.
+        if (performance.now() - lastUnlockRef.current < 300) return;
+        setOverlay((o) => (o === "none" || o === "settings" ? "menu" : "none"));
+      },
       onLoadout: () => setOverlay("loadout"),
       onActivity: () => sfx.unlock(),
       onAbility: useAbility,
@@ -124,16 +132,28 @@ export default function GameView({
       acc += Math.min(250, now - last);
       last = now;
       const touch = input.touchMode;
-      if (touch) {
+      const fps = !!conn.room?.view3d;
+      input.fpsMode = fps;
+      const me = conn.me;
+      if (fps) {
+        // First person: face where the server spawned you each time you (re)spawn, looking straight ahead.
+        if (me?.alive && !wasAlive) {
+          input.yaw = me.aim;
+          input.pitch = 0;
+        }
+        wasAlive = !!me?.alive;
+        input.mouseX = canvas.clientWidth / 2;
+        input.mouseY = canvas.clientHeight / 2;
+      } else if (touch) {
         // No mouse: look ahead the way the thumbstick aims.
         const a = input.touchAimAngle();
         input.mouseX = canvas.clientWidth / 2 + Math.cos(a) * canvas.clientWidth * 0.3;
         input.mouseY = canvas.clientHeight / 2 + Math.sin(a) * canvas.clientHeight * 0.3;
       }
       const dt = renderer.updateCamera(now, input.mouseX, input.mouseY);
-      const aim = touch ? input.touchAimAngle() : renderer.aimFrom(input.mouseX, input.mouseY);
+      if (fps) input.updateFps(dt);
+      const aim = fps ? input.yaw : touch ? input.touchAimAngle() : renderer.aimFrom(input.mouseX, input.mouseY);
       aimNow = aim;
-      const me = conn.me;
       let steps = 0;
       while (acc >= TICK_MS && steps < 5) {
         acc -= TICK_MS;
@@ -145,8 +165,9 @@ export default function GameView({
         mouseX: input.mouseX,
         mouseY: input.mouseY,
         aim,
+        pitch: input.pitch,
         scoreboard: input.scoreboard,
-        crosshair: !touch,
+        crosshair: !touch || fps,
       });
       raf = requestAnimationFrame(loop);
     };
@@ -166,7 +187,26 @@ export default function GameView({
 
   useEffect(() => {
     inputRef.current?.setEnabled(overlay === "none" && !results);
+    // First person: give the mouse back whenever a menu or the results are up.
+    if ((overlay !== "none" || results) && document.pointerLockElement) document.exitPointerLock();
   }, [overlay, results]);
+
+  // First person: track the mouse lock; losing it mid-game (Esc, alt-tab) opens the menu.
+  useEffect(() => {
+    const onChange = () => {
+      const isLocked = document.pointerLockElement === canvasRef.current;
+      setLocked(isLocked);
+      if (!isLocked) {
+        lastUnlockRef.current = performance.now();
+        if (conn.room?.view3d) setOverlay((o) => (o === "none" ? "menu" : o));
+      }
+    };
+    document.addEventListener("pointerlockchange", onChange);
+    return () => {
+      document.removeEventListener("pointerlockchange", onChange);
+      if (document.pointerLockElement) document.exitPointerLock();
+    };
+  }, [conn]);
 
   useEffect(() => {
     if (inputRef.current) inputRef.current.touchMode = isTouch;
@@ -199,6 +239,15 @@ export default function GameView({
           touch={isTouch}
           onDone={(score) => finishSkillRef.current?.(score)}
         />
+      )}
+
+      {isFps && !locked && !isTouch && overlay === "none" && !results && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 flex justify-center">
+          <p className="rounded-lg bg-black/75 px-5 py-3 text-center font-semibold text-white">
+            🎯 Click to look around
+            <span className="block text-sm font-normal text-zinc-400">Move the mouse to look in any direction · Esc for the menu</span>
+          </p>
+        </div>
       )}
 
       {notice && (
@@ -336,7 +385,7 @@ function Results({ results, myId }: { results: ResultsMessage; myId: string | nu
         ? "Victory"
         : me
           ? "Defeat"
-          : `${names[results.winner]} ${results.mode === "teams" || results.mode === "fog" || (results.mode === "boss" && results.winner === 0) ? "win" : "wins"}`;
+          : `${names[results.winner]} ${results.mode === "duel" || (results.mode === "boss" && results.winner === 1) ? "wins" : "win"}`;
   const subtitle =
     results.mode !== "boss" || results.winner === null
       ? null

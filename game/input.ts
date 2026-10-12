@@ -1,6 +1,7 @@
 import { ABILITY_ACTIONS, getKeybinds } from "@/lib/settings";
 import type { InputFrame } from "@/shared/protocol";
 import { CHEAT_CODE } from "@/shared/pranks";
+import { MAX_PITCH } from "./firstperson";
 
 export interface InputHandlers {
   onMenu(): void;
@@ -90,12 +91,24 @@ export class InputController {
       this.keys.delete(e.code);
     };
     const onMouseMove = (e: MouseEvent) => {
+      if (this.fpsMode && this.pointerLocked) {
+        if (this.enabled) {
+          this.yaw += e.movementX * this.sensitivity;
+          this.lookUp(-e.movementY * this.sensitivity);
+        }
+        return;
+      }
       const r = this.canvas.getBoundingClientRect();
       this.mouseX = e.clientX - r.left;
       this.mouseY = e.clientY - r.top;
     };
     const onMouseDown = (e: MouseEvent) => {
       this.handlers.onActivity();
+      // First person: the first click grabs the mouse instead of throwing.
+      if (this.fpsMode && !this.pointerLocked) {
+        if (this.enabled) this.canvas.requestPointerLock?.();
+        return;
+      }
       if (this.enabled && e.button === 0) this.firing = true;
     };
     const onMouseUp = (e: MouseEvent) => {
@@ -131,6 +144,40 @@ export class InputController {
   detach() {
     this.cleanup?.();
     this.cleanup = null;
+  }
+
+  // ------------------------------------------------------------ first person
+
+  /** First-person mode: the mouse turns you, and movement keys are relative to where you face. */
+  fpsMode = false;
+  /** Facing angle in first person, in radians. */
+  yaw = 0;
+  /** Looking up (positive) or down in first person, in radians. */
+  pitch = 0;
+  /** Mouse turn speed, radians per pixel of mouse movement. */
+  sensitivity = 0.0025;
+
+  private lookUp(by: number) {
+    this.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.pitch + by));
+  }
+
+  /** Look around in first person with the touch aim stick (sideways turns, up and down tilts), once per frame. */
+  updateFps(dt: number) {
+    this.yaw = Math.atan2(Math.sin(this.yaw), Math.cos(this.yaw)); // keep it in -π..π
+    if (this.touchAim === null) return;
+    this.yaw += Math.cos(this.touchAim) * 2.6 * dt;
+    this.lookUp(-Math.sin(this.touchAim) * 1.4 * dt);
+  }
+
+  /** Turn movement relative to where you face into a world direction. */
+  private toWorld(strafe: number, forward: number): [number, number] {
+    const c = Math.cos(this.yaw);
+    const s = Math.sin(this.yaw);
+    return [forward * c - strafe * s, forward * s + strafe * c];
+  }
+
+  private get pointerLocked() {
+    return typeof document !== "undefined" && document.pointerLockElement === this.canvas;
   }
 
   // ------------------------------------------------------------ touch
@@ -198,6 +245,8 @@ export class InputController {
     if (this.enabled) {
       mx = Math.max(-1, Math.min(1, mx + Math.round(this.touchMove.x * 100) / 100));
       my = Math.max(-1, Math.min(1, my + Math.round(this.touchMove.y * 100) / 100));
+      // First person: up/down are forward/back and left/right strafe, relative to where you face.
+      if (this.fpsMode) [mx, my] = this.toWorld(mx, -my).map((v) => Math.round(v * 100) / 100) as [number, number];
     }
 
     // Holding the aim stick keeps throwing. Semi-auto throws need a fresh

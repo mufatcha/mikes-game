@@ -41,6 +41,8 @@ import { abilitySlots } from "./layout";
 import { ABILITY_ACTIONS, getKeybinds, keyLabel } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
+import { drawFirstPerson } from "./firstperson";
+import { drawFace } from "./skins";
 import { CONE_HALF, FAR_SIGHT, FOG_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
 
 const TEAM_TINTS = ["rgba(147,197,253,0.7)", "rgba(253,186,116,0.7)"] as const;
@@ -94,6 +96,8 @@ export interface ViewInput {
   mouseX: number;
   mouseY: number;
   aim: number;
+  /** 3D view: looking up (positive) or down, in radians. */
+  pitch: number;
   scoreboard: boolean;
   /** Off on touch screens, where you aim with a thumbstick instead. */
   crosshair: boolean;
@@ -223,60 +227,91 @@ export class Renderer {
     this.shake *= Math.exp(-dt * 14);
     const sx = (Math.random() - 0.5) * this.shake;
     const sy = (Math.random() - 0.5) * this.shake;
-    const s = this.scale * this.dpr;
-    ctx.setTransform(
-      s,
-      0,
-      0,
-      s,
-      this.dpr * (this.cw / 2 - this.camX * this.scale + sx),
-      this.dpr * (this.ch / 2 - this.camY * this.scale + sy),
-    );
-    this.drawFloor();
-    this.drawBullets(bullets);
-    // Teammates always show; enemies only when you can actually see them.
-    const myTeam = roster.get(myId ?? "")?.team;
-    const shown = players.filter(
-      (p) =>
-        p.alive &&
-        (!me ||
-          p.id === myId ||
-          roster.get(p.id)?.team === myTeam ||
-          canSee(this.myX, this.myY, view.aim, p.x, p.y, radiusFor(p.archetype), this.mode === "fog")),
-    );
-    // The Principal's Intercom shows every student, even through walls.
-    const revealed = me?.reveal ? players.filter((p) => p.alive && !shown.includes(p)) : [];
-    this.targetable = [...shown, ...revealed].filter((p) => roster.get(p.id)?.team !== myTeam);
-    for (const p of shown) {
-      const isMe = p.id === myId;
-      const pos = isMe ? { x: this.myX, y: this.myY } : p;
-      this.drawPlayer(p, pos.x, pos.y, isMe ? view.aim : p.aim, roster.get(p.id), isMe, now);
+    let revealed: PlayerSnap[] = [];
+    if (this.view3d) {
+      // First person: the 3D view replaces the top-down world; the HUD below stays the same.
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      const seen = drawFirstPerson({
+        ctx,
+        w: this.cw,
+        h: this.ch,
+        x: this.myX,
+        y: this.myY,
+        yaw: view.aim,
+        pitch: view.pitch,
+        shakeX: sx,
+        shakeY: sy,
+        players,
+        bullets,
+        roster,
+        myId,
+        now,
+        fogOfWar: this.mode === "fog",
+        reveal: !!me?.reveal,
+        detentionTarget: this.detentionTarget,
+        alive: !!me?.alive,
+      });
+      this.targetable = seen;
+      // The Intercom also marks every student on the minimap, as in the top-down view.
+      const myTeam = roster.get(myId ?? "")?.team;
+      revealed = me?.reveal ? players.filter((p) => p.alive && roster.get(p.id)?.team !== myTeam) : [];
+      this.updateParticles(0);
+    } else {
+      const s = this.scale * this.dpr;
+      ctx.setTransform(
+        s,
+        0,
+        0,
+        s,
+        this.dpr * (this.cw / 2 - this.camX * this.scale + sx),
+        this.dpr * (this.ch / 2 - this.camY * this.scale + sy),
+      );
+      this.drawFloor();
+      this.drawBullets(bullets);
+      // Teammates always show; enemies only when you can actually see them.
+      const myTeam = roster.get(myId ?? "")?.team;
+      const shown = players.filter(
+        (p) =>
+          p.alive &&
+          (!me ||
+            p.id === myId ||
+            roster.get(p.id)?.team === myTeam ||
+            canSee(this.myX, this.myY, view.aim, p.x, p.y, radiusFor(p.archetype), this.mode === "fog")),
+      );
+      // The Principal's Intercom shows every student, even through walls.
+      revealed = me?.reveal ? players.filter((p) => p.alive && !shown.includes(p)) : [];
+      this.targetable = [...shown, ...revealed].filter((p) => roster.get(p.id)?.team !== myTeam);
+      for (const p of shown) {
+        const isMe = p.id === myId;
+        const pos = isMe ? { x: this.myX, y: this.myY } : p;
+        this.drawPlayer(p, pos.x, pos.y, isMe ? view.aim : p.aim, roster.get(p.id), isMe, now);
+      }
+      this.updateParticles(dt);
+      this.drawShockwaves(now);
+      this.drawWalls();
+      if (me) this.drawFog(view.aim);
+      for (const p of revealed) {
+        ctx.globalAlpha = 0.85;
+        this.drawPlayer(p, p.x, p.y, p.aim, roster.get(p.id), false, now);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "rgba(248,113,113,0.9)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radiusFor(p.archetype) + 10, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      for (const p of [...shown, ...revealed]) {
+        const isMe = p.id === myId;
+        this.drawNameplate(p, isMe ? this.myX : p.x, isMe ? this.myY : p.y, roster.get(p.id), isMe);
+      }
+      this.drawDetentionTarget(players, now);
+      this.drawFloaters(now);
     }
-    this.updateParticles(dt);
-    this.drawShockwaves(now);
-    this.drawWalls();
-    if (me) this.drawFog(view.aim);
-    for (const p of revealed) {
-      ctx.globalAlpha = 0.85;
-      this.drawPlayer(p, p.x, p.y, p.aim, roster.get(p.id), false, now);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = "rgba(248,113,113,0.9)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, radiusFor(p.archetype) + 10, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    for (const p of [...shown, ...revealed]) {
-      const isMe = p.id === myId;
-      this.drawNameplate(p, isMe ? this.myX : p.x, isMe ? this.myY : p.y, roster.get(p.id), isMe);
-    }
-    this.drawDetentionTarget(players, now);
-    this.drawFloaters(now);
 
     // Screen space.
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawHurtVignette(dt);
-    this.drawMinimap(players, roster, revealed);
+    this.drawMinimap(players, roster, revealed, view.aim);
     if (this.mode === "boss") this.drawBossBar(players, roster);
     else this.drawScore();
     this.drawFeed(now);
@@ -290,6 +325,11 @@ export class Renderer {
 
   private get mode(): GameMode {
     return this.conn.room?.mode ?? "teams";
+  }
+
+  /** The host picked the 3D first-person view for this match. */
+  private get view3d(): boolean {
+    return !!this.conn.room?.view3d;
   }
 
   // ---------------------------------------------------------------- Principal
@@ -315,7 +355,8 @@ export class Renderer {
       const d = Math.hypot(p.x - this.myX, p.y - this.myY);
       if (d > DETENTION_RANGE) continue;
       let score: number;
-      if (touch) {
+      // In 3D (and on touch screens) pick whoever is closest to straight ahead.
+      if (touch || this.view3d) {
         let diff = Math.atan2(p.y - this.myY, p.x - this.myX) - aim;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
@@ -1152,11 +1193,8 @@ export class Renderer {
       ctx.stroke();
     }
 
-    // Class icon
-    ctx.font = `${r * 1.05}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(archetype.emoji, x, y + 1);
+    // Class skin: a cartoon face with the class's look.
+    drawFace(ctx, x, y, r * 0.66, p.archetype);
 
     if (isMe) {
       ctx.strokeStyle = "rgba(255,255,255,0.9)";
@@ -1491,7 +1529,7 @@ export class Renderer {
     this.text(`${Math.ceil(left)}s`, x + w - 14, y + 32, 13, danger ? "#f87171" : "#f9fafb", "right", 800);
   }
 
-  private drawMinimap(players: PlayerSnap[], roster: Map<string, RosterEntry>, revealed: PlayerSnap[]) {
+  private drawMinimap(players: PlayerSnap[], roster: Map<string, RosterEntry>, revealed: PlayerSnap[], aim: number) {
     const { ctx } = this;
     const w = 180;
     const h = (w * MAP_HEIGHT) / MAP_WIDTH;
@@ -1525,6 +1563,15 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(x0 + this.myX * k, y0 + this.myY * k, 3.5, 0, Math.PI * 2);
     ctx.fill();
+    if (this.view3d) {
+      // First person: show which way you're facing.
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x0 + this.myX * k, y0 + this.myY * k);
+      ctx.lineTo(x0 + this.myX * k + Math.cos(aim) * 12, y0 + this.myY * k + Math.sin(aim) * 12);
+      ctx.stroke();
+    }
   }
 
   private drawScoreboard(roster: Map<string, RosterEntry>) {

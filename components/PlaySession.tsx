@@ -188,6 +188,7 @@ function Session({ code, name }: { code: string; name: string }) {
           onTeam={(team) => conn.send({ t: "team", team })}
           onStart={() => conn.send({ t: "start" })}
           onMode={(mode) => conn.send({ t: "mode", mode })}
+          onView={(view3d) => conn.send({ t: "view", view3d })}
         />
       </main>
     );

@@ -1,0 +1,539 @@
+import { TEAM_COLORS, type Team } from "@/shared/constants";
+import type { ArchetypeId } from "@/shared/archetypes";
+import { SKIN, drawFace, drawOutfit } from "./skins";
+
+/**
+ * Real 3D players for the first-person view. Each player is a small blocky
+ * figure (shoes, legs, torso, arms, head and a few class accessories) built
+ * from boxes in 3D, projected through the same camera as the raycaster, back
+ * faces culled, lit from above and drawn far to near. The class face and
+ * outfit are painted onto the head and torso as textures, legs and arms swing
+ * as they walk, and the throwing arm holds the ball out in front.
+ */
+
+/** What the 3D parts are projected through: the raycaster's camera. */
+export interface Camera3D {
+  x: number;
+  y: number;
+  /** Eye height in world units. */
+  eye: number;
+  yaw: number;
+  /** Screen width, the horizon line (moved by looking up and down) and the projection scale. */
+  w: number;
+  horizon: number;
+  proj: number;
+  shakeX: number;
+}
+
+type V3 = [number, number, number];
+type FaceId = "front" | "back" | "right" | "left" | "top" | "bottom";
+
+/** A box in a figure's own space: s is to its right, f is forward, z is up. */
+interface Part {
+  c: V3;
+  /** Half sizes along s, f and z. */
+  h: V3;
+  color: string;
+  /** Colors or textures for particular faces; the rest use `color`. */
+  faces?: Partial<Record<FaceId, string | HTMLCanvasElement>>;
+  /** Swing around the s axis through this (f, z) point, by `swing` radians (positive swings forward). */
+  pivot?: [number, number];
+  swing?: number;
+}
+
+/** Corner signs (s, f, z) of each face as seen from outside: top-left, top-right, bottom-left; and its normal. */
+const FACES: Record<FaceId, { tl: V3; tr: V3; bl: V3; n: V3 }> = {
+  front: { tl: [1, 1, 1], tr: [-1, 1, 1], bl: [1, 1, -1], n: [0, 1, 0] },
+  back: { tl: [-1, -1, 1], tr: [1, -1, 1], bl: [-1, -1, -1], n: [0, -1, 0] },
+  right: { tl: [1, -1, 1], tr: [1, 1, 1], bl: [1, -1, -1], n: [1, 0, 0] },
+  left: { tl: [-1, 1, 1], tr: [-1, -1, 1], bl: [-1, 1, -1], n: [-1, 0, 0] },
+  top: { tl: [1, 1, 1], tr: [-1, 1, 1], bl: [1, -1, 1], n: [0, 0, 1] },
+  bottom: { tl: [1, -1, -1], tr: [-1, -1, -1], bl: [1, 1, -1], n: [0, 0, -1] },
+};
+const FACE_IDS = Object.keys(FACES) as FaceId[];
+
+/** Light comes from above and a little to one side. */
+const LIGHT: V3 = (() => {
+  const v: V3 = [0.35, -0.45, 0.82];
+  const l = Math.hypot(...v);
+  return v.map((x) => x / l) as V3;
+})();
+
+const PANTS = "#334155";
+const SHOES = "#111827";
+/** Sleeves and the sides of the jacket, for classes that wear one over the team shirt. */
+const SLEEVES: Partial<Record<ArchetypeId, string>> = {
+  teacher: "#3f6212",
+  jock: "#f8fafc",
+  principal: "#1f2937",
+};
+
+// ---------------------------------------------------------------- textures
+
+const TEX = 64;
+const texCache = new Map<string, HTMLCanvasElement>();
+
+function makeTex(key: string, paint: (g: CanvasRenderingContext2D) => void) {
+  let c = texCache.get(key);
+  if (!c) {
+    c = document.createElement("canvas");
+    c.width = TEX;
+    c.height = TEX;
+    paint(c.getContext("2d")!);
+    texCache.set(key, c);
+  }
+  return c;
+}
+
+function headTex(a: ArchetypeId, side: "front" | "back" | "side" | "top") {
+  return makeTex(`head:${side}:${a}`, (g) => {
+    g.fillStyle = SKIN[a];
+    g.fillRect(0, 0, TEX, TEX);
+    if (side === "front") {
+      // A head drawn a bit bigger than the face of the cube, so the face fills it edge to edge.
+      drawFace(g, TEX / 2, TEX / 2, TEX * 0.72, a);
+    } else if (side === "back") {
+      drawFace(g, TEX / 2, TEX / 2, TEX * 0.72, a, Math.PI);
+    } else if (side === "top") {
+      if (a === "principal") {
+        g.fillStyle = "rgba(255,255,255,0.3)";
+        g.beginPath();
+        g.ellipse(TEX * 0.4, TEX * 0.45, TEX * 0.22, TEX * 0.12, -0.4, 0, Math.PI * 2);
+        g.fill();
+      } else {
+        g.drawImage(headTex(a, "back"), 0, 0);
+      }
+    } else {
+      // The side: hair (or the Principal's fringe) from the back of the head, and an ear.
+      g.save();
+      if (a !== "principal") {
+        g.beginPath();
+        g.rect(0, 0, TEX, TEX * 0.4);
+        g.clip();
+      }
+      g.drawImage(headTex(a, "back"), 0, 0);
+      g.restore();
+      g.fillStyle = "rgba(0,0,0,0.15)";
+      g.beginPath();
+      g.ellipse(TEX * 0.5, TEX * 0.55, TEX * 0.09, TEX * 0.13, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+  });
+}
+
+function torsoTex(a: ArchetypeId, team: Team, back: boolean) {
+  return makeTex(`torso:${back ? "back" : "front"}:${a}:${team}`, (g) => {
+    g.fillStyle = TEAM_COLORS[team];
+    g.fillRect(0, 0, TEX, TEX);
+    drawOutfit(g, a, 0, 0, TEX, TEX, back);
+  });
+}
+
+// ---------------------------------------------------------------- color helpers
+
+const rgbCache = new Map<string, V3>();
+function rgb(color: string): V3 {
+  let v = rgbCache.get(color);
+  if (!v) {
+    const hex = color.replace("#", "");
+    const full = hex.length === 3 ? [...hex].map((ch) => ch + ch).join("") : hex;
+    const n = parseInt(full, 16);
+    v = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    rgbCache.set(color, v);
+  }
+  return v;
+}
+
+// ---------------------------------------------------------------- the renderer
+
+interface Drawable {
+  depth: number;
+  draw: () => void;
+}
+
+interface Screen {
+  sx: number;
+  sy: number;
+  depth: number;
+}
+
+function project(cam: Camera3D, X: number, Y: number, Z: number): Screen {
+  const dx = X - cam.x;
+  const dy = Y - cam.y;
+  const c = Math.cos(cam.yaw);
+  const s = Math.sin(cam.yaw);
+  const depth = dx * c + dy * s;
+  const lat = -dx * s + dy * c;
+  const d = Math.max(0.001, depth);
+  return {
+    sx: cam.w / 2 + (lat * cam.proj) / d + cam.shakeX,
+    sy: cam.horizon - ((Z - cam.eye) * cam.proj) / d,
+    depth,
+  };
+}
+
+/** Where a figure stands and faces, and how big it is (1 = a regular student). */
+interface Placement {
+  x: number;
+  y: number;
+  z: number;
+  angle: number;
+  k: number;
+}
+
+/**
+ * Turn a figure's parts into screen polygons, cull the faces turned away
+ * from the camera, and add them to the draw list.
+ */
+function addParts(
+  out: Drawable[],
+  ctx: CanvasRenderingContext2D,
+  cam: Camera3D,
+  parts: Part[],
+  at: Placement,
+  fog: (d: number) => number,
+  fogColor: V3,
+) {
+  const fx = Math.cos(at.angle);
+  const fy = Math.sin(at.angle);
+  const sx = -fy;
+  const sy = fx;
+  for (const part of parts) {
+    const th = part.swing ?? 0;
+    const cs = Math.cos(th);
+    const sn = Math.sin(th);
+    const [pf, pz] = part.pivot ?? [0, 0];
+    const toWorld = (ls: number, lf: number, lz: number): V3 => {
+      if (th) {
+        const df = lf - pf;
+        const dz = lz - pz;
+        lf = pf + df * cs - dz * sn;
+        lz = pz + df * sn + dz * cs;
+      }
+      return [at.x + (lf * fx + ls * sx) * at.k, at.y + (lf * fy + ls * sy) * at.k, at.z + lz * at.k];
+    };
+    const corner = (sg: V3) =>
+      toWorld(part.c[0] + sg[0] * part.h[0], part.c[1] + sg[1] * part.h[1], part.c[2] + sg[2] * part.h[2]);
+    for (const id of FACE_IDS) {
+      const f = FACES[id];
+      // Normal in the world, after the swing.
+      const nf = f.n[1] * cs - f.n[2] * sn;
+      const nz = f.n[1] * sn + f.n[2] * cs;
+      const N: V3 = [nf * fx + f.n[0] * sx, nf * fy + f.n[0] * sy, nz];
+      const tl = corner(f.tl);
+      const tr = corner(f.tr);
+      const bl = corner(f.bl);
+      const br: V3 = [tr[0] + bl[0] - tl[0], tr[1] + bl[1] - tl[1], tr[2] + bl[2] - tl[2]];
+      const cx = (tr[0] + bl[0]) / 2;
+      const cy = (tr[1] + bl[1]) / 2;
+      const cz = (tr[2] + bl[2]) / 2;
+      // Back-face culling: skip faces pointing away from the eye.
+      if (N[0] * (cam.x - cx) + N[1] * (cam.y - cy) + N[2] * (cam.eye - cz) <= 0) continue;
+      const q = [tl, tr, br, bl].map((v) => project(cam, v[0], v[1], v[2]));
+      if (q.some((v) => v.depth < 1.5)) continue;
+      const depth = (q[0].depth + q[1].depth + q[2].depth + q[3].depth) / 4;
+      const light = 0.56 + 0.44 * Math.max(0, N[0] * LIGHT[0] + N[1] * LIGHT[1] + N[2] * LIGHT[2]);
+      const fogAmt = fog(depth);
+      const look = part.faces?.[id] ?? part.color;
+      out.push({
+        depth,
+        draw: () => {
+          const path = () => {
+            ctx.beginPath();
+            ctx.moveTo(q[0].sx, q[0].sy);
+            ctx.lineTo(q[1].sx, q[1].sy);
+            ctx.lineTo(q[2].sx, q[2].sy);
+            ctx.lineTo(q[3].sx, q[3].sy);
+            ctx.closePath();
+          };
+          if (typeof look === "string") {
+            const [r, g, b] = rgb(look).map((v, i) => Math.round(v * light * (1 - fogAmt) + fogColor[i] * fogAmt));
+            const fill = `rgb(${r},${g},${b})`;
+            path();
+            ctx.fillStyle = fill;
+            ctx.fill();
+            // A hairline in the same color hides the seams between faces.
+            ctx.strokeStyle = fill;
+            ctx.lineWidth = 0.75;
+            ctx.stroke();
+          } else {
+            // Map the texture onto the face: its corners go to top-left, top-right and bottom-left.
+            path();
+            ctx.save();
+            ctx.clip();
+            ctx.transform(
+              (q[1].sx - q[0].sx) / TEX,
+              (q[1].sy - q[0].sy) / TEX,
+              (q[3].sx - q[0].sx) / TEX,
+              (q[3].sy - q[0].sy) / TEX,
+              q[0].sx,
+              q[0].sy,
+            );
+            ctx.drawImage(look, 0, 0);
+            ctx.restore();
+            path();
+            ctx.fillStyle = `rgba(0,0,0,${(1 - light).toFixed(3)})`;
+            ctx.fill();
+            if (fogAmt > 0.01) {
+              ctx.fillStyle = `rgba(${fogColor[0]},${fogColor[1]},${fogColor[2]},${fogAmt.toFixed(3)})`;
+              ctx.fill();
+            }
+          }
+        },
+      });
+    }
+  }
+}
+
+/** A shaded ball, held in the hand or flying. */
+function addBall(
+  out: Drawable[],
+  ctx: CanvasRenderingContext2D,
+  cam: Camera3D,
+  X: number,
+  Y: number,
+  Z: number,
+  radius: number,
+  color: string,
+  fogAmt: number,
+) {
+  const p = project(cam, X, Y, Z);
+  if (p.depth < 1.5) return;
+  const r = (radius * cam.proj) / p.depth;
+  out.push({
+    // Drawn just in front of whatever it's touching, like the hand holding it.
+    depth: p.depth - radius,
+    draw: () => {
+      const g = ctx.createRadialGradient(p.sx - r * 0.35, p.sy - r * 0.35, r * 0.1, p.sx, p.sy, r);
+      g.addColorStop(0, "rgba(255,255,255,0.65)");
+      g.addColorStop(0.35, color);
+      g.addColorStop(1, "#000");
+      ctx.globalAlpha = 1 - fogAmt * 0.8;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha *= 0.55;
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    },
+  });
+}
+
+function flush(out: Drawable[]) {
+  out.sort((a, b) => b.depth - a.depth);
+  for (const d of out) d.draw();
+}
+
+// ---------------------------------------------------------------- figures
+
+/** A regular student is this tall; bigger classes are scaled up. */
+export const FIGURE_HEIGHT = 56;
+
+/** The parts of a figure, standing at the origin and facing +f. */
+function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number): Part[] {
+  const shirt = TEAM_COLORS[team];
+  const sleeve = SLEEVES[a] ?? shirt;
+  const skin = SKIN[a];
+  const parts: Part[] = [];
+  // Legs swing from the hips, opposite each other.
+  for (const s of [-1, 1]) {
+    const swing = walk * s;
+    parts.push(
+      { c: [s * 4.2, 0, 13.5], h: [3.6, 3.6, 9.5], color: PANTS, pivot: [0, 23], swing },
+      { c: [s * 4.2, 1.2, 2], h: [3.8, 5, 2], color: SHOES, pivot: [0, 23], swing },
+    );
+  }
+  // Torso: the outfit front and back, jacket or shirt on the sides.
+  parts.push({
+    c: [0, 0, 32],
+    h: [10, 5.5, 9.5],
+    color: sleeve,
+    faces: { front: torsoTex(a, team, false), back: torsoTex(a, team, true), bottom: PANTS },
+  });
+  // The left arm swings with the walk; the right holds the ball out in front.
+  for (const [s, swing] of [
+    [-1, -walk * 0.8],
+    [1, throwArm],
+  ] as const) {
+    parts.push(
+      { c: [s * 13.2, 0, 34.5], h: [3, 3, 6.5], color: sleeve, pivot: [0, 40], swing },
+      { c: [s * 13.2, 0, 26], h: [2.6, 2.6, 2], color: skin, pivot: [0, 40], swing },
+    );
+  }
+  // Head, with the face on the front.
+  parts.push({
+    c: [0, 0, 48.5],
+    h: [7, 7, 7],
+    color: skin,
+    faces: {
+      front: headTex(a, "front"),
+      back: headTex(a, "back"),
+      left: headTex(a, "side"),
+      right: headTex(a, "side"),
+      top: headTex(a, "top"),
+    },
+  });
+  // A few class accessories that stick out of the head.
+  if (a === "teacher") parts.push({ c: [0, -6.5, 54], h: [3, 2.5, 3], color: "#6b4423" });
+  if (a === "artkid") parts.push({ c: [1, 0.5, 56.2], h: [8, 8, 1.3], color: "#b91c1c" });
+  if (a === "jock") parts.push({ c: [0, 0, 51.5], h: [7.3, 7.3, 1], color: "#dc2626" });
+  if (a === "clown") {
+    parts.push(
+      { c: [-8.5, -1, 51], h: [2.5, 4.5, 4], color: "#f59e0b" },
+      { c: [8.5, -1, 51], h: [2.5, 4.5, 4], color: "#3b82f6" },
+      { c: [0, -1, 56.5], h: [5, 5, 1.6], color: "#ef4444" },
+    );
+  }
+  if (a === "principal") {
+    for (const s of [-1, 1]) parts.push({ c: [s * 7.4, -1, 47.5], h: [0.8, 4, 2.2], color: "#9ca3af" });
+  }
+  return parts;
+}
+
+/** Walk cycle per player, from how far they moved since the last frame. */
+const gait = new Map<string, { x: number; y: number; t: number; phase: number; amp: number }>();
+
+function walkFor(id: string, x: number, y: number, now: number) {
+  let g = gait.get(id);
+  if (!g) {
+    g = { x, y, t: now, phase: 0, amp: 0 };
+    gait.set(id, g);
+  }
+  const dt = Math.max(1, now - g.t) / 1000;
+  const moved = Math.min(60, Math.hypot(x - g.x, y - g.y));
+  const target = Math.min(1, moved / dt / 140);
+  g.amp += (target - g.amp) * Math.min(1, dt * 10);
+  g.phase += moved * 0.085;
+  g.x = x;
+  g.y = y;
+  g.t = now;
+  return g;
+}
+
+export interface AvatarDraw {
+  /** Screen x of the figure's middle and the y of the top of its head. */
+  cx: number;
+  top: number;
+  bottom: number;
+  /** Screen pixels per world unit at its distance. */
+  k: number;
+}
+
+/**
+ * Draw one player as a 3D figure (with its shadow and the ball in hand).
+ * Returns where it landed on screen, for name tags and health bars.
+ */
+export function drawAvatar(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera3D,
+  o: {
+    id: string;
+    x: number;
+    y: number;
+    aim: number;
+    archetype: ArchetypeId;
+    team: Team;
+    /** 1 for a regular student; bigger classes are bigger. */
+    scale: number;
+    ballColor: string;
+    ballRadius: number;
+    now: number;
+    stunned: boolean;
+  },
+  fog: (d: number) => number,
+  fogColor: V3,
+): AvatarDraw | null {
+  const center = project(cam, o.x, o.y, 0);
+  if (center.depth < 8) return null;
+  const g = walkFor(o.id, o.x, o.y, o.now);
+  const walk = o.stunned ? 0 : Math.sin(g.phase) * 0.65 * g.amp;
+  // Bob a little while walking; wobble when stunned.
+  const bob = Math.abs(Math.cos(g.phase)) * 1.2 * g.amp;
+  const angle = o.aim + (o.stunned ? Math.sin(o.now / 120) * 0.35 : 0);
+  const throwArm = 1.3 + Math.sin(o.now / 400 + o.x) * 0.05 - walk * 0.1;
+  const k = o.scale;
+  const at: Placement = { x: o.x, y: o.y, z: bob * k, angle, k };
+  const fogAmt = fog(center.depth);
+
+  // Shadow on the floor.
+  ctx.fillStyle = `rgba(0,0,0,${(0.32 * (1 - fogAmt)).toFixed(3)})`;
+  ctx.beginPath();
+  for (let i = 0; i < 12; i++) {
+    const t = (i / 12) * Math.PI * 2;
+    const p = project(cam, o.x + Math.cos(t) * 15 * k, o.y + Math.sin(t) * 15 * k, 0.5);
+    if (i === 0) ctx.moveTo(p.sx, p.sy);
+    else ctx.lineTo(p.sx, p.sy);
+  }
+  ctx.fill();
+
+  const out: Drawable[] = [];
+  addParts(out, ctx, cam, figureParts(o.archetype, o.team, walk, throwArm), at, fog, fogColor);
+  // The ball sits at the end of the raised right arm.
+  const reach = 17;
+  const hf = Math.sin(throwArm) * reach + 1.5;
+  const hz = 40 - Math.cos(throwArm) * reach + 3;
+  const fx = Math.cos(angle);
+  const fy = Math.sin(angle);
+  const bs = 12.5;
+  addBall(
+    out,
+    ctx,
+    cam,
+    o.x + (hf * fx - bs * fy) * k,
+    o.y + (hf * fy + bs * fx) * k,
+    at.z + hz * k,
+    o.ballRadius * k,
+    o.ballColor,
+    fogAmt,
+  );
+  flush(out);
+
+  const top = project(cam, o.x, o.y, at.z + FIGURE_HEIGHT * k);
+  return { cx: top.sx, top: top.sy, bottom: center.sy, k: cam.proj / center.depth };
+}
+
+/** A throw in flight, as a shaded ball at chest height. */
+export function drawBall3D(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera3D,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+  fogAmt: number,
+) {
+  const out: Drawable[] = [];
+  addBall(out, ctx, cam, x, y, 36, radius, color, fogAmt);
+  flush(out);
+}
+
+/**
+ * Your own arm in first person: sleeve, hand and the ball you're about to
+ * throw, in the lower right, bobbing as you walk. Drawn over everything.
+ */
+export function drawViewModel(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera3D,
+  o: { id: string; x: number; y: number; archetype: ArchetypeId; team: Team; ballColor: string; now: number },
+) {
+  const g = walkFor(`me:${o.id}`, o.x, o.y, o.now);
+  const bobS = Math.cos(g.phase * 0.5) * 1.2 * g.amp;
+  const bobZ = -Math.abs(Math.sin(g.phase * 0.5)) * 1.4 * g.amp + Math.sin(o.now / 700) * 0.3;
+  const sleeve = SLEEVES[o.archetype] ?? TEAM_COLORS[o.team];
+  // The arm reaches up from the bottom right corner; the hand cups the ball from below.
+  const parts: Part[] = [
+    { c: [11.5 + bobS, 20, -14 + bobZ], h: [2.2, 8, 2.2], color: sleeve, pivot: [20, -14 + bobZ], swing: 0.35 },
+    { c: [10.6 + bobS, 29.5, -11.2 + bobZ], h: [2, 2.2, 1.6], color: SKIN[o.archetype] },
+  ];
+  const out: Drawable[] = [];
+  const none = () => 0;
+  addParts(out, ctx, cam, parts, { x: cam.x, y: cam.y, z: cam.eye, angle: cam.yaw, k: 1 }, none, [0, 0, 0]);
+  const fx = Math.cos(cam.yaw);
+  const fy = Math.sin(cam.yaw);
+  const s = 10.3 + bobS;
+  const f = 31;
+  addBall(out, ctx, cam, cam.x + f * fx - s * fy, cam.y + f * fy + s * fx, cam.eye - 8.4 + bobZ, 2.4, o.ballColor, 0);
+  flush(out);
+}

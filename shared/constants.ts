@@ -37,6 +37,7 @@ export type Team = 0 | 1;
  * - "fog": 4v4 where you only see a small circle around you.
  * - "boss": 7 students against 1 Principal.
  * - "duel": 1v1, two Principals with their own set of powers.
+ * Every mode can be played top-down or in 3D first person (see VIEWS).
  */
 export type GameMode = "teams" | "fog" | "boss" | "duel";
 export const GAME_MODE_IDS: GameMode[] = ["teams", "fog", "boss", "duel"];
@@ -59,6 +60,17 @@ export const GAME_MODES: { id: GameMode; name: string; emoji: string; blurb: str
     name: "Principal Duel · 1v1",
     emoji: "🥊",
     blurb: "Two Principals, one school. Different powers from the 7v1. First to 3 knockouts.",
+  },
+];
+
+/** How the match is seen, picked by the host for any mode: top-down, or 3D through your own eyes. */
+export const VIEWS: { view3d: boolean; name: string; emoji: string; blurb: string }[] = [
+  { view3d: false, name: "Top-down", emoji: "🗺️", blurb: "The classic view from above. Aim with the mouse." },
+  {
+    view3d: true,
+    name: "3D first person",
+    emoji: "🎯",
+    blurb: "See the school through your own eyes. Click to grab the mouse, look around in every direction, WASD to walk.",
   },
 ];
 

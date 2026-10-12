@@ -10,6 +10,7 @@ import {
 } from "@/shared/archetypes";
 import { winScoreFor, type GameMode } from "@/shared/constants";
 import { ABILITY_ACTIONS, keyLabel, useKeybinds } from "@/lib/settings";
+import SkinPortrait from "./SkinPortrait";
 
 /** What the Principal can do in this mode, shown to whoever takes a Principal seat. */
 export default function PrincipalCard({ mode }: { mode: GameMode }) {
@@ -18,8 +19,9 @@ export default function PrincipalCard({ mode }: { mode: GameMode }) {
   const duel = mode === "duel";
   return (
     <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 p-4">
-      <p className="text-lg font-bold text-white">
-        {p.emoji} You are {duel ? "a dueling Principal" : "the Principal"}
+      <p className="flex items-center gap-2 text-lg font-bold text-white">
+        <SkinPortrait archetype="principal" size={44} />
+        You are {duel ? "a dueling Principal" : "the Principal"}
       </p>
       <p className="mt-1 text-sm text-zinc-300">
         {duel ? (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GAME_MODES, isPrincipalSeat, teamNamesFor, teamSizeFor, type GameMode, type Team } from "@/shared/constants";
+import { GAME_MODES, VIEWS, isPrincipalSeat, teamNamesFor, teamSizeFor, type GameMode, type Team } from "@/shared/constants";
 import type { RoomState } from "@/shared/protocol";
 import { ARCHETYPES, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { keyLabel, useKeybinds } from "@/lib/settings";
@@ -47,6 +47,7 @@ export default function Lobby({
   onTeam,
   onStart,
   onMode,
+  onView,
 }: {
   room: RoomState;
   myId: string | null;
@@ -56,6 +57,7 @@ export default function Lobby({
   onTeam: (t: Team) => void;
   onStart: () => void;
   onMode: (mode: GameMode) => void;
+  onView: (view3d: boolean) => void;
 }) {
   const me = room.roster.find((r) => r.id === myId);
   const isHost = room.hostId === myId;
@@ -105,6 +107,33 @@ export default function Lobby({
                   {m.name}
                 </p>
                 <p className="mt-1 text-sm text-zinc-400">{m.blurb}</p>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mb-3 mt-6 flex items-baseline justify-between">
+          <h2 className="text-lg font-bold text-white">View</h2>
+          <p className="text-sm text-zinc-500">Every mode works in both.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {VIEWS.map((v) => {
+            const selected = v.view3d === room.view3d;
+            return (
+              <button
+                key={v.name}
+                type="button"
+                disabled={!isHost}
+                onClick={() => onView(v.view3d)}
+                className={`rounded-xl border p-4 text-left transition ${
+                  selected
+                    ? "border-amber-400 bg-amber-400/10"
+                    : "border-white/10 bg-black/20 enabled:hover:border-white/30"
+                } disabled:cursor-default`}
+              >
+                <p className={`font-bold ${selected ? "text-amber-300" : "text-white"}`}>
+                  {v.emoji} {v.name}
+                </p>
+                <p className="mt-1 text-sm text-zinc-400">{v.blurb}</p>
               </button>
             );
           })}
