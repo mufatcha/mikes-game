@@ -38,6 +38,8 @@ export interface WeaponDef {
   radius: number;
   /** Fill color, or "rainbow" for a random color per projectile. */
   color: string;
+  /** Times it bounces off walls before stopping (0 = stops on the first wall). */
+  bounces?: number;
   /** How the projectile is drawn. */
   style: "streak" | "ball" | "blob";
 }
@@ -84,8 +86,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   dodgeball: {
     id: "dodgeball", name: "Dodgeball", damage: 56, fireRate: 1.3, magSize: 3, reloadTime: 2.2,
-    projectileSpeed: 1000, spread: 0.02, pellets: 1, range: 700, auto: false,
-    radius: 11, color: "#dc2626", style: "ball",
+    projectileSpeed: 1000, spread: 0.02, pellets: 1, range: 1100, auto: false,
+    radius: 11, color: "#dc2626", style: "ball", bounces: 2,
   },
   tennis: {
     id: "tennis", name: "Tennis Balls", damage: 20, fireRate: 4, magSize: 8, reloadTime: 1.4,

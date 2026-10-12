@@ -135,6 +135,67 @@ export function firstWallHit(x0: number, y0: number, x1: number, y1: number, pad
   return best;
 }
 
+/**
+ * Like segmentRect, but also returns the surface normal of the side that was
+ * hit, for bouncing. A segment starting inside the rect bounces straight back.
+ */
+export function segmentRectHit(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  r: Rect,
+): { t: number; nx: number; ny: number } | null {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  let tmin = 0;
+  let tmax = 1;
+  let nx = 0;
+  let ny = 0;
+  if (Math.abs(dx) < 1e-9) {
+    if (x0 < r.x || x0 > r.x + r.w) return null;
+  } else {
+    const t1 = ((dx > 0 ? r.x : r.x + r.w) - x0) / dx;
+    const t2 = ((dx > 0 ? r.x + r.w : r.x) - x0) / dx;
+    if (t1 > tmin) {
+      tmin = t1;
+      nx = dx > 0 ? -1 : 1;
+      ny = 0;
+    }
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+  if (Math.abs(dy) < 1e-9) {
+    if (y0 < r.y || y0 > r.y + r.h) return null;
+  } else {
+    const t1 = ((dy > 0 ? r.y : r.y + r.h) - y0) / dy;
+    const t2 = ((dy > 0 ? r.y + r.h : r.y) - y0) / dy;
+    if (t1 > tmin) {
+      tmin = t1;
+      nx = 0;
+      ny = dy > 0 ? -1 : 1;
+    }
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+  if (nx === 0 && ny === 0) {
+    const len = Math.hypot(dx, dy) || 1;
+    nx = -dx / len;
+    ny = -dy / len;
+  }
+  return { t: tmin, nx, ny };
+}
+
+/** Earliest wall hit along a segment, with the side's normal, or null. */
+export function firstWallHitWithNormal(x0: number, y0: number, x1: number, y1: number) {
+  let best: { t: number; nx: number; ny: number } | null = null;
+  for (const w of WALLS) {
+    const hit = segmentRectHit(x0, y0, x1, y1, w);
+    if (hit && (!best || hit.t < best.t)) best = hit;
+  }
+  return best;
+}
+
 export function hasLineOfSight(x0: number, y0: number, x1: number, y1: number, pad = 0) {
   return firstWallHit(x0, y0, x1, y1, pad) === null;
 }

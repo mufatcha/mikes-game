@@ -18,7 +18,7 @@ import {
   type Team,
 } from "../shared/constants";
 import { SPAWNS, inSafeZone } from "../shared/map";
-import { firstWallHit, hasLineOfSight, movePlayer, segmentCircle } from "../shared/physics";
+import { firstWallHitWithNormal, hasLineOfSight, movePlayer, segmentCircle } from "../shared/physics";
 import type { BulletSnap, GameEvent, InputFrame, PlayerSnap } from "../shared/protocol";
 import {
   ABILITIES,
@@ -117,7 +117,12 @@ interface Bullet {
   damage: number;
   travelled: number;
   range: number;
+  /** Wall bounces left (dodgeballs). */
+  bounces: number;
 }
+
+/** Speed a dodgeball keeps after each bounce. */
+const BOUNCE_KEEP = 0.85;
 
 const IDLE: InputFrame = { seq: 0, mx: 0, my: 0, aim: 0, fire: false, reload: false, swap: -1 };
 const MAX_QUEUED_INPUTS = 8;
@@ -460,6 +465,7 @@ export class Match {
         vy: Math.sin(angle) * speed,
         damage: weapon.damage,
         travelled: 0,
+        bounces: weapon.bounces ?? 0,
         range: weapon.range,
       });
     }
@@ -472,7 +478,8 @@ export class Match {
     for (const b of this.bullets) {
       const nx = b.x + b.vx * DT;
       const ny = b.y + b.vy * DT;
-      let hitT = firstWallHit(b.x, b.y, nx, ny);
+      const wall = firstWallHitWithNormal(b.x, b.y, nx, ny);
+      let hitT = wall?.t ?? null;
       let target: PlayerState | null = null;
       for (const p of this.players.values()) {
         if (!p.alive || p.team === b.team) continue;
@@ -487,6 +494,18 @@ export class Match {
         const hy = b.y + (ny - b.y) * hitT;
         if (target) this.damage(target, b, hx, hy);
         else this.events.push({ k: "impact", x: r1(hx), y: r1(hy) });
+        // Dodgeballs bounce off walls: reflect, lose a little speed, keep going.
+        if (!target && wall && b.bounces > 0) {
+          const dot = b.vx * wall.nx + b.vy * wall.ny;
+          b.vx = (b.vx - 2 * dot * wall.nx) * BOUNCE_KEEP;
+          b.vy = (b.vy - 2 * dot * wall.ny) * BOUNCE_KEEP;
+          b.travelled += Math.hypot(hx - b.x, hy - b.y);
+          // Step just off the wall so it doesn't hit the same face again.
+          b.x = hx + wall.nx * 0.5;
+          b.y = hy + wall.ny * 0.5;
+          b.bounces--;
+          if (b.travelled < b.range) remaining.push(b);
+        }
         continue;
       }
       b.x = nx;
@@ -657,6 +676,7 @@ export class Match {
             vy: Math.sin(a) * w.projectileSpeed,
             damage: w.damage,
             travelled: 0,
+            bounces: 0,
             range: w.range,
           });
         }
