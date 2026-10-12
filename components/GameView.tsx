@@ -16,11 +16,12 @@ import { keyLabel, useClassXp, useKeybinds, useTouchControlsMode } from "@/lib/s
 import Modal from "./Modal";
 import PrankMenu from "./PrankMenu";
 import { CHEAT_CODE } from "@/shared/pranks";
+import { TARDIS_SPOTS, atTardisConsole, tardisSpotNow } from "@/shared/map";
 import PrincipalCard from "./PrincipalCard";
 import SkillCheck, { type SkillCheckHandle } from "./SkillCheck";
 import TouchControls, { useMediaQuery } from "./TouchControls";
 
-type Overlay = "none" | "menu" | "loadout" | "settings" | "pranks";
+type Overlay = "none" | "menu" | "loadout" | "settings" | "pranks" | "tardis";
 
 export default function GameView({
   conn,
@@ -73,6 +74,7 @@ export default function GameView({
     let aimNow = 0;
     let skillTarget: string | null = null;
     let wasAlive = false;
+    let consoleReady = true;
 
     /** A Principal ability key or button. Detention opens the skill check (or stops it if it's open). */
     const useAbility = (index: number) => {
@@ -136,6 +138,14 @@ export default function GameView({
       const fps = !!conn.room?.view3d;
       input.fpsMode = fps;
       const me = conn.me;
+      // Stepping up to the TARDIS console opens the destination picker (once per visit).
+      const atConsole = !!me?.alive && atTardisConsole(me.x, me.y);
+      if (atConsole && consoleReady) {
+        consoleReady = false;
+        setOverlay((o) => (o === "none" ? "tardis" : o));
+      } else if (!atConsole) {
+        consoleReady = true;
+      }
       if (fps) {
         // First person: face where the server spawned you each time you (re)spawn, looking straight ahead.
         if (me?.alive && !wasAlive) {
@@ -321,6 +331,19 @@ export default function GameView({
         </Modal>
       )}
 
+      {overlay === "tardis" && !results && (
+        <Modal onClose={() => setOverlay("none")}>
+          <TardisConsole
+            here={tardisSpotNow()}
+            onFly={(spot) => {
+              conn.send({ t: "tardis", spot });
+              setOverlay("none");
+            }}
+            onClose={() => setOverlay("none")}
+          />
+        </Modal>
+      )}
+
       {overlay === "settings" && !results && (
         <Modal onClose={() => setOverlay("menu")}>
           <KeybindSettings onDone={() => setOverlay("menu")} />
@@ -367,6 +390,53 @@ function XpEarned({ earned }: { earned: ClassXp }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** The TARDIS console: pick where to fly. You ride along, and the doors open onto wherever it lands. */
+function TardisConsole({
+  here,
+  onFly,
+  onClose,
+}: {
+  here: number;
+  onFly: (spot: number) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-xl font-bold text-amber-300">🟦 TARDIS console</h2>
+        <p className="text-sm text-zinc-400">
+          Where to? The TARDIS takes you with it; walk out of the doors when you land.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {TARDIS_SPOTS.map((s, i) => (
+          <button
+            key={s.name}
+            type="button"
+            disabled={i === here}
+            onClick={() => onFly(i)}
+            className={`rounded-lg border p-3 text-left font-semibold transition ${
+              i === here
+                ? "cursor-default border-amber-400/50 bg-amber-400/10 text-amber-200"
+                : "border-white/10 bg-white/[0.04] text-white hover:border-amber-400/60 hover:bg-amber-400/10"
+            }`}
+          >
+            {s.name}
+            {i === here && <span className="block text-xs font-normal text-amber-300/80">Parked here</span>}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        className="self-end rounded-md border border-white/15 px-4 py-1.5 text-sm text-zinc-200 hover:border-white/40"
+      >
+        Stay here
+      </button>
     </div>
   );
 }

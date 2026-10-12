@@ -1,5 +1,6 @@
 import { BASE_SPEED, DT, TICK_MS } from "@/shared/constants";
 import { movePlayer } from "@/shared/physics";
+import { moveTardis, tardisSpotNow } from "@/shared/map";
 import type {
   ClientMessage,
   GameEvent,
@@ -207,6 +208,9 @@ export class GameConnection {
     this.snapshots.push(snap);
     if (this.snapshots.length > MAX_SNAPSHOTS) this.snapshots.shift();
     for (const event of snap.events) this.pendingEvents.push({ tick: snap.tick, event });
+
+    // The TARDIS is a wall that moves: put it where the server says it is.
+    if (snap.tardis !== tardisSpotNow()) moveTardis(snap.tardis);
 
     this.reconcile(snap);
   }

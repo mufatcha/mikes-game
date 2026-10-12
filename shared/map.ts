@@ -167,10 +167,40 @@ const NURSE_WALL = 10;
 const NURSE_DOOR: [number, number] = [NURSE.y + NURSE.h / 2 - 35, NURSE.y + NURSE.h / 2 + 35];
 
 /**
- * Somebody parked a TARDIS in the back corner of the Library, behind the
- * shelves. Its doors face into the room; it's bigger on the inside.
+ * Places the TARDIS can land, each with room in front of its doors (which
+ * face south). It starts parked in the back corner of the Library, behind
+ * the shelves; from the console inside you can fly it to any of the others.
  */
-export const TARDIS: Rect = { x: 1634, y: 2, w: 38, h: 38 };
+export const TARDIS_SPOTS: { name: string; x: number; y: number }[] = [
+  { name: "📚 Library", x: 1634, y: 2 },
+  { name: "🏈 Gym", x: 30, y: 470 },
+  { name: "🍔 Cafeteria", x: 470, y: 1450 },
+  { name: "🍎 Classroom", x: 1950, y: 500 },
+  { name: "🎨 Art Room", x: 2530, y: 1250 },
+  { name: "🤡 Detention", x: 1300, y: 1450 },
+  { name: "🏫 Main Hall", x: 700, y: 740 },
+];
+
+/**
+ * The police box itself. It's a wall like any other, but it moves: the
+ * server flies it between TARDIS_SPOTS and every client follows along.
+ */
+export const TARDIS: Wall = { x: TARDIS_SPOTS[0].x, y: TARDIS_SPOTS[0].y, w: 38, h: 38, kind: "tardis" };
+let tardisSpot = 0;
+
+/** Which of TARDIS_SPOTS it's parked at. */
+export function tardisSpotNow() {
+  return tardisSpot;
+}
+
+/** Land the TARDIS at one of TARDIS_SPOTS. */
+export function moveTardis(spot: number) {
+  const s = TARDIS_SPOTS[spot];
+  if (!s) return;
+  tardisSpot = spot;
+  TARDIS.x = s.x;
+  TARDIS.y = s.y;
+}
 
 /** Walking into the TARDIS doors (in front of its south face) takes you inside. */
 export function atTardisDoor(x: number, y: number) {
@@ -192,14 +222,21 @@ export function inTardis(x: number, y: number) {
   return x > TI.x - TI_WALL && x < TI.x + TI.w + TI_WALL && y > TI.y - TI_WALL && y < TI.y + TI.h + TI_WALL;
 }
 
-/** Walking back into the doors from inside takes you out to the Library. */
+/** Walking back into the doors from inside takes you out to wherever the TARDIS has landed. */
 export function atTardisExit(x: number, y: number) {
   return Math.abs(x - TI_DOOR_X) < TI_DOOR - 6 && y > TI.y + TI.h - 26;
 }
 
-/** Where you end up going in, and coming back out. */
+/** Standing at the console, where you choose where to fly. */
+export function atTardisConsole(x: number, y: number) {
+  return Math.hypot(x - TI_DOOR_X, y - (TI.y + TI.h / 2)) < 80;
+}
+
+/** Where you end up going in, and coming back out (in front of wherever it's landed). */
 export const TARDIS_ARRIVE_INSIDE: Point = { x: TI_DOOR_X, y: TI.y + TI.h - 90 };
-export const TARDIS_ARRIVE_OUTSIDE: Point = { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h + 80 };
+export function tardisArriveOutside(): Point {
+  return { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h + 60 };
+}
 
 /** For the minimap: anyone inside the TARDIS shows where the box is. */
 export function onMap(x: number, y: number): Point {
@@ -266,7 +303,7 @@ export const WALLS: Wall[] = [
   box("locker", 2020, 830, 160, 40),
 
   // Shh.
-  box("tardis", TARDIS.x, TARDIS.y, TARDIS.w, TARDIS.h),
+  TARDIS,
   ...TARDIS_ROOM,
 
   // The Nurse's Office building.

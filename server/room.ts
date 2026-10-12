@@ -229,6 +229,12 @@ export class Room {
         if (id !== this.hostId || this.phase !== "match" || !this.match) return;
         this.match.finished = true;
         return;
+      case "tardis": {
+        if (this.phase !== "match" || !this.match) return;
+        const why = this.match.flyTardis(id, Number(msg.spot));
+        if (why) this.send(client.ws, { t: "error", message: why });
+        return;
+      }
       default:
         return;
     }

@@ -118,7 +118,9 @@ function castRay(x: number, y: number, dx: number, dy: number) {
       wall: w,
       surface,
       dist,
-      u: hit.nx !== 0 ? hy - w.y : hx - w.x,
+      // Run the texture left to right as seen from this side, so writing (the TARDIS
+      // sign, posters) never reads backwards on the east and north faces.
+      u: hit.nx !== 0 ? (hit.nx > 0 ? w.y + w.h - hy : hy - w.y) : hit.ny < 0 ? w.x + w.w - hx : hx - w.x,
       xFace: hit.nx !== 0,
       exit: exitT(x, y, ex, ey, w) * MAX_VIEW,
     };

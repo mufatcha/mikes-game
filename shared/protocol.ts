@@ -38,6 +38,8 @@ export type ClientMessage =
   /** Secret prank menu: "unlock" with the cheat code first, then pranks. */
   | { t: "prank"; action: "unlock" | PrankAction; code?: string; target?: string }
   | { t: "end" }
+  /** Standing at the TARDIS console: fly it to one of TARDIS_SPOTS. */
+  | { t: "tardis"; spot: number }
   | ({ t: "input" } & InputFrame);
 
 export interface RosterEntry {
@@ -147,7 +149,9 @@ export type GameEvent =
   /** Someone used their class super. */
   | { k: "super"; by: string; super: SuperId; x: number; y: number }
   /** Someone went through the TARDIS doors at (x, y) and came out at (tx, ty): inside, or back out. */
-  | { k: "tardis"; who: string; x: number; y: number; tx: number; ty: number; inside: boolean };
+  | { k: "tardis"; who: string; x: number; y: number; tx: number; ty: number; inside: boolean }
+  /** The TARDIS dematerialized at (x, y) and landed at (tx, ty). */
+  | { k: "tardisfly"; by: string; x: number; y: number; tx: number; ty: number; spot: number };
 
 export interface Snapshot {
   t: "snap";
@@ -159,6 +163,8 @@ export interface Snapshot {
   players: PlayerSnap[];
   bullets: BulletSnap[];
   zones: ZoneSnap[];
+  /** Which of TARDIS_SPOTS the TARDIS is parked at. */
+  tardis: number;
   events: GameEvent[];
 }
 

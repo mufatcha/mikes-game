@@ -16,6 +16,8 @@ import {
   ROOMS,
   SAFE_ZONE,
   TARDIS_INSIDE,
+  TARDIS_SPOTS,
+  inTardis,
   onMap,
   SCHOOL_TABLES,
   WALLS,
@@ -741,6 +743,20 @@ export class Renderer {
             if (mine) this.showBanner("🚪 Back out in the Library", "#bfdbfe", 2000);
           }
           this.burst(e.tx, e.ty, "#60a5fa", 16, 120);
+          break;
+        }
+        case "tardisfly": {
+          // Vworp, vworp: the box fades from where it was and appears where it lands.
+          const near = Math.min(
+            Math.hypot(e.x - this.myX, e.y - this.myY),
+            Math.hypot(e.tx - this.myX, e.ty - this.myY),
+          );
+          const aboard = inTardis(this.myX, this.myY);
+          this.sfx.tardis(aboard ? 0.9 : Math.max(0, 1 - near / HEARING_RANGE));
+          this.burst(e.x, e.y, "#60a5fa", 30, 180);
+          this.burst(e.tx, e.ty, "#60a5fa", 30, 180);
+          if (aboard) this.showBanner(`🟦 The TARDIS has landed: ${TARDIS_SPOTS[e.spot]?.name ?? "somewhere"}`, "#93c5fd", 3500);
+          if (aboard) this.shake = Math.max(this.shake, 10);
           break;
         }
         case "jailed": {

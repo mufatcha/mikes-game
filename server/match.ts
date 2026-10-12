@@ -25,7 +25,13 @@ import {
 import {
   SPAWNS,
   TARDIS_ARRIVE_INSIDE,
-  TARDIS_ARRIVE_OUTSIDE,
+  TARDIS,
+  TARDIS_SPOTS,
+  atTardisConsole,
+  inTardis,
+  moveTardis,
+  tardisArriveOutside,
+  tardisSpotNow,
   WALLS,
   WALL_HEIGHT,
   atTardisDoor,
@@ -268,6 +274,8 @@ export class Match {
     /** Played in the 3D view: throws fly in 3D, with gravity and bounces. */
     readonly view3d = false,
   ) {
+    // Every match starts with the TARDIS back in the Library.
+    moveTardis(0);
     for (const e of entries) this.respawn(this.createPlayer(e));
   }
 
@@ -455,6 +463,7 @@ export class Match {
       players,
       bullets,
       zones,
+      tardis: tardisSpotNow(),
       events,
     };
   }
@@ -929,12 +938,49 @@ export class Match {
     if (p.isBot || this.time < p.tardisReadyAt || this.isJailed(p)) return;
     const goingIn = atTardisDoor(p.x, p.y);
     if (!goingIn && !atTardisExit(p.x, p.y)) return;
-    const to = goingIn ? TARDIS_ARRIVE_INSIDE : TARDIS_ARRIVE_OUTSIDE;
+    const to = goingIn ? TARDIS_ARRIVE_INSIDE : tardisArriveOutside();
     this.events.push({ k: "tardis", who: p.id, x: r1(p.x), y: r1(p.y), tx: to.x, ty: to.y, inside: goingIn });
     p.x = to.x;
     p.y = to.y;
     p.inputs = [];
     p.tardisReadyAt = this.time + 1;
+  }
+
+  /**
+   * Fly the TARDIS from its console: it dematerializes where it was and lands
+   * at the chosen spot, with everyone inside riding along. Anyone standing
+   * where it lands gets nudged out in front of its doors. Returns why it
+   * couldn't go, or null.
+   */
+  flyTardis(id: string, spot: number): string | null {
+    const p = this.players.get(id);
+    if (!p || !p.alive || !inTardis(p.x, p.y)) return "You need to be inside the TARDIS.";
+    if (!atTardisConsole(p.x, p.y)) return "Step up to the console to fly the TARDIS.";
+    if (!Number.isInteger(spot) || !TARDIS_SPOTS[spot]) return "That's not somewhere the TARDIS can land.";
+    if (spot === tardisSpotNow()) return "The TARDIS is already there.";
+    const from = { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h / 2 };
+    moveTardis(spot);
+    const out = tardisArriveOutside();
+    for (const t of this.players.values()) {
+      if (!t.alive) continue;
+      const overlaps =
+        t.x > TARDIS.x - t.radius && t.x < TARDIS.x + TARDIS.w + t.radius && t.y > TARDIS.y - t.radius && t.y < TARDIS.y + TARDIS.h + t.radius;
+      if (overlaps) {
+        t.x = out.x;
+        t.y = out.y;
+        t.inputs = [];
+      }
+    }
+    this.events.push({
+      k: "tardisfly",
+      by: p.id,
+      x: r1(from.x),
+      y: r1(from.y),
+      tx: r1(TARDIS.x + TARDIS.w / 2),
+      ty: r1(TARDIS.y + TARDIS.h / 2),
+      spot,
+    });
+    return null;
   }
 
   private updateSafeZone(p: PlayerState) {
