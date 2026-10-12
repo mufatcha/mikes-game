@@ -15,7 +15,15 @@ export type WallKind =
   | "tardisdoor"
   | "console"
   | "rotor"
-  | "strut";
+  | "strut"
+  // The Game Room.
+  | "gamerwall"
+  | "arcade"
+  | "tvscreen"
+  | "pcdesk"
+  | "monitor"
+  | "couch"
+  | "beanbag";
 
 /** How tall each kind of wall or furniture is, in world units. In 3D, throws can fly over the low ones. */
 export const WALL_HEIGHT: Record<WallKind, number> = {
@@ -33,6 +41,13 @@ export const WALL_HEIGHT: Record<WallKind, number> = {
   console: 30,
   rotor: 80,
   strut: 80,
+  gamerwall: 80,
+  arcade: 64,
+  tvscreen: 80,
+  pcdesk: 28,
+  monitor: 50,
+  couch: 24,
+  beanbag: 14,
 };
 
 export interface Rect {
@@ -51,7 +66,7 @@ export interface Point {
   y: number;
 }
 
-export type FloorPattern = "court" | "carpet" | "checker" | "tiles" | "stripes" | "splatter";
+export type FloorPattern = "court" | "carpet" | "checker" | "tiles" | "stripes" | "splatter" | "neon";
 
 /** Furniture drawn on the floor that players walk over (doesn't block). */
 export interface Decor extends Rect {
@@ -74,7 +89,9 @@ export interface Room extends Rect {
  * teams' players of a class spawn in the same place.
  */
 export const MAP_WIDTH = 2600;
-export const MAP_HEIGHT = 1800;
+/** The school building; the Game Room hangs off the bottom of it, below the right cross hall. */
+export const SCHOOL_HEIGHT = 1800;
+export const MAP_HEIGHT = 2240;
 
 const T = 24; // wall thickness
 const L = 14; // locker depth
@@ -133,6 +150,8 @@ export const ROOMS: Room[] = [
   { name: "Cafeteria", archetype: "lunchlady", x: 0, y: 1024, w: 876, h: 776, floor: "#323843", pattern: "tiles", label: { x: 438, y: 1265 } },
   { name: "Detention", archetype: "clown", x: 1124, y: 1024, w: 552, h: 776, floor: "#262b35", pattern: "stripes", label: { x: 1400, y: 1460 } },
   { name: "Art Room", archetype: "artkid", x: 1924, y: 1024, w: 676, h: 776, floor: "#25304a", pattern: "splatter", label: { x: 2262, y: 1545 } },
+  // Down at the end of the right cross hall, through a door in the bottom wall of the school.
+  { name: "Game Room", archetype: "gamer", x: 1500, y: 1824, w: 600, h: 416, floor: "#0f0a1e", pattern: "neon", label: { x: 1800, y: 1975 } },
 ];
 
 /** Street-styled corridors, used for floor markings. */
@@ -140,8 +159,8 @@ export const HALLS: Rect[] = [
   { x: 0, y: MAIN_HALL.y1, w: MAP_WIDTH, h: MAIN_HALL.y2 - MAIN_HALL.y1 },
   { x: HALL_A.x1, y: 0, w: HALL_A.x2 - HALL_A.x1, h: MAIN_HALL.y1 },
   { x: HALL_B.x1, y: 0, w: HALL_B.x2 - HALL_B.x1, h: MAIN_HALL.y1 },
-  { x: HALL_A.x1, y: MAIN_HALL.y2, w: HALL_A.x2 - HALL_A.x1, h: MAP_HEIGHT - MAIN_HALL.y2 },
-  { x: HALL_B.x1, y: MAIN_HALL.y2, w: HALL_B.x2 - HALL_B.x1, h: MAP_HEIGHT - MAIN_HALL.y2 },
+  { x: HALL_A.x1, y: MAIN_HALL.y2, w: HALL_A.x2 - HALL_A.x1, h: SCHOOL_HEIGHT - MAIN_HALL.y2 },
+  { x: HALL_B.x1, y: MAIN_HALL.y2, w: HALL_B.x2 - HALL_B.x1, h: SCHOOL_HEIGHT - MAIN_HALL.y2 },
 ];
 
 const CAFETERIA_TABLES = [1130, 1350, 1570].flatMap((y) => [100, 576].map((x) => ({ x, y })));
@@ -179,6 +198,7 @@ export const TARDIS_SPOTS: { name: string; x: number; y: number }[] = [
   { name: "🎨 Art Room", x: 2530, y: 1250 },
   { name: "🤡 Detention", x: 1300, y: 1450 },
   { name: "🏫 Main Hall", x: 700, y: 740 },
+  { name: "🎮 Game Room", x: 1560, y: 1836 },
 ];
 
 /**
@@ -260,6 +280,40 @@ const TARDIS_ROOM: Wall[] = [
   }),
 ];
 
+/**
+ * The Game Room, where the Gamer spawns: down through a door at the bottom of
+ * the right cross hall. Dark walls lit with RGB strips and game posters, arcade
+ * cabinets, a big TV with a couch and beanbags, and two gaming PC setups.
+ */
+export const GAME_ROOM: Rect = { x: 1500, y: SCHOOL_HEIGHT + T, w: 600, h: MAP_HEIGHT - SCHOOL_HEIGHT - T };
+
+/** Somewhere you can actually get to: the school, or the Game Room below it (not the closed-off space beside it). */
+export function reachable(x: number, y: number) {
+  return y < SCHOOL_HEIGHT || (x > GAME_ROOM.x && x < GAME_ROOM.x + GAME_ROOM.w && y > GAME_ROOM.y);
+}
+const GAME_DOOR: [number, number] = [1740, 1860];
+const GR = GAME_ROOM;
+const GAME_ROOM_WALLS: Wall[] = [
+  box("gamerwall", GR.x - T, GR.y, T, GR.h),
+  box("gamerwall", GR.x + GR.w, GR.y, T, GR.h),
+  // Lining the room (the walls behind are the school's on the other side).
+  ...stripH("gamerwall", GR.x, GR.x + GR.w, GR.y, 6, [GAME_DOOR]),
+  ...stripH("gamerwall", GR.x, GR.x + GR.w, GR.y + GR.h - 6, 6, [[1720, 1880]]),
+  box("tvscreen", 1720, GR.y + GR.h - 8, 160, 8),
+  // Arcade cabinets down both sides.
+  ...[1880, 1940, 2000, 2060].map((y) => box("arcade", GR.x, y, 26, 34)),
+  ...[1870, 1930].map((y) => box("arcade", GR.x + GR.w - 26, y, 26, 34)),
+  // Two gaming PCs against the right wall: desk, with the monitor on the back of it.
+  box("pcdesk", 2040, 2010, 54, 70),
+  box("monitor", 2088, 2016, 6, 58),
+  box("pcdesk", 2040, 2120, 54, 70),
+  box("monitor", 2088, 2126, 6, 58),
+  // The couch and beanbags, facing the TV.
+  box("couch", 1720, 2090, 160, 34),
+  box("beanbag", 1640, 2150, 34, 34),
+  box("beanbag", 1926, 2150, 34, 34),
+];
+
 export const WALLS: Wall[] = [
   // Gym
   ...lockerWallV(0, MAIN_HALL.y1, HALL_A.x1 - T, "right", [[250, 370]]),
@@ -283,19 +337,19 @@ export const WALLS: Wall[] = [
 
   // Cafeteria
   ...lockerWallH(0, HALL_A.x1 - T, BOTTOM_WALL_Y, "above", [[200, 330], [570, 700]]),
-  ...lockerWallV(MAIN_HALL.y2, MAP_HEIGHT, HALL_A.x1 - T, "right", [[1400, 1520]]),
+  ...lockerWallV(MAIN_HALL.y2, SCHOOL_HEIGHT, HALL_A.x1 - T, "right", [[1400, 1520]]),
   ...CAFETERIA_TABLES.map(({ x, y }) => box("table", x, y, 200, 50)),
 
   // Detention
   ...lockerWallH(HALL_A.x2 + T, HALL_B.x1 - T, BOTTOM_WALL_Y, "above", [[1340, 1460]]),
-  ...lockerWallV(MAIN_HALL.y2, MAP_HEIGHT, HALL_A.x2, "left", [[1380, 1500]]),
-  ...lockerWallV(MAIN_HALL.y2, MAP_HEIGHT, HALL_B.x1 - T, "right", [[1380, 1500]]),
+  ...lockerWallV(MAIN_HALL.y2, SCHOOL_HEIGHT, HALL_A.x2, "left", [[1380, 1500]]),
+  ...lockerWallV(MAIN_HALL.y2, SCHOOL_HEIGHT, HALL_B.x1 - T, "right", [[1380, 1500]]),
   ...DETENTION_DESKS.map(({ x, y }) => box("desk", x, y, 50, 34)),
   box("desk", 1330, 1700, 140, 40),
 
   // Art room
   ...lockerWallH(HALL_B.x2 + T, MAP_WIDTH, BOTTOM_WALL_Y, "above", [[2000, 2130], [2370, 2500]]),
-  ...lockerWallV(MAIN_HALL.y2, MAP_HEIGHT, HALL_B.x2, "left", [[1400, 1520]]),
+  ...lockerWallV(MAIN_HALL.y2, SCHOOL_HEIGHT, HALL_B.x2, "left", [[1400, 1520]]),
   ...[1180, 1420, 1620].flatMap((y) => [2020, 2200, 2380].map((x) => box("easel", x, y, 80, 50))),
 
   // Locker banks in the main hall for cover, either side of the Nurse's Office
@@ -305,6 +359,10 @@ export const WALLS: Wall[] = [
   // Shh.
   TARDIS,
   ...TARDIS_ROOM,
+
+  // The bottom wall of the school, with a door from the right cross hall down into the Game Room.
+  ...stripH("wall", 0, MAP_WIDTH, SCHOOL_HEIGHT, T, [[GAME_DOOR[0], GAME_DOOR[1]]]),
+  ...GAME_ROOM_WALLS,
 
   // The Nurse's Office building.
   ...stripH("clinic", NURSE.x, NURSE.x + NURSE.w, NURSE.y, NURSE_WALL, []),
@@ -383,14 +441,14 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 820, y: 1720 },
     { x: 438, y: 1720 },
   ],
-  // The Gamer camps at the Library computers.
+  // The Gamer lives in the Game Room.
   gamer: [
-    { x: 1175, y: 300 },
-    { x: 1625, y: 300 },
-    { x: 1310, y: 600 },
-    { x: 1440, y: 600 },
-    { x: 1175, y: 450 },
-    { x: 1625, y: 450 },
+    { x: 1620, y: 1960 },
+    { x: 1680, y: 2060 },
+    { x: 1800, y: 1900 },
+    { x: 1960, y: 1900 },
+    { x: 1800, y: 2040 },
+    { x: 1960, y: 2060 },
   ],
   // The Pyro lurks around the Cafeteria kitchen.
   pyro: [

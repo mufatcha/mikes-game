@@ -3,6 +3,7 @@ import {
   MAP_HEIGHT,
   MAP_WIDTH,
   ROOMS,
+  SCHOOL_HEIGHT,
   TARDIS_INSIDE,
   WALL_HEIGHT,
   inSafeZone,
@@ -42,6 +43,13 @@ export const TEX_UNITS: Record<Surface, number> = {
   console: 35,
   rotor: 16,
   strut: 12,
+  gamerwall: 48,
+  arcade: 30,
+  tvscreen: 160,
+  pcdesk: 40,
+  monitor: 58,
+  couch: 40,
+  beanbag: 34,
 };
 
 /** How tall each surface is, in world units (also the texture height). */
@@ -452,6 +460,255 @@ function strutCanvas() {
   return c;
 }
 
+// ---------------------------------------------------------------- the Game Room
+
+const RGB_STOPS = ["#f43f5e", "#f59e0b", "#22c55e", "#06b6d4", "#6366f1", "#d946ef"];
+
+/** A strip of RGB LEDs fading through the rainbow. */
+function ledStrip(g: CanvasRenderingContext2D, y: number, w: number, h: number) {
+  const grad = g.createLinearGradient(0, 0, w, 0);
+  RGB_STOPS.forEach((c, i) => grad.addColorStop(i / (RGB_STOPS.length - 1), c));
+  g.fillStyle = grad;
+  g.fillRect(0, y, w, h);
+}
+
+/** A tiny pixel-art sprite from rows of characters (one colour per letter). */
+function pixelArt(g: CanvasRenderingContext2D, rows: string[], colors: Record<string, string>, x: number, y: number, px: number) {
+  rows.forEach((row, r) =>
+    [...row].forEach((ch, c) => {
+      if (!colors[ch]) return;
+      g.fillStyle = colors[ch];
+      g.fillRect(x + c * px, y + r * px, px, px);
+    }),
+  );
+}
+
+const INVADER = ["..g.....g..", "...g...g...", "..ggggggg..", ".gg.ggg.gg.", "ggggggggggg", "g.ggggggg.g", "g.g.....g.g", "...gg.gg..."];
+const HERO = ["..rrr..", ".rrrrr.", ".sssss.", "..sss..", ".bbbbb.", "b.bbb.b", "..b.b..", ".kk.kk."];
+const HERO_COLORS = { r: "#dc2626", s: "#fcd34d", b: "#2563eb", k: "#78350f" };
+
+/** Dark purple walls with RGB strips top and bottom, foam panels and a framed pixel-art game poster. */
+function gamerWallCanvas() {
+  const c = canvas(TEX_UNITS.gamerwall, SURFACE_HEIGHT.gamerwall);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#1e1033";
+  g.fillRect(0, 0, w, h);
+  // Acoustic foam panels.
+  g.fillStyle = "#2a1748";
+  for (let y = 14; y < 66; y += 8) for (let x = 2; x < 48; x += 8) g.fillRect(x * u, y * u, 6 * u, 6 * u);
+  ledStrip(g, 6 * u, w, 1.5 * u);
+  ledStrip(g, h - 8 * u, w, 1.5 * u);
+  // A framed poster with a pixel-art hero and a title bar.
+  g.fillStyle = "#facc15";
+  g.fillRect(12 * u, 18 * u, 24 * u, 30 * u);
+  g.fillStyle = "#0f172a";
+  g.fillRect(13 * u, 19 * u, 22 * u, 28 * u);
+  g.fillStyle = "#e11d48";
+  g.fillRect(13 * u, 19 * u, 22 * u, 5 * u);
+  pixelArt(g, HERO, HERO_COLORS, 17 * u, 28 * u, 2 * u);
+  g.fillStyle = "#0b0716";
+  g.fillRect(0, h - 6 * u, w, 6 * u);
+  return c;
+}
+
+/** An arcade cabinet: glowing marquee, a screen with space invaders, the control panel and coin door. */
+function arcadeCanvas() {
+  const c = canvas(TEX_UNITS.arcade, SURFACE_HEIGHT.arcade);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#111827";
+  g.fillRect(0, 0, w, h);
+  // Side art stripes.
+  g.fillStyle = "#7c3aed";
+  g.fillRect(0, 0, 2 * u, h);
+  g.fillRect(w - 2 * u, 0, 2 * u, h);
+  // Marquee.
+  const mq = g.createLinearGradient(0, 0, w, 0);
+  mq.addColorStop(0, "#f472b6");
+  mq.addColorStop(1, "#facc15");
+  g.fillStyle = mq;
+  g.fillRect(3 * u, 2 * u, w - 6 * u, 7 * u);
+  g.fillStyle = "#111827";
+  g.font = `900 ${4.4 * u}px ui-sans-serif, system-ui, sans-serif`;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText("ARCADE", w / 2, 5.6 * u);
+  // Screen.
+  g.fillStyle = "#020617";
+  g.fillRect(4 * u, 12 * u, w - 8 * u, 18 * u);
+  pixelArt(g, INVADER, { g: "#4ade80" }, 6 * u, 15 * u, 1.2 * u);
+  pixelArt(g, INVADER, { g: "#f472b6" }, 16 * u, 19 * u, 1.2 * u);
+  g.fillStyle = "#facc15";
+  g.fillRect(14 * u, 27 * u, 2.4 * u, 1.2 * u);
+  // Control panel: joystick and buttons.
+  g.fillStyle = "#334155";
+  g.fillRect(2 * u, 32 * u, w - 4 * u, 7 * u);
+  g.fillStyle = "#e11d48";
+  g.beginPath();
+  g.arc(8 * u, 34 * u, 1.8 * u, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = "#1f2937";
+  g.fillRect(7.6 * u, 34 * u, 0.8 * u, 3 * u);
+  for (const [i, col] of ["#22c55e", "#3b82f6", "#facc15"].entries()) {
+    g.fillStyle = col;
+    g.beginPath();
+    g.arc((15 + i * 4) * u, 35.5 * u, 1.3 * u, 0, Math.PI * 2);
+    g.fill();
+  }
+  // Coin door.
+  g.fillStyle = "#1f2937";
+  g.fillRect(10 * u, 46 * u, 10 * u, 10 * u);
+  g.fillStyle = "#f59e0b";
+  g.fillRect(12 * u, 49 * u, 2 * u, 3 * u);
+  g.fillRect(16 * u, 49 * u, 2 * u, 3 * u);
+  return c;
+}
+
+/** A huge TV showing a platformer: sky, clouds, brick blocks, coins, a pipe and the hero mid-jump. */
+function tvCanvas() {
+  const c = canvas(TEX_UNITS.tvscreen, SURFACE_HEIGHT.tvscreen);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#1e1033";
+  g.fillRect(0, 0, w, h);
+  ledStrip(g, 6 * u, w, 1.5 * u);
+  // Bezel and screen.
+  const x0 = 6 * u;
+  const y0 = 12 * u;
+  const sw = w - 12 * u;
+  const sh = 52 * u;
+  g.fillStyle = "#020617";
+  g.fillRect(x0 - 2 * u, y0 - 2 * u, sw + 4 * u, sh + 4 * u);
+  g.fillStyle = "#60a5fa";
+  g.fillRect(x0, y0, sw, sh);
+  g.fillStyle = "#f8fafc";
+  for (const cx of [20, 70, 120]) {
+    g.beginPath();
+    g.arc((cx + 6) * u, y0 + 9 * u, 4 * u, 0, Math.PI * 2);
+    g.arc((cx + 12) * u, y0 + 8 * u, 5 * u, 0, Math.PI * 2);
+    g.arc((cx + 18) * u, y0 + 9 * u, 4 * u, 0, Math.PI * 2);
+    g.fill();
+  }
+  // Ground and brick blocks.
+  g.fillStyle = "#16a34a";
+  g.fillRect(x0, y0 + sh - 10 * u, sw, 3 * u);
+  g.fillStyle = "#92400e";
+  g.fillRect(x0, y0 + sh - 7 * u, sw, 7 * u);
+  for (const bx of [44, 50, 56, 62]) {
+    g.fillStyle = bx === 50 ? "#facc15" : "#b45309";
+    g.fillRect(bx * u, y0 + 22 * u, 5.5 * u, 5.5 * u);
+  }
+  // A green pipe, coins and the hero jumping.
+  g.fillStyle = "#15803d";
+  g.fillRect(110 * u, y0 + sh - 22 * u, 10 * u, 12 * u);
+  g.fillRect(108.5 * u, y0 + sh - 24 * u, 13 * u, 3 * u);
+  g.fillStyle = "#facc15";
+  for (const cx of [80, 87, 94]) g.fillRect(cx * u, y0 + 26 * u, 2.5 * u, 3.5 * u);
+  pixelArt(g, HERO, HERO_COLORS, 28 * u, y0 + 26 * u, 1.6 * u);
+  // A score along the top.
+  g.fillStyle = "#f8fafc";
+  g.font = `800 ${3.4 * u}px ui-monospace, monospace`;
+  g.textAlign = "left";
+  g.textBaseline = "top";
+  g.fillText("SCORE 004200   x03   WORLD 1-1", x0 + 3 * u, y0 + 1.5 * u);
+  ledStrip(g, h - 8 * u, w, 1.5 * u);
+  return c;
+}
+
+/** A gaming desk: black, with an RGB strip along the front edge and a glass-sided PC tower. */
+function pcDeskCanvas() {
+  const c = canvas(TEX_UNITS.pcdesk, SURFACE_HEIGHT.pcdesk);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#18181b";
+  g.fillRect(0, 0, w, h);
+  ledStrip(g, 1 * u, w, 1.2 * u);
+  // The PC tower with its glowing fans.
+  g.fillStyle = "#27272a";
+  g.fillRect(4 * u, 5 * u, 12 * u, h - 6 * u);
+  for (const [i, col] of ["#d946ef", "#06b6d4"].entries()) {
+    const cy = (10 + i * 8) * u;
+    const fan = g.createRadialGradient(10 * u, cy, 0.5 * u, 10 * u, cy, 3.4 * u);
+    fan.addColorStop(0, "#f8fafc");
+    fan.addColorStop(0.5, col);
+    fan.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = fan;
+    g.fillRect(6 * u, cy - 4 * u, 8 * u, 8 * u);
+  }
+  // Desk leg.
+  g.fillStyle = "#3f3f46";
+  g.fillRect(w - 6 * u, 5 * u, 3 * u, h - 5 * u);
+  return c;
+}
+
+/** A gaming monitor: the stand below, the screen up top showing a shooter HUD. */
+function monitorCanvas() {
+  const c = canvas(TEX_UNITS.monitor, SURFACE_HEIGHT.monitor);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#18181b";
+  g.fillRect(0, 0, w, h);
+  // Bezel and screen, from just above the desk to the top.
+  g.fillStyle = "#09090b";
+  g.fillRect(4 * u, 2 * u, w - 8 * u, 22 * u);
+  const scr = g.createLinearGradient(0, 3 * u, 0, 22 * u);
+  scr.addColorStop(0, "#1e3a8a");
+  scr.addColorStop(1, "#0f766e");
+  g.fillStyle = scr;
+  g.fillRect(5 * u, 3 * u, w - 10 * u, 19 * u);
+  // Crosshair, health bar and a minimap.
+  g.strokeStyle = "#f8fafc";
+  g.lineWidth = 0.6 * u;
+  g.beginPath();
+  g.moveTo(w / 2 - 2 * u, 12 * u);
+  g.lineTo(w / 2 + 2 * u, 12 * u);
+  g.moveTo(w / 2, 10 * u);
+  g.lineTo(w / 2, 14 * u);
+  g.stroke();
+  g.fillStyle = "#22c55e";
+  g.fillRect(7 * u, 19 * u, 12 * u, 1.4 * u);
+  g.fillStyle = "rgba(15,23,42,0.8)";
+  g.fillRect(w - 14 * u, 5 * u, 8 * u, 7 * u);
+  g.fillStyle = "#f43f5e";
+  g.fillRect(w - 11 * u, 8 * u, 1.2 * u, 1.2 * u);
+  return c;
+}
+
+/** A comfy dark couch: cushions along the front. */
+function couchCanvas() {
+  const c = canvas(TEX_UNITS.couch, SURFACE_HEIGHT.couch);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#3f3f46";
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = "#52525b";
+  for (let x = 1; x < 40; x += 13) g.fillRect(x * u, 2 * u, 12 * u, 10 * u);
+  g.fillStyle = "#27272a";
+  g.fillRect(0, h - 4 * u, w, 4 * u);
+  return c;
+}
+
+/** A squashy purple beanbag. */
+function beanbagCanvas() {
+  const c = canvas(TEX_UNITS.beanbag, SURFACE_HEIGHT.beanbag);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const shade = g.createLinearGradient(0, 0, w, 0);
+  shade.addColorStop(0, "#581c87");
+  shade.addColorStop(0.5, "#a855f7");
+  shade.addColorStop(1, "#581c87");
+  g.fillStyle = shade;
+  g.fillRect(0, 0, w, h);
+  return c;
+}
+
 /** The outside wall: cinderblock with tall windows showing a bright sky. */
 function outerCanvas() {
   const c = canvas(TEX_UNITS.outer, SURFACE_HEIGHT.outer);
@@ -619,6 +876,13 @@ export function wallTexture(surface: Surface, variant: WallVariant = "plain"): H
     else if (surface === "console") c = consoleCanvas();
     else if (surface === "rotor") c = rotorCanvas();
     else if (surface === "strut") c = strutCanvas();
+    else if (surface === "gamerwall") c = gamerWallCanvas();
+    else if (surface === "arcade") c = arcadeCanvas();
+    else if (surface === "tvscreen") c = tvCanvas();
+    else if (surface === "pcdesk") c = pcDeskCanvas();
+    else if (surface === "monitor") c = monitorCanvas();
+    else if (surface === "couch") c = couchCanvas();
+    else if (surface === "beanbag") c = beanbagCanvas();
     else c = furnitureCanvas(surface);
     cache.set(key, c);
   }
@@ -647,7 +911,7 @@ function rgb(r: number, g: number, b: number) {
 const CELL = 20;
 const GRID_W = Math.ceil(MAP_WIDTH / CELL);
 const GRID_H = Math.ceil(MAP_HEIGHT / CELL);
-const FLOOR_KINDS: (FloorPattern | "hall")[] = ["hall", "court", "carpet", "checker", "tiles", "stripes", "splatter"];
+const FLOOR_KINDS: (FloorPattern | "hall")[] = ["hall", "court", "carpet", "checker", "tiles", "stripes", "splatter", "neon"];
 let floorGrid: Uint8Array | null = null;
 
 /** Which floor each 20x20 cell of the map has, worked out once. */
@@ -733,6 +997,14 @@ export function floorTexel(x: number, y: number): number {
       const s = mod(x + y, 40) < 20 ? 8 : 0;
       return rgb(70 + s, 74 + s, 84 + s);
     }
+    case "neon": {
+      // The Game Room: a dark floor with a glowing magenta and cyan grid.
+      const gx = mod(x, 40);
+      const gy = mod(y, 40);
+      if (gx < 1.4) return rgb(217, 70, 239);
+      if (gy < 1.4) return rgb(34, 211, 238);
+      return rgb(18, 10, 36);
+    }
     case "splatter": {
       const cell = hash(Math.floor(x / 18), Math.floor(y / 18));
       if (cell > 0.88 && hash(Math.floor(x / 6), Math.floor(y / 6)) > 0.35) {
@@ -752,6 +1024,15 @@ export function floorTexel(x: number, y: number): number {
 
 /** Ceiling color at a world position, packed; bit 24 is set for the glowing light panels. */
 export function ceilingTexel(x: number, y: number): number {
+  if (y > SCHOOL_HEIGHT) {
+    // The Game Room: dark, with rows of RGB LED strips cycling through the colours.
+    if (mod(y, 60) < 3) {
+      const hue = mod(x / 40, RGB_STOPS.length) | 0;
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(RGB_STOPS[hue].slice(i, i + 2), 16));
+      return rgb(r, g, b) | GLOW;
+    }
+    return rgb(14, 8, 26);
+  }
   if (inTardis(x, y)) {
     // Dark bronze, with an amber ring above the console and roundel lights dotted around.
     const d = fromConsole(x, y);

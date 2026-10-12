@@ -1,4 +1,4 @@
-import { MAP_HEIGHT, MAP_WIDTH, SAFE_ZONE, inSafeZone, type Point } from "../shared/map";
+import { MAP_HEIGHT, MAP_WIDTH, SAFE_ZONE, inSafeZone, reachable, type Point } from "../shared/map";
 import { hasLineOfSight } from "../shared/physics";
 import type { InputFrame } from "../shared/protocol";
 import { WEAPONS, type WeaponId } from "../shared/archetypes";
@@ -263,7 +263,7 @@ export class BotBrain {
       // Rooms are shared, so roam anywhere, but keep moving away from where we are.
       const p = { x: rand(60, MAP_WIDTH - 60), y: rand(60, MAP_HEIGHT - 60) };
       if (Math.hypot(p.x - self.x, p.y - self.y) < 500) continue;
-      if (isOpen(p)) return p;
+      if (isOpen(p) && reachable(p.x, p.y)) return p;
     }
     return { x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 - 200 };
   }

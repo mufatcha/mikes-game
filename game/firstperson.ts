@@ -61,6 +61,9 @@ const TOP_COLORS: Partial<Record<Surface, [number, number, number]>> = {
   desk: [176, 136, 88],
   bleacher: [172, 148, 102],
   console: [176, 128, 62],
+  pcdesk: [39, 39, 42],
+  couch: [82, 82, 91],
+  beanbag: [147, 51, 234],
 };
 
 /** The outside of the building: walls just past the map edge, with windows. */
@@ -74,7 +77,7 @@ const OUTER_SET = new Set(OUTER);
 const ALL_WALLS = [...WALLS, ...OUTER];
 const WALL_INDEX = new Map(ALL_WALLS.map((w, i) => [w, i]));
 /** These reach (nearly) the ceiling and hide everything behind them. */
-const FULL_HEIGHT = new Set(["wall", "locker", "clinic", "tardiswall", "tardisdoor", "rotor", "strut"]);
+const FULL_HEIGHT = new Set(["wall", "locker", "clinic", "tardiswall", "tardisdoor", "rotor", "strut", "gamerwall", "tvscreen"]);
 
 interface Hit {
   wall: Wall;
@@ -300,7 +303,14 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
       // or only as far as anything tall standing on it (like the TARDIS time rotor rising
       // out of the console), which hides the rest of the top behind it.
       const topColor = TOP_COLORS[hit.surface];
-      const exit = hit !== tall && tall ? Math.min(hit.exit, tall.dist) : hit.exit;
+      let exit = hit.exit;
+      if (hit !== tall) {
+        if (tall) exit = Math.min(exit, tall.dist);
+        // Or anything else taller standing on it, like a monitor on a gaming desk.
+        for (const o of lows) {
+          if (o !== hit && o.dist > hit.dist && SURFACE_HEIGHT[o.surface] > height) exit = Math.min(exit, o.dist);
+        }
+      }
       const far = Math.max(d, exit * fix);
       const farY = horizon + ((EYE - height) * proj) / far;
       // Its outline reaches up to the far edge of its top (if you're looking down on it).

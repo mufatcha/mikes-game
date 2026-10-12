@@ -27,6 +27,13 @@ const BLOCKS_SIGHT: Record<WallKind, boolean> = {
   console: false,
   rotor: true,
   strut: true,
+  gamerwall: true,
+  arcade: true,
+  tvscreen: true,
+  pcdesk: false,
+  monitor: false,
+  couch: false,
+  beanbag: false,
 };
 const OCCLUDERS: Wall[] = WALLS.filter((w) => BLOCKS_SIGHT[w.kind]);
 

@@ -16,6 +16,8 @@ import {
   MAP_WIDTH,
   ROOMS,
   SAFE_ZONE,
+  SCHOOL_HEIGHT,
+  GAME_ROOM,
   TARDIS_INSIDE,
   TARDIS_SPOTS,
   inTardis,
@@ -78,6 +80,13 @@ const WALL_STYLES: Record<WallKind, { fill: string; top: string }> = {
   console: { fill: "#9a6b2f", top: "#d4a017" },
   rotor: { fill: "#f59e0b", top: "#fef3c7" },
   strut: { fill: "#b4531f", top: "#fb923c" },
+  gamerwall: { fill: "#2e1065", top: "#d946ef" },
+  arcade: { fill: "#111827", top: "#22d3ee" },
+  tvscreen: { fill: "#0f172a", top: "#38bdf8" },
+  pcdesk: { fill: "#18181b", top: "#a855f7" },
+  monitor: { fill: "#0f172a", top: "#22c55e" },
+  couch: { fill: "#3f3f46", top: "#52525b" },
+  beanbag: { fill: "#7e22ce", top: "#a855f7" },
 };
 /** World area that fits on screen; bigger screens zoom in rather than see more. */
 const VIEW_AREA = 1500 * 860;
@@ -887,9 +896,9 @@ export class Renderer {
 
   private drawFloor() {
     const { ctx } = this;
-    // Everything outside the rooms is asphalt.
+    // Everything outside the rooms is asphalt; below the school (beside the Game Room) is outside.
     ctx.fillStyle = ASPHALT;
-    ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+    ctx.fillRect(0, 0, MAP_WIDTH, SCHOOL_HEIGHT);
     for (const hall of HALLS) this.drawStreet(hall);
     this.drawCrosswalks();
 
@@ -915,7 +924,8 @@ export class Renderer {
     // Outer school wall.
     ctx.strokeStyle = "#cbd5e1";
     ctx.lineWidth = 10;
-    ctx.strokeRect(-5, -5, MAP_WIDTH + 10, MAP_HEIGHT + 10);
+    ctx.strokeRect(-5, -5, MAP_WIDTH + 10, SCHOOL_HEIGHT + 10);
+    ctx.strokeRect(GAME_ROOM.x - 29, GAME_ROOM.y - 5, GAME_ROOM.w + 58, GAME_ROOM.h + 10);
 
     this.drawTardisFloor();
   }
@@ -2117,6 +2127,15 @@ function makeFloorTile(kind: FloorPattern, base: string): HTMLCanvasElement {
         g.lineTo(o + 40, 0);
       }
       g.stroke();
+      break;
+    }
+    case "neon": {
+      // The Game Room: a glowing magenta and cyan grid on a dark floor.
+      size(40, 40);
+      g.fillStyle = "rgba(217,70,239,0.85)";
+      g.fillRect(0, 0, 2, 40);
+      g.fillStyle = "rgba(34,211,238,0.85)";
+      g.fillRect(0, 0, 40, 2);
       break;
     }
     case "splatter": {
