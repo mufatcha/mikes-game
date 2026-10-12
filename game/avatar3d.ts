@@ -453,6 +453,43 @@ function stringParts(c: V3, size: number, upright: boolean): Part[] {
   ];
 }
 
+/**
+ * A whole trombone, mouthpiece at `origin`, pointing forward: the two slide
+ * tubes with their U-bend and hand brace, and alongside on the left the bell
+ * tube, which joins the slide through the tuning slide behind your head and
+ * opens out into the flared bell.
+ */
+function tromboneParts(origin: V3, scale: number, firstPerson = false): Part[] {
+  // In first person the tubing behind your head is out of sight (and too close to draw).
+  const behind: Part[] = firstPerson
+    ? [{ c: [-3.2, 12.25, -1.6], h: [0.35, 6.25, 0.35], color: GOLD }] // bell tube, from beside you
+    : [
+        { c: [0, 0, 0], h: [0.35, 0.8, 0.35], color: SILVER }, // mouthpiece
+        { c: [0, -2, -1.6], h: [0.35, 2.5, 0.35], color: GOLD }, // back to the tuning slide
+        { c: [-1.6, -4.5, -1.6], h: [1.95, 0.35, 0.35], color: GOLD }, // tuning slide, behind the head
+        { c: [-3.2, 7, -1.6], h: [0.35, 11.5, 0.35], color: GOLD }, // bell tube, alongside the slide
+      ];
+  const parts: Part[] = [
+    ...behind,
+    { c: [0, 13.5, 0], h: [0.35, 13, 0.35], color: GOLD }, // slide, upper tube
+    { c: [0, 13.5, -1.6], h: [0.35, 13, 0.35], color: GOLD }, // slide, lower tube
+    { c: [0, 26.8, -0.8], h: [0.45, 0.45, 1.25], color: GOLD }, // U-bend at the end of the slide
+    { c: [0, 18, -0.8], h: [0.25, 0.3, 0.9], color: GOLD_DARK }, // the brace you hold to move the slide
+    { c: [0, 3, -0.8], h: [0.25, 0.3, 0.9], color: GOLD_DARK }, // inner slide brace
+    { c: [-1.6, 8, -0.8], h: [1.6, 0.25, 0.25], color: GOLD_DARK }, // brace between bell and slide
+    // The bell flares open in steps.
+    { c: [-3.2, 19, -1.6], h: [0.9, 0.6, 0.9], color: GOLD },
+    { c: [-3.2, 20.2, -1.6], h: [1.7, 0.6, 1.7], color: GOLD },
+    { c: [-3.2, 21.2, -1.6], h: [2.8, 0.5, 2.8], color: GOLD },
+    { c: [-3.2, 21.75, -1.6], h: [2.2, 0.1, 2.2], color: GOLD_DARK }, // inside of the bell
+  ];
+  return parts.map((p) => ({
+    ...p,
+    c: [origin[0] + p.c[0] * scale, origin[1] + p.c[1] * scale, origin[2] + p.c[2] * scale],
+    h: [p.h[0] * scale, p.h[1] * scale, p.h[2] * scale],
+  }));
+}
+
 /** An instrument held by a figure, in the figure's own space (s right, f forward, z up). */
 function instrumentParts(kind: Instrument): Part[] {
   switch (kind) {
@@ -463,12 +500,8 @@ function instrumentParts(kind: Instrument): Part[] {
         { c: [1.5, 20, 46], h: [2.6, 1.2, 2.6], color: GOLD },
       ];
     case "trombone":
-      return [
-        { c: [0.5, 21, 46.5], h: [0.45, 13, 0.45], color: GOLD },
-        { c: [0.5, 21, 44.5], h: [0.45, 13, 0.45], color: GOLD },
-        { c: [0.5, 34, 45.5], h: [0.45, 0.45, 1.5], color: GOLD },
-        { c: [3.5, 12, 47.5], h: [2.8, 1, 2.8], color: GOLD },
-      ];
+      // Mouthpiece at the lips.
+      return tromboneParts([0.5, 7.6, 45.5], 1);
     case "tuba":
       return [
         { c: [0, 9, 34], h: [5, 3.5, 7], color: GOLD },
@@ -523,12 +556,8 @@ function heldInstrumentParts(kind: Instrument, bobS: number, bobZ: number): Part
       ];
       break;
     case "trombone":
-      parts = [
-        { c: [1, 30, -4.5], h: [0.3, 18, 0.3], color: GOLD },
-        { c: [1, 30, -6], h: [0.3, 18, 0.3], color: GOLD },
-        { c: [1, 48, -5.25], h: [0.3, 0.3, 0.9], color: GOLD },
-        { c: [5, 22, -3], h: [2, 0.8, 2], color: GOLD },
-      ];
+      // Off to the lower right: the slide reaches out ahead, the bell just to its left.
+      parts = tromboneParts([6.5, 8, -7], 0.9, true);
       break;
     case "tuba":
       // The big bell rises up at your right.

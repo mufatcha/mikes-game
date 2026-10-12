@@ -91,11 +91,27 @@ export function drawInstrument2D(ctx: CanvasRenderingContext2D, kind: Instrument
       end = 36;
       break;
     case "trombone":
-      bar(ctx, 14, -2, 44, -2, 1.6, GOLD);
-      bar(ctx, 14, 2, 44, 2, 1.6, GOLD);
-      bar(ctx, 44, -2, 44, 2, 1.6, GOLD);
-      disc(ctx, 22, -8, 3, 6, GOLD);
-      end = 46;
+      // Bell section on the left: the tube runs back past the face to the tuning slide,
+      // and forward to the flared bell.
+      bar(ctx, 4, -6, 31, -6, 1.6, GOLD);
+      bar(ctx, 4, -6, 4, 0, 1.6, GOLD);
+      ctx.fillStyle = GOLD;
+      ctx.beginPath();
+      ctx.moveTo(30, -7);
+      ctx.lineTo(37, -11.5);
+      ctx.lineTo(37, -0.5);
+      ctx.lineTo(30, -5);
+      ctx.closePath();
+      ctx.fill();
+      bar(ctx, 37, -11.5, 37, -0.5, 1.2, GOLD_DARK);
+      // The slide: two tubes out to the U-bend, with the brace you hold.
+      bar(ctx, 12, -0.9, 46, -0.9, 1.3, GOLD);
+      bar(ctx, 12, 0.9, 46, 0.9, 1.3, GOLD);
+      bar(ctx, 46, -0.9, 46, 0.9, 1.6, GOLD);
+      bar(ctx, 32, -2, 32, 2, 1.2, GOLD_DARK);
+      bar(ctx, 20, -6, 20, -0.9, 1, GOLD_DARK);
+      disc(ctx, 11.5, 0, 1.4, 1.4, SILVER);
+      end = 47;
       break;
     case "tuba":
       disc(ctx, 18, 6, 11, 11, GOLD);
