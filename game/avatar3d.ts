@@ -71,6 +71,7 @@ const SLEEVES: Partial<Record<ArchetypeId, string>> = {
   principal: "#1f2937",
   orchestra: "#111827",
   gamer: "#1f2937",
+  quietkid: "#4b5563",
 };
 
 // ---------------------------------------------------------------- textures
@@ -378,6 +379,8 @@ function cupFaceTex(form: "cuphead" | "mugman") {
  * and brown shoes. Captain Churchill: his tank, with him in the hatch.
  */
 function characterParts(form: CompanionKind, team: Team, walk: number, throwArm: number): Part[] {
+  // Rolling the Pyro just gives you the Pyro's own look.
+  if (form === "pyro") return figureParts("pyro", team, walk, throwArm);
   if (form === "churchill") {
     const olive = "#4d5b2a";
     const dark = "#3f4a22";
@@ -436,7 +439,7 @@ function characterParts(form: CompanionKind, team: Team, walk: number, throwArm:
 function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number): Part[] {
   const shirt = TEAM_COLORS[team];
   const sleeve = SLEEVES[a] ?? shirt;
-  const mascot = a === "blueberry" || a === "orangepeel";
+  const mascot = a === "lemon" || a === "orangepeel";
   // Mascots wear big white gloves.
   const skin = mascot ? "#f8fafc" : SKIN[a];
   const parts: Part[] = [];
@@ -483,6 +486,14 @@ function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number)
   if (a === "teacher") parts.push({ c: [0, -6.5, 54], h: [3, 2.5, 3], color: "#6b4423" });
   if (a === "artkid") parts.push({ c: [1, 0.5, 56.2], h: [8, 8, 1.3], color: "#b91c1c" });
   if (a === "jock") parts.push({ c: [0, 0, 51.5], h: [7.3, 7.3, 1], color: "#dc2626" });
+  if (a === "quietkid") {
+    // The hood, pulled up over the back and top of the head (the face still shows), and earbuds.
+    parts.push(
+      { c: [0, -2.3, 49.3], h: [7.8, 6.3, 7.8], color: "#4b5563" },
+      { c: [-7.3, 3.4, 47], h: [0.6, 0.9, 0.9], color: "#f8fafc" },
+      { c: [7.3, 3.4, 47], h: [0.6, 0.9, 0.9], color: "#f8fafc" },
+    );
+  }
   if (a === "pyro") {
     // The gas mask's filter, and the fuel tank on the back.
     parts.push(
@@ -518,18 +529,12 @@ function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number)
   if (a === "principal") {
     for (const s of [-1, 1]) parts.push({ c: [s * 7.4, -1, 47.5], h: [0.8, 4, 2.2], color: "#9ca3af" });
   }
-  if (a === "blueberry") {
-    // The blueberry's crown: a dark star of little points on top.
-    parts.push({ c: [0, 0, 62], h: [3.5, 3.5, 0.8], color: "#1e1b4b" });
-    for (const [s, f] of [
-      [0, 4.5],
-      [4.3, 1.4],
-      [2.6, -3.6],
-      [-2.6, -3.6],
-      [-4.3, 1.4],
-    ]) {
-      parts.push({ c: [s, f, 62.2], h: [1.3, 1.3, 1], color: "#1e1b4b" });
-    }
+  if (a === "lemon") {
+    // The lemon's pointy nub on top, and a leaf.
+    parts.push(
+      { c: [0, 0, 62.4], h: [2.6, 2.6, 1.6], color: "#facc15" },
+      { c: [-3.4, 0.5, 63.4], h: [3.2, 1.4, 0.5], color: "#16a34a" },
+    );
   }
   if (a === "orangepeel") {
     parts.push(
@@ -668,6 +673,12 @@ function instrumentParts(kind: Instrument): Part[] {
         { c: [4, 27.5, 33], h: [2, 1, 2], color: "#b91c1c" },
         { c: [4, 29, 33], h: [0.8, 0.6, 0.8], color: "#fb923c" },
       ];
+    case "notebook":
+      // A composition notebook held against the chest.
+      return [
+        { c: [3, 9, 36], h: [3.6, 0.6, 4.6], color: "#1f2937" },
+        { c: [3, 9.7, 36.5], h: [2.4, 0.1, 1.2], color: "#f8fafc" },
+      ];
     case "flaregun":
       return [
         { c: [10, 15, 36], h: [1, 4, 1.4], color: "#f97316" },
@@ -762,6 +773,12 @@ function heldInstrumentParts(kind: Instrument, bobS: number, bobZ: number): Part
         { c: [5, 26, -8], h: [1.2, 14, 1.2], color: "#6b7280" },
         { c: [5, 40.5, -8], h: [1.8, 0.8, 1.8], color: "#b91c1c" },
         { c: [5, 42.2, -8], h: [0.8, 0.8, 0.8], color: "#fb923c" },
+      ];
+      break;
+    case "notebook":
+      parts = [
+        { c: [-6, 22, -10], h: [4, 0.5, 5], color: "#1f2937" },
+        { c: [-6, 21.4, -9.5], h: [2.6, 0.1, 1.3], color: "#f8fafc" },
       ];
       break;
     case "flaregun":
@@ -891,7 +908,7 @@ export function drawAvatar(
 
   // Mascots have a big fruit head on top.
   const tall =
-    o.form === "churchill" ? 31 : o.form ? 64 : o.archetype === "blueberry" || o.archetype === "orangepeel" ? 64 : FIGURE_HEIGHT;
+    o.form === "churchill" ? 31 : o.form ? 64 : o.archetype === "lemon" || o.archetype === "orangepeel" ? 64 : FIGURE_HEIGHT;
   const top = project(cam, o.x, o.y, at.z + tall * kz);
   return { cx: top.sx, top: top.sy, bottom: center.sy, k: cam.proj / center.depth };
 }
@@ -953,7 +970,7 @@ function floorPolygon(ctx: CanvasRenderingContext2D, cam: Camera3D, x: number, y
 }
 
 /**
- * Mascot powers lying on the floor: a glossy purple Jam Puddle, or a
+ * Mascot powers lying on the floor: a glossy yellow Lemonade Spill, or a
  * curled orange Peel Trap with its white pith showing.
  */
 export function drawFloorZone3D(
@@ -965,14 +982,14 @@ export function drawFloorZone3D(
 ) {
   const a = 1 - fogAmt;
   if (z.k === "jam") {
-    floorPolygon(ctx, cam, z.x, z.y, z.r, 24, `rgba(76,29,149,${(0.75 * a).toFixed(3)})`, 0.08);
-    floorPolygon(ctx, cam, z.x, z.y, z.r * 0.7, 18, `rgba(124,58,237,${(0.55 * a).toFixed(3)})`, 0.12);
+    floorPolygon(ctx, cam, z.x, z.y, z.r, 24, `rgba(202,138,4,${(0.7 * a).toFixed(3)})`, 0.08);
+    floorPolygon(ctx, cam, z.x, z.y, z.r * 0.7, 18, `rgba(250,204,21,${(0.55 * a).toFixed(3)})`, 0.12);
     // Bubbles popping in the jam.
     for (let i = 0; i < 4; i++) {
       const t = now / 700 + i * 1.7;
       const bx = z.x + Math.cos(i * 2.1) * z.r * 0.5;
       const by = z.y + Math.sin(i * 2.1) * z.r * 0.5;
-      floorPolygon(ctx, cam, bx, by, 6 + 3 * Math.sin(t), 8, `rgba(196,181,253,${(0.5 * a).toFixed(3)})`);
+      floorPolygon(ctx, cam, bx, by, 6 + 3 * Math.sin(t), 8, `rgba(254,249,195,${(0.6 * a).toFixed(3)})`);
     }
   } else {
     floorPolygon(ctx, cam, z.x, z.y, z.r, 14, `rgba(249,115,22,${a.toFixed(3)})`, 0.2);
@@ -1012,7 +1029,7 @@ export function drawViewModel(
     {
       c: [10.6 + bobS, 29.5, -11.2 + bobZ],
       h: [2, 2.2, 1.6],
-      color: o.archetype === "blueberry" || o.archetype === "orangepeel" ? "#f8fafc" : SKIN[o.archetype],
+      color: o.archetype === "lemon" || o.archetype === "orangepeel" ? "#f8fafc" : SKIN[o.archetype],
     },
   ];
   const out: Drawable[] = [];

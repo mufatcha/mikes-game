@@ -1,61 +1,59 @@
 /**
- * Title screen art: the Blueberries and the Orange Peels squaring up, angry
+ * Title screen art: the Lemons and the Orange Peels squaring up, angry
  * faces and fists raised. Each fighter is its own SVG so the home screen can
  * put them big on either side, with the VS clash between them.
  */
 
 const FONT = "ui-sans-serif, system-ui, sans-serif";
 
-/** The Blueberries' mascot, facing right. Anchored to the bottom-left of its box. */
-export function BlueberryFighter({ className = "" }: { className?: string }) {
+/** The Lemons' mascot, facing right. Anchored to the bottom-left of its box. */
+export function LemonFighter({ className = "" }: { className?: string }) {
   return (
     <svg
       viewBox="8 48 214 206"
       preserveAspectRatio="xMinYMax meet"
       className={`select-none ${className}`}
       role="img"
-      aria-label="The Blueberries mascot, angry, fists up"
+      aria-label="The Lemons mascot, angry, fists up"
       fontFamily={FONT}
     >
       <defs>
-        <radialGradient id="berry-body" cx="38%" cy="32%" r="70%">
-          <stop offset="0%" stopColor="#7d98ff" />
-          <stop offset="60%" stopColor="#3b5bdb" />
-          <stop offset="100%" stopColor="#1e2a78" />
+        <radialGradient id="lemon-body" cx="38%" cy="32%" r="70%">
+          <stop offset="0%" stopColor="#fef08a" />
+          <stop offset="60%" stopColor="#facc15" />
+          <stop offset="100%" stopColor="#ca8a04" />
         </radialGradient>
       </defs>
       <g className="title-bob">
         <ellipse cx="105" cy="222" rx="62" ry="10" fill="#000" opacity="0.35" />
         {/* Back arm and fist, cocked back */}
-        <path d="M70 150 Q 40 150 34 120" stroke="#1e2a78" strokeWidth="10" strokeLinecap="round" fill="none" />
-        <Fist cx={34} cy={112} color="#3b5bdb" dark="#1e2a78" />
-        {/* Body */}
-        <circle cx="105" cy="140" r="66" fill="url(#berry-body)" stroke="#16206b" strokeWidth="4" />
-        <ellipse cx="80" cy="108" rx="16" ry="9" fill="#fff" opacity="0.35" transform="rotate(-35 80 108)" />
-        {/* Crown on top */}
-        <path
-          d="M105 64 l7 13 14 -6 -6 14 13 7 -14 5 4 15 -13 -9 -9 12 -2 -15 -15 -1 11 -10 -9 -12 15 2z"
-          fill="#16206b"
-          transform="translate(-12 -6) scale(0.95)"
-        />
+        <path d="M70 150 Q 40 150 34 120" stroke="#a16207" strokeWidth="10" strokeLinecap="round" fill="none" />
+        <Fist cx={34} cy={112} color="#facc15" dark="#a16207" />
+        {/* Body: a lemon, pointy at both ends */}
+        <ellipse cx="34" cy="140" rx="12" ry="10" fill="#facc15" stroke="#854d0e" strokeWidth="4" />
+        <ellipse cx="176" cy="140" rx="12" ry="10" fill="#facc15" stroke="#854d0e" strokeWidth="4" />
+        <ellipse cx="105" cy="140" rx="74" ry="62" fill="url(#lemon-body)" stroke="#854d0e" strokeWidth="4" />
+        <ellipse cx="78" cy="106" rx="18" ry="9" fill="#fff" opacity="0.4" transform="rotate(-30 78 106)" />
+        {/* A leaf on top */}
+        <path d="M108 80 Q 120 54 146 58 Q 136 82 108 80z" fill="#16a34a" stroke="#14532d" strokeWidth="3" />
         {/* Angry brows slanting down toward the middle */}
-        <path d="M70 116 L 100 128" stroke="#0b1140" strokeWidth="8" strokeLinecap="round" />
-        <path d="M118 128 L 146 114" stroke="#0b1140" strokeWidth="8" strokeLinecap="round" />
+        <path d="M70 116 L 100 128" stroke="#422006" strokeWidth="8" strokeLinecap="round" />
+        <path d="M118 128 L 146 114" stroke="#422006" strokeWidth="8" strokeLinecap="round" />
         {/* Eyes glaring right */}
         <ellipse cx="88" cy="140" rx="11" ry="9" fill="#fff" />
         <ellipse cx="130" cy="140" rx="11" ry="9" fill="#fff" />
-        <circle cx="93" cy="141" r="5" fill="#0b1140" />
-        <circle cx="135" cy="141" r="5" fill="#0b1140" />
+        <circle cx="93" cy="141" r="5" fill="#422006" />
+        <circle cx="135" cy="141" r="5" fill="#422006" />
         {/* Gritted teeth */}
-        <rect x="88" y="164" width="40" height="16" rx="6" fill="#fff" stroke="#0b1140" strokeWidth="3" />
-        <path d="M98 164 v16 M108 164 v16 M118 164 v16 M88 172 h40" stroke="#0b1140" strokeWidth="2" />
+        <rect x="88" y="164" width="40" height="16" rx="6" fill="#fff" stroke="#422006" strokeWidth="3" />
+        <path d="M98 164 v16 M108 164 v16 M118 164 v16 M88 172 h40" stroke="#422006" strokeWidth="2" />
         {/* Front arm and fist, jabbing right */}
         <g className="title-jab-right">
-          <path d="M150 160 Q 172 156 182 140" stroke="#1e2a78" strokeWidth="10" strokeLinecap="round" fill="none" />
-          <Fist cx={186} cy={132} color="#3b5bdb" dark="#1e2a78" />
+          <path d="M150 160 Q 172 156 182 140" stroke="#a16207" strokeWidth="10" strokeLinecap="round" fill="none" />
+          <Fist cx={186} cy={132} color="#facc15" dark="#a16207" />
         </g>
       </g>
-      <Label x={105} text="BLUEBERRIES" color="#dbeafe" />
+      <Label x={105} text="LEMONS" color="#fef9c3" />
     </svg>
   );
 }

@@ -41,8 +41,8 @@ export const SCORE_TO_WIN = 50;
 export const MATCH_DURATION = 8 * 60;
 export const RESULTS_DURATION = 12;
 
-export const TEAM_NAMES = ["Blueberries", "Orange Peels"] as const;
-export const TEAM_COLORS = ["#3b82f6", "#f97316"] as const;
+export const TEAM_NAMES = ["Lemons", "Orange Peels"] as const;
+export const TEAM_COLORS = ["#eab308", "#f97316"] as const;
 
 export type Team = 0 | 1;
 
@@ -57,7 +57,7 @@ export type Team = 0 | 1;
 export type GameMode = "teams" | "fog" | "boss" | "duel";
 export const GAME_MODE_IDS: GameMode[] = ["teams", "fog", "boss", "duel"];
 export const GAME_MODES: { id: GameMode; name: string; emoji: string; blurb: string }[] = [
-  { id: "teams", name: "Team Battle · 4v4", emoji: "⚔️", blurb: "Blueberries vs Orange Peels. First to 50 knockouts wins." },
+  { id: "teams", name: "Team Battle · 4v4", emoji: "⚔️", blurb: "Lemons vs Orange Peels. First to 50 knockouts wins." },
   {
     id: "fog",
     name: "Fog of War · 4v4",
@@ -74,7 +74,7 @@ export const GAME_MODES: { id: GameMode; name: string; emoji: string; blurb: str
     id: "duel",
     name: "Mascot Duel · 1v1",
     emoji: "🥊",
-    blurb: "Barry the Blueberry vs Peely the Orange, each with their own four powers. First to 3 knockouts.",
+    blurb: "Lenny the Lemon vs Peely the Orange, each with their own four powers. First to 3 knockouts.",
   },
 ];
 
@@ -98,7 +98,7 @@ export function teamSizeFor(mode: GameMode, team: Team) {
 
 export function teamNamesFor(mode: GameMode): readonly [string, string] {
   if (mode === "boss") return ["Students", "Principal"];
-  if (mode === "duel") return ["Barry the Blueberry", "Peely the Orange"];
+  if (mode === "duel") return ["Lenny the Lemon", "Peely the Orange"];
   return TEAM_NAMES;
 }
 

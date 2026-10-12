@@ -24,7 +24,7 @@ export const PPU = 2;
 
 /** Kinds of wall surface; "outer" is the building's outside wall, with windows. */
 export type Surface = WallKind | "outer";
-export type WallVariant = "plain" | "posterBlue" | "posterOrange" | "bulletin" | "clock";
+export type WallVariant = "plain" | "posterLemon" | "posterOrange" | "bulletin" | "clock";
 
 /** World units before a texture repeats, per surface. */
 export const TEX_UNITS: Record<Surface, number> = {
@@ -86,9 +86,9 @@ function paintCinderblock(g: CanvasRenderingContext2D, w: number, h: number) {
     const offset = row % 2 ? 8 * u : 0;
     for (let x = offset; x < w; x += 16 * u) g.fillRect(x, y, 1, 8 * u);
   }
-  // Lower wainscot in Blueberry blue, an Orange Peel stripe, and a dark baseboard.
+  // Lower wainscot in Lemon gold, an Orange Peel stripe, and a dark baseboard.
   const wainscot = h - 30 * u;
-  g.fillStyle = "#2f4fa8";
+  g.fillStyle = "#b88a12";
   g.fillRect(0, wainscot, w, 30 * u);
   g.fillStyle = "rgba(0,0,0,0.12)";
   for (let row = 0; row * 8 * u < 30 * u; row++) g.fillRect(0, wainscot + row * 8 * u, w, 1);
@@ -108,18 +108,19 @@ function wallCanvas(variant: WallVariant) {
   const u = PPU;
   paintCinderblock(g, w, h);
   const eye = h - 52 * u; // top of things hung at eye level
-  if (variant === "posterBlue" || variant === "posterOrange") {
-    const blue = variant === "posterBlue";
-    g.fillStyle = blue ? "#1d4ed8" : "#ea580c";
+  if (variant === "posterLemon" || variant === "posterOrange") {
+    const lemon = variant === "posterLemon";
+    g.fillStyle = lemon ? "#facc15" : "#ea580c";
     g.fillRect(16 * u, eye, 32 * u, 22 * u);
     g.fillStyle = "#fff";
     g.fillRect(17 * u, eye + 1 * u, 30 * u, 1 * u);
     g.font = `900 ${4 * u}px sans-serif`;
     g.textAlign = "center";
-    g.fillText(blue ? "GO" : "ORANGE", 32 * u, eye + 8 * u);
-    g.fillText(blue ? "BLUEBERRIES!" : "PEELS RULE", 32 * u, eye + 13 * u);
+    g.fillStyle = lemon ? "#422006" : "#fff";
+    g.fillText(lemon ? "GO" : "ORANGE", 32 * u, eye + 8 * u);
+    g.fillText(lemon ? "LEMONS!" : "PEELS RULE", 32 * u, eye + 13 * u);
     g.font = `${7 * u}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
-    g.fillText(blue ? "🫐" : "🍊", 32 * u, eye + 21 * u);
+    g.fillText(lemon ? "🍋" : "🍊", 32 * u, eye + 21 * u);
   } else if (variant === "bulletin") {
     g.fillStyle = "#6b4423";
     g.fillRect(10 * u, eye - 2 * u, 44 * u, 26 * u);
@@ -892,7 +893,7 @@ export function wallTexture(surface: Surface, variant: WallVariant = "plain"): H
 /** Mostly plain walls, with posters, bulletin boards and clocks here and there. */
 export function wallVariant(wallIndex: number, segment: number): WallVariant {
   const r = hash(wallIndex * 97 + segment, 13);
-  if (r < 0.08) return "posterBlue";
+  if (r < 0.08) return "posterLemon";
   if (r < 0.16) return "posterOrange";
   if (r < 0.24) return "bulletin";
   if (r < 0.29) return "clock";

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { GAME_TITLE, gameServerUrl, saveName, useSavedName, wakeGameServer } from "@/lib/settings";
 import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import Modal from "./Modal";
-import { BlueberryFighter, OrangeFighter, VsClash } from "./TitleArt";
+import { LemonFighter, OrangeFighter, VsClash } from "./TitleArt";
 
 export default function Home() {
   const router = useRouter();
@@ -61,10 +61,10 @@ export default function Home() {
 
   return (
     <main className="title-bg relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 py-12">
-      {/* Blueberries on the left, Orange Peels on the right, squaring up across the screen. */}
+      {/* Lemons on the left, Orange Peels on the right, squaring up across the screen. */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div className="title-halftone absolute inset-0" />
-        <BlueberryFighter className="absolute bottom-0 left-0 h-[92vh] max-w-[62vw] sm:max-w-[44vw]" />
+        <LemonFighter className="absolute bottom-0 left-0 h-[92vh] max-w-[62vw] sm:max-w-[44vw]" />
         <OrangeFighter className="absolute bottom-0 right-0 h-[92vh] max-w-[62vw] sm:max-w-[44vw]" />
       </div>
 

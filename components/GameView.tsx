@@ -473,7 +473,7 @@ function Results({ results, myId }: { results: ResultsMessage; myId: string | nu
         <h2 className="text-center text-5xl font-black text-white">{title}</h2>
         {subtitle && <p className="mt-1 text-center text-zinc-300">{subtitle}</p>}
         <p className="mt-2 text-center text-3xl font-bold">
-          <span className="text-blue-400">{results.scores[0]}</span>
+          <span className="text-yellow-400">{results.scores[0]}</span>
           <span className="mx-3 text-zinc-500">–</span>
           <span className="text-orange-400">{results.scores[1]}</span>
         </p>
@@ -488,7 +488,7 @@ function Results({ results, myId }: { results: ResultsMessage; myId: string | nu
           <tbody>
             {results.players.map((p) => (
               <tr key={p.id} className={p.id === myId ? "bg-white/5" : ""}>
-                <td className={`py-1.5 font-medium ${p.team === 0 ? "text-blue-300" : "text-orange-300"}`}>{p.name}</td>
+                <td className={`py-1.5 font-medium ${p.team === 0 ? "text-yellow-300" : "text-orange-300"}`}>{p.name}</td>
                 <td className="py-1.5 text-right text-white">{p.kills}</td>
                 <td className="py-1.5 text-right text-zinc-400">{p.deaths}</td>
               </tr>

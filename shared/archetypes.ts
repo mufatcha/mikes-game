@@ -60,6 +60,8 @@ export type WeaponId =
   | "flare"
   | "afterburn"
   | "airblast"
+  | "paperplane"
+  | "stickynote"
   | "note";
 
 export type ArchetypeId =
@@ -73,8 +75,9 @@ export type ArchetypeId =
   | "orchestra"
   | "gamer"
   | "pyro"
+  | "quietkid"
   | "principal"
-  | "blueberry"
+  | "lemon"
   | "orangepeel";
 
 export interface WeaponDef {
@@ -225,31 +228,31 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
     radius: 0, color: "rainbow", style: "blob",
   },
-  // Barry the Blueberry (duel mascot).
+  // Lenny the Lemon (duel mascot).
   berry: {
-    id: "berry", name: "Blueberries", damage: 16, fireRate: 6, magSize: 24, reloadTime: 1.6,
+    id: "berry", name: "Lemon Seeds", damage: 16, fireRate: 6, magSize: 24, reloadTime: 1.6,
     projectileSpeed: 1350, spread: 0.05, pellets: 1, range: 850, auto: true,
-    radius: 5, color: "#4f46e5", style: "ball",
+    radius: 5, color: "#facc15", style: "ball",
   },
   bigberry: {
-    id: "bigberry", name: "Giant Berry", damage: 55, fireRate: 1.3, magSize: 3, reloadTime: 2.2,
+    id: "bigberry", name: "Whole Lemon", damage: 55, fireRate: 1.3, magSize: 3, reloadTime: 2.2,
     projectileSpeed: 1000, spread: 0.02, pellets: 1, range: 1100, auto: false,
-    radius: 11, color: "#3730a3", style: "ball", bounces: 2,
+    radius: 11, color: "#eab308", style: "ball", bounces: 2,
   },
   berryblast: {
-    id: "berryblast", name: "Berry Blast", damage: 24, fireRate: 1, magSize: 1, reloadTime: 1,
+    id: "berryblast", name: "Lemon Drops", damage: 24, fireRate: 1, magSize: 1, reloadTime: 1,
     projectileSpeed: 1200, spread: 0, pellets: 1, range: 900, auto: false,
-    radius: 6, color: "#6366f1", style: "ball", bounces: 2,
+    radius: 6, color: "#fef08a", style: "ball", bounces: 2,
   },
   rollout: {
     id: "rollout", name: "Roll Out", damage: 45, fireRate: 1, magSize: 1, reloadTime: 1,
     projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
-    radius: 0, color: "#4f46e5", style: "ball",
+    radius: 0, color: "#facc15", style: "ball",
   },
   jam: {
-    id: "jam", name: "Jam Puddle", damage: 20, fireRate: 1, magSize: 1, reloadTime: 1,
+    id: "jam", name: "Lemonade Spill", damage: 20, fireRate: 1, magSize: 1, reloadTime: 1,
     projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
-    radius: 0, color: "#7c3aed", style: "blob",
+    radius: 0, color: "#facc15", style: "blob",
   },
   // Peely the Orange (duel mascot).
   seeds: {
@@ -418,6 +421,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
     radius: 0, color: "#e0f2fe", style: "blob",
   },
+  // The Quiet Kid.
+  paperplane: {
+    id: "paperplane", name: "Paper Planes", damage: 24, fireRate: 2.6, magSize: 10, reloadTime: 1.5,
+    projectileSpeed: 1150, spread: 0.02, pellets: 1, range: 1000, auto: false,
+    radius: 4, color: "#f8fafc", style: "streak",
+  },
+  stickynote: {
+    id: "stickynote", name: "Sticky Notes", damage: 9, fireRate: 7, magSize: 25, reloadTime: 1.4,
+    projectileSpeed: 1400, spread: 0.06, pellets: 1, range: 600, auto: true,
+    radius: 4, color: "#fde047", style: "blob", slow: 1,
+  },
   // Orchestra Kid super.
   note: {
     id: "note", name: "Crescendo", damage: 32, fireRate: 1, magSize: 1, reloadTime: 1,
@@ -500,6 +514,12 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     defense: 0.2, speed: 1.0, primary: "flamethrower", secondary: "flare",
     ratings: { attack: 5, defense: 3, speed: 3, range: 1 },
   },
+  quietkid: {
+    id: "quietkid", name: "Quiet Kid", emoji: "🤫",
+    tagline: "Sits at the back with headphones in and never says a word. You won't see them coming.",
+    defense: 0.1, speed: 1.08, primary: "paperplane", secondary: "stickynote",
+    ratings: { attack: 3, defense: 2, speed: 4, range: 4 },
+  },
   // Boss of the 7v1 mode; never in the class picker.
   principal: {
     id: "principal", name: "Principal", emoji: "👔",
@@ -509,9 +529,9 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     ratings: { attack: 5, defense: 5, speed: 2, range: 4 },
   },
   // The two school mascots, who fight each other in the 1v1 duel; never in the class picker.
-  blueberry: {
-    id: "blueberry", name: "Barry the Blueberry", emoji: "🫐",
-    tagline: "The Blueberries' mascot. Round, bouncy and full of juice.",
+  lemon: {
+    id: "lemon", name: "Lenny the Lemon", emoji: "🍋",
+    tagline: "The Lemons' mascot. Sour, zesty and always rolling.",
     defense: 0.25, speed: 1.0, primary: "berry", secondary: "bigberry",
     maxHp: 1500, radius: 24,
     ratings: { attack: 4, defense: 4, speed: 3, range: 3 },
@@ -526,7 +546,7 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
 };
 
 /** Characters with four special powers instead of a class super: the Principal and the mascots. */
-export const BOSS_ARCHETYPES: ArchetypeId[] = ["principal", "blueberry", "orangepeel"];
+export const BOSS_ARCHETYPES: ArchetypeId[] = ["principal", "lemon", "orangepeel"];
 
 export function hasAbilities(archetype: ArchetypeId) {
   return BOSS_ARCHETYPES.includes(archetype);
@@ -535,12 +555,16 @@ export function hasAbilities(archetype: ArchetypeId) {
 /** The character a fixed seat plays: the 7v1 Principal, or each side's mascot in the duel. */
 export function seatLoadout(mode: GameMode, team: Team): Loadout | null {
   if (mode === "boss" && team === 1) return { archetype: "principal" };
-  if (mode === "duel") return { archetype: team === 0 ? "blueberry" : "orangepeel" };
+  if (mode === "duel") return { archetype: team === 0 ? "lemon" : "orangepeel" };
   return null;
 }
 
 /** The classes students can pick (not the Principal or the mascots). */
-export const ARCHETYPE_IDS: ArchetypeId[] = (Object.keys(ARCHETYPES) as ArchetypeId[]).filter((a) => !hasAbilities(a));
+/** Looks that only appear through the Gamer's Character Select, not in the class picker. */
+export const SELECT_ONLY: ArchetypeId[] = ["pyro"];
+export const ARCHETYPE_IDS: ArchetypeId[] = (Object.keys(ARCHETYPES) as ArchetypeId[]).filter(
+  (a) => !hasAbilities(a) && !SELECT_ONLY.includes(a),
+);
 
 export type SectionId =
   | "lowbrass"
@@ -627,7 +651,7 @@ export type AbilityId =
   | "lecture"
   | "quiz"
   | "intercom"
-  // Barry the Blueberry
+  // Lenny the Lemon
   | "berryblast"
   | "rollout"
   | "jam"
@@ -666,22 +690,22 @@ export const ABILITIES: AbilityDef[] = [
   },
 ];
 
-/** Barry the Blueberry's powers in the duel. */
-export const BLUEBERRY_ABILITIES: AbilityDef[] = [
+/** Lenny the Lemon's powers in the duel. */
+export const LEMON_ABILITIES: AbilityDef[] = [
   {
-    id: "berryblast", name: "Berry Blast", emoji: "🫐", cooldown: 6,
-    description: "Throw a fan of 5 bouncy blueberries that ricochet off walls.",
+    id: "berryblast", name: "Lemon Drops", emoji: "🍋", cooldown: 6,
+    description: "Throw a fan of 5 bouncy lemon drops that ricochet off walls.",
   },
   {
     id: "rollout", name: "Roll Out", emoji: "🌀", cooldown: 8,
     description: "Curl up and roll where you aim, flattening anyone in the way: 45 damage and a 1-second stun.",
   },
   {
-    id: "jam", name: "Jam Puddle", emoji: "🍇", cooldown: 14,
-    description: "Splat a puddle of sticky jam where you aim. Enemies in it are slowed and take 40 damage a second for 5 seconds.",
+    id: "jam", name: "Lemonade Spill", emoji: "🥤", cooldown: 14,
+    description: "Splash a sticky puddle of lemonade where you aim. Enemies in it are slowed and take 40 damage a second for 5 seconds.",
   },
   {
-    id: "antioxidants", name: "Antioxidants", emoji: "💙", cooldown: 18,
+    id: "antioxidants", name: "Vitamin C", emoji: "💛", cooldown: 18,
     description: "Heal 300 health and move 30% faster for 4 seconds.",
   },
 ];
@@ -709,16 +733,16 @@ export const ORANGE_ABILITIES: AbilityDef[] = [
 /** A character's four powers, in ability-key order (none for student classes). */
 export function abilitiesOf(archetype: ArchetypeId): AbilityDef[] {
   if (archetype === "principal") return ABILITIES;
-  if (archetype === "blueberry") return BLUEBERRY_ABILITIES;
+  if (archetype === "lemon") return LEMON_ABILITIES;
   if (archetype === "orangepeel") return ORANGE_ABILITIES;
   return [];
 }
 
-export const ABILITY_IDS = [...ABILITIES, ...BLUEBERRY_ABILITIES, ...ORANGE_ABILITIES].map((a) => a.id);
+export const ABILITY_IDS = [...ABILITIES, ...LEMON_ABILITIES, ...ORANGE_ABILITIES].map((a) => a.id);
 
 export const ROLL_DISTANCE = 420;
 export const ROLL_STUN = 1;
-/** Jam Puddle: thrown up to this far, this big, lasting this long; hurts every half second. */
+/** Lemonade Spill: thrown up to this far, this big, lasting this long; hurts every half second. */
 export const JAM_RANGE = 320;
 export const JAM_RADIUS = 110;
 export const JAM_TIME = 5;
@@ -764,7 +788,8 @@ export type SuperId =
   | "fightsong"
   | "crescendo"
   | "summon"
-  | "airblast";
+  | "airblast"
+  | "unnoticed";
 
 export interface SuperDef {
   id: SuperId;
@@ -809,16 +834,20 @@ export const SUPERS: Partial<Record<ArchetypeId, SuperDef>> = {
   },
   gamer: {
     id: "summon", name: "Character Select", emoji: "🎮",
-    description: "Roll a character and play as them (and heal 40): Cuphead or Mugman for 15 seconds, or (rarer) Captain Churchill in his tank for 12.",
+    description: "Roll a character and play as them (and heal 40): Cuphead, Mugman or the Pyro for 15 seconds, or (rarest) Captain Churchill in his tank for 12.",
   },
   pyro: {
     id: "airblast", name: "Airblast", emoji: "💨",
     description: "A blast of compressed air: knocks back everyone in front of you and sends their throws flying back at them.",
   },
+  quietkid: {
+    id: "unnoticed", name: "Unnoticed", emoji: "🫥",
+    description: "Nobody notices you for 6 seconds: enemies can't see you at all unless they bump right into you.",
+  },
 };
 
 /** Who the Gamer's super can turn you into, and how likely each is. */
-export type CompanionKind = "cuphead" | "mugman" | "churchill";
+export type CompanionKind = "cuphead" | "mugman" | "pyro" | "churchill";
 export const COMPANIONS: Record<
   CompanionKind,
   {
@@ -834,17 +863,26 @@ export const COMPANIONS: Record<
     defense: number;
   }
 > = {
-  cuphead: { name: "Cuphead", emoji: "☕", chance: 0.4, secs: 15, weapon: "fingergun", speed: 1.15, defense: 0.1 },
-  mugman: { name: "Mugman", emoji: "🍺", chance: 0.4, secs: 15, weapon: "spreadshot", speed: 1.15, defense: 0.1 },
-  churchill: { name: "Captain Churchill", emoji: "🪖", chance: 0.2, secs: 12, weapon: "tankshell", speed: 0.8, defense: 0.55 },
+  cuphead: { name: "Cuphead", emoji: "☕", chance: 0.3, secs: 15, weapon: "fingergun", speed: 1.15, defense: 0.1 },
+  mugman: { name: "Mugman", emoji: "🍺", chance: 0.3, secs: 15, weapon: "spreadshot", speed: 1.15, defense: 0.1 },
+  // The Pyro: the flamethrower with endless fuel (and an Airblast as you arrive).
+  pyro: { name: "Pyro", emoji: "🔥", chance: 0.25, secs: 15, weapon: "flamethrower", speed: 1.0, defense: 0.2 },
+  churchill: { name: "Captain Churchill", emoji: "🪖", chance: 0.15, secs: 12, weapon: "tankshell", speed: 0.8, defense: 0.55 },
 };
 
 /** Roll the Gamer's super. */
 export function rollCompanion(r = Math.random()): CompanionKind {
-  if (r < COMPANIONS.cuphead.chance) return "cuphead";
-  if (r < COMPANIONS.cuphead.chance + COMPANIONS.mugman.chance) return "mugman";
+  let total = 0;
+  for (const [kind, c] of Object.entries(COMPANIONS) as [CompanionKind, (typeof COMPANIONS)[CompanionKind]][]) {
+    total += c.chance;
+    if (r < total) return kind;
+  }
   return "churchill";
 }
+
+/** The Quiet Kid's Unnoticed: how long, and how close an enemy must be to spot you anyway. */
+export const UNNOTICED_TIME = 6;
+export const UNNOTICED_SPOT_RANGE = 70;
 
 export const AIRBLAST_RANGE = 230;
 export const AIRBLAST_CONE = (40 * Math.PI) / 180;

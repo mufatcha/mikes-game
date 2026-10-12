@@ -15,7 +15,7 @@ import SkinPortrait from "./SkinPortrait";
 
 /**
  * What a fixed seat's character can do, shown to whoever takes it: the 7v1
- * Principal, or Barry the Blueberry or Peely the Orange in the duel.
+ * Principal, or Lenny the Lemon or Peely the Orange in the duel.
  */
 export default function PrincipalCard({ mode, archetype }: { mode: GameMode; archetype: ArchetypeId }) {
   const binds = useKeybinds();
@@ -24,7 +24,7 @@ export default function PrincipalCard({ mode, archetype }: { mode: GameMode; arc
   return (
     <div
       className={`rounded-xl border p-4 ${
-        archetype === "blueberry" ? "border-indigo-500/40 bg-indigo-500/10" : "border-orange-500/40 bg-orange-500/10"
+        archetype === "lemon" ? "border-yellow-500/40 bg-yellow-500/10" : "border-orange-500/40 bg-orange-500/10"
       }`}
     >
       <p className="flex items-center gap-2 text-lg font-bold text-white">
@@ -66,7 +66,7 @@ export default function PrincipalCard({ mode, archetype }: { mode: GameMode; arc
   );
 }
 
-/** "Blueberries and Giant Berry": the two weapons a character holds. */
+/** "Lemon Seeds and Whole Lemon": the two weapons a character holds. */
 function weaponNames(archetype: ArchetypeId) {
   const a = ARCHETYPES[archetype];
   return `${WEAPONS[a.primary].name} and ${WEAPONS[a.secondary].name}`;

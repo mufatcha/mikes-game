@@ -33,6 +33,7 @@ import {
 import type { BulletSnap, GameEvent, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
 import {
   AIRBLAST_RANGE,
+  UNNOTICED_SPOT_RANGE,
   COMPANIONS,
   type CompanionKind,
   abilitiesOf,
@@ -58,7 +59,7 @@ import { drawInstrument2D, instrumentOf } from "./instruments";
 import { drawFace } from "./skins";
 import { CONE_HALF, FAR_SIGHT, FOG_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
 
-const TEAM_TINTS = ["rgba(147,197,253,0.7)", "rgba(253,186,116,0.7)"] as const;
+const TEAM_TINTS = ["rgba(253,224,71,0.7)", "rgba(253,186,116,0.7)"] as const;
 const PAINT_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#eab308", "#ec4899", "#a855f7"];
 const BG = "#0b0d12";
 const FOG = "rgba(4,6,10,0.86)";
@@ -310,7 +311,9 @@ export class Renderer {
           (!me ||
             p.id === myId ||
             roster.get(p.id)?.team === myTeam ||
-            canSee(this.myX, this.myY, view.aim, p.x, p.y, radiusFor(p.archetype), this.mode === "fog")),
+            // An unnoticed Quiet Kid only shows up close.
+            (!(p.hidden && Math.hypot(p.x - this.myX, p.y - this.myY) > UNNOTICED_SPOT_RANGE) &&
+              canSee(this.myX, this.myY, view.aim, p.x, p.y, radiusFor(p.archetype), this.mode === "fog"))),
       );
       // The Principal's Intercom shows every student, even through walls.
       revealed = me?.reveal ? players.filter((p) => p.alive && !shown.includes(p)) : [];
@@ -423,12 +426,12 @@ export class Renderer {
     ctx.stroke();
   }
 
-  /** Mascot powers on the floor: Barry's Jam Puddles and Peely's Peel Traps. */
+  /** Mascot powers on the floor: Lenny's Lemonade Spills and Peely's Peel Traps. */
   private drawZones(zones: ZoneSnap[], now: number) {
     const { ctx } = this;
     for (const z of zones) {
       if (z.k === "jam") {
-        ctx.fillStyle = "rgba(76,29,149,0.6)";
+        ctx.fillStyle = "rgba(202,138,4,0.55)";
         ctx.beginPath();
         for (let i = 0; i <= 24; i++) {
           const t = (i / 24) * Math.PI * 2;
@@ -436,7 +439,7 @@ export class Renderer {
           ctx.lineTo(z.x + Math.cos(t) * rr, z.y + Math.sin(t) * rr);
         }
         ctx.fill();
-        ctx.fillStyle = "rgba(167,139,250,0.35)";
+        ctx.fillStyle = "rgba(254,249,195,0.45)";
         for (let i = 0; i < 4; i++) {
           ctx.beginPath();
           ctx.arc(z.x + Math.cos(i * 2.1) * z.r * 0.5, z.y + Math.sin(i * 2.1) * z.r * 0.5, 6 + 3 * Math.sin(now / 300 + i), 0, Math.PI * 2);
@@ -741,6 +744,9 @@ export class Renderer {
           } else if (e.super === "overclock") {
             this.burst(e.x, e.y, "#22d3ee", 24, 260);
             this.sfx.shot("redpen", vol);
+          } else if (e.super === "unnoticed") {
+            this.burst(e.x, e.y, "#9ca3af", 14, 120);
+            if (mine) this.showBanner("🫥 Unnoticed: nobody can see you (unless they bump into you)", "#e5e7eb", 2500);
           } else if (e.super === "airblast") {
             this.shockwaves.push({ x: e.x, y: e.y, born: now, color: "224,242,254", radius: AIRBLAST_RANGE });
             this.burst(e.x, e.y, "#e0f2fe", 26, 320);
@@ -775,7 +781,8 @@ export class Renderer {
           // Character select: the Gamer turns into Cuphead, Mugman or Captain Churchill.
           const c = COMPANIONS[e.who];
           const mine = e.by === myId;
-          this.burst(e.x, e.y, e.who === "mugman" ? "#60a5fa" : e.who === "cuphead" ? "#f87171" : "#84cc16", 30, 220);
+          const colors: Record<CompanionKind, string> = { cuphead: "#f87171", mugman: "#60a5fa", pyro: "#fb923c", churchill: "#84cc16" };
+          this.burst(e.x, e.y, colors[e.who], 30, 220);
           this.sfx.kill();
           const name = roster.get(e.by)?.name ?? "A Gamer";
           this.showBanner(
@@ -831,11 +838,11 @@ export class Renderer {
             );
           } else if (e.ability === "rollout") {
             // The roll happened on the server; puff where they started from.
-            this.burst(e.x, e.y, "#a5b4fc", 18, 240);
+            this.burst(e.x, e.y, "#fde68a", 18, 240);
             this.sfx.shot("rollout", mine ? 0.9 : Math.max(0, 1 - Math.hypot(e.x - this.myX, e.y - this.myY) / HEARING_RANGE));
           } else if (e.ability === "antioxidants") {
-            this.burst(e.x, e.y, "#60a5fa", 22, 180);
-            if (mine) this.showBanner("💙 Antioxidants: healed and speedy", "#bfdbfe", 2000);
+            this.burst(e.x, e.y, "#fde047", 22, 180);
+            if (mine) this.showBanner("💛 Vitamin C: healed and speedy", "#fef08a", 2000);
           } else if (e.ability === "rind") {
             this.burst(e.x, e.y, "#fdba74", 20, 200);
             if (mine) this.showBanner("🛡️ Thick Rind: nothing can hurt you", "#fed7aa", 2000);
@@ -1152,15 +1159,15 @@ export class Renderer {
     const { ctx } = this;
     const cx = t.x + 28;
     const cy = t.y + t.h / 2 + 2;
-    if (t.school === "blueberries") this.drawBlueberryLogo(cx, cy, 16);
+    if (t.school === "lemons") this.drawLemonLogo(cx, cy, 15);
     else this.drawOrangePeelLogo(cx, cy, 17);
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.font = "900 15px ui-sans-serif, system-ui, sans-serif";
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(0,0,0,0.55)";
-    ctx.fillStyle = t.school === "blueberries" ? "#93c5fd" : "#fdba74";
-    const name = t.school === "blueberries" ? "BLUEBERRIES" : "ORANGE PEELS";
+    ctx.fillStyle = t.school === "lemons" ? "#fde047" : "#fdba74";
+    const name = t.school === "lemons" ? "LEMONS" : "ORANGE PEELS";
     ctx.strokeText(name, t.x + 52, cy);
     ctx.fillText(name, t.x + 52, cy);
   }
@@ -1185,34 +1192,32 @@ export class Renderer {
     ctx.stroke();
   }
 
-  /** A round blueberry with its little crown on top and a smiling face. */
-  private drawBlueberryLogo(cx: number, cy: number, r: number) {
+  /** A plump lemon, pointy at both ends, with a leaf and a smiling face. */
+  private drawLemonLogo(cx: number, cy: number, r: number) {
     const { ctx } = this;
-    ctx.fillStyle = "#3b5bdb";
-    ctx.strokeStyle = "#1e2a78";
+    ctx.fillStyle = "#facc15";
+    ctx.strokeStyle = "#a16207";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, r * 1.15, r * 0.9, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.beginPath();
-    ctx.ellipse(cx - r * 0.45, cy - r * 0.45, r * 0.22, r * 0.14, -0.7, 0, Math.PI * 2);
-    ctx.fill();
-    // Crown: a small five-pointed star at the top.
-    ctx.fillStyle = "#1e2a78";
-    ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const a = -Math.PI / 2 + (i * Math.PI) / 5;
-      const rr = i % 2 === 0 ? r * 0.32 : r * 0.13;
-      const px = cx + Math.cos(a) * rr;
-      const py = cy - r * 0.68 + Math.sin(a) * rr;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+    // The pointy nubs at each end.
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(cx + s * r * 1.15, cy, r * 0.22, r * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     }
-    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.45, cy - r * 0.4, r * 0.25, r * 0.13, -0.5, 0, Math.PI * 2);
     ctx.fill();
-    this.drawLogoFace(cx, cy + r * 0.12, r);
+    ctx.fillStyle = "#16a34a";
+    ctx.beginPath();
+    ctx.ellipse(cx + r * 0.3, cy - r * 0.95, r * 0.35, r * 0.15, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    this.drawLogoFace(cx, cy + r * 0.08, r);
   }
 
   /** A pile of curly orange peels with a smiling face on the front peel. */
@@ -1332,7 +1337,27 @@ export class Renderer {
   }
 
   /** A player from above: bigger while they're up in the air (closer to the camera), smaller crouching. */
+  /** Faded while the Quiet Kid is unnoticed (only they and their team see them at all). */
   private drawPlayer(
+    p: PlayerSnap,
+    x: number,
+    y: number,
+    aim: number,
+    info: RosterEntry | undefined,
+    isMe: boolean,
+    now: number,
+  ) {
+    if (!p.hidden) {
+      this.drawPlayerScaled(p, x, y, aim, info, isMe, now);
+      return;
+    }
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.45;
+    this.drawPlayerScaled(p, x, y, aim, info, isMe, now);
+    this.ctx.restore();
+  }
+
+  private drawPlayerScaled(
     p: PlayerSnap,
     x: number,
     y: number,
@@ -1485,7 +1510,9 @@ export class Renderer {
   ) {
     const { ctx } = this;
     const team: Team = info?.team ?? 0;
-    if (p.form) {
+    // Rolling the Pyro just gives you the Pyro's look (gas mask, flamethrower in hand).
+    if (p.form === "pyro") p = { ...p, archetype: "pyro" };
+    else if (p.form) {
       // The Gamer playing as Cuphead, Mugman or Captain Churchill.
       this.drawCharacterTopDown(p.form, x, y, aim, team, isMe);
       return;
@@ -1641,7 +1668,7 @@ export class Renderer {
       ctx.fillStyle = "rgba(0,0,0,0.7)";
       const label = info.level > 1 && !hasAbilities(p.archetype) ? `${info.name} · Lv ${info.level}` : info.name;
       ctx.fillText(label, x + k, top - 3 * k + k);
-      ctx.fillStyle = team === 0 ? "#bfdbfe" : "#fed7aa";
+      ctx.fillStyle = team === 0 ? "#fef08a" : "#fed7aa";
       ctx.fillText(label, x, top - 3 * k);
     }
   }

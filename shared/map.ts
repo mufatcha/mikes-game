@@ -164,15 +164,15 @@ export const HALLS: Rect[] = [
 ];
 
 const CAFETERIA_TABLES = [1130, 1350, 1570].flatMap((y) => [100, 576].map((x) => ({ x, y })));
-export type School = "blueberries" | "orangepeels";
+export type School = "lemons" | "orangepeels";
 
-/** Cafeteria tables painted with a rival school's logo and name: Blueberries on the left, Orange Peels on the right. */
+/** Cafeteria tables painted with a rival school's logo and name: Lemons on the left, Orange Peels on the right. */
 export const SCHOOL_TABLES = CAFETERIA_TABLES.map(({ x, y }) => ({
   x,
   y,
   w: 200,
   h: 50,
-  school: (x < 300 ? "blueberries" : "orangepeels") as School,
+  school: (x < 300 ? "lemons" : "orangepeels") as School,
 }));
 const CLASS_DESKS = [220, 330, 440].flatMap((y) => [2000, 2130, 2260, 2390, 2520].map((x) => ({ x, y })));
 const DETENTION_DESKS = [1150, 1350, 1550].flatMap((y) => [1200, 1550].map((x) => ({ x, y })));
@@ -398,8 +398,8 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 150, y: 850 },
     { x: 2450, y: 850 },
   ],
-  // The duel mascots: Barry on the Blueberry (west) side, Peely on the Orange Peel (east) side.
-  blueberry: [
+  // The duel mascots: Lenny on the Lemon (west) side, Peely on the Orange Peel (east) side.
+  lemon: [
     { x: 150, y: 850 },
     { x: 438, y: 580 },
     { x: 438, y: 1250 },
@@ -449,6 +449,15 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 1960, y: 1900 },
     { x: 1800, y: 2040 },
     { x: 1960, y: 2060 },
+  ],
+  // The Quiet Kid keeps to the back corners of the Library.
+  quietkid: [
+    { x: 1175, y: 300 },
+    { x: 1625, y: 300 },
+    { x: 1310, y: 600 },
+    { x: 1440, y: 600 },
+    { x: 1175, y: 450 },
+    { x: 1625, y: 450 },
   ],
   // The Pyro lurks around the Cafeteria kitchen.
   pyro: [

@@ -85,6 +85,8 @@ export interface PlayerSnap {
   /** Gamer super: playing as Cuphead, Mugman or Captain Churchill, with this many seconds left. */
   form?: CompanionKind;
   formLeft?: number;
+  /** The Quiet Kid's Unnoticed is on: enemies can't see them (unless right next to them). */
+  hidden?: boolean;
   /** On fire from the Pyro: taking afterburn damage. */
   burning?: boolean;
   /** Crouching: shorter and slower. */

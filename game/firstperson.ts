@@ -2,7 +2,7 @@ import { EYE_HEIGHT, MAX_PITCH, THROW_HEIGHT, type Team } from "@/shared/constan
 import { MAP_HEIGHT, MAP_WIDTH, WALLS, type Wall } from "@/shared/map";
 import { segmentRectHit } from "@/shared/physics";
 import type { BulletSnap, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
-import { WEAPONS, radiusFor } from "@/shared/archetypes";
+import { UNNOTICED_SPOT_RANGE, WEAPONS, radiusFor } from "@/shared/archetypes";
 import {
   PPU,
   SURFACE_HEIGHT,
@@ -357,6 +357,8 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
     const dist = Math.hypot(p.x - x, p.y - y);
     const r = radiusFor(p.archetype);
     const xray = enemy && s.reveal;
+    // An unnoticed Quiet Kid only shows up close.
+    if (enemy && p.hidden && !xray && dist > UNNOTICED_SPOT_RANGE) continue;
     // Fog of War hides enemies outside the little circle you can see (unless the Intercom is on).
     if (enemy && s.fogOfWar && !xray && dist > FOG_SIGHT + r) continue;
     const wpn = WEAPONS[p.weapon];
@@ -367,6 +369,8 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
       reach: 46 * (r / 18),
       xray,
       draw: () => {
+        // Teammates who are unnoticed show faded.
+        if (p.hidden) ctx.globalAlpha = 0.45;
         const at = drawAvatar(
           ctx,
           cam,
@@ -375,7 +379,8 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
             x: p.x,
             y: p.y,
             aim: p.aim,
-            archetype: p.archetype,
+            // Rolling the Pyro just makes you look like the Pyro.
+            archetype: p.form === "pyro" ? "pyro" : p.archetype,
             team,
             scale: r / 18,
             ballColor: wpn.color === "rainbow" ? PAINT_COLORS[p.ammo % PAINT_COLORS.length] : wpn.color,
@@ -385,7 +390,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
             stunned: p.stunned,
             lift: p.z ?? 0,
             crouch: !!p.crouch,
-            form: p.form ?? null,
+            form: p.form === "pyro" ? null : (p.form ?? null),
           },
           fogAmount,
           FOG,
@@ -477,11 +482,11 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
         id: me.id,
         x,
         y,
-        archetype: me.archetype,
+        archetype: me.form === "pyro" ? "pyro" : me.archetype,
         team: myTeam ?? 0,
         ballColor: wpn.color === "rainbow" ? PAINT_COLORS[Math.floor(now / 400) % PAINT_COLORS.length] : wpn.color,
         instrument: instrumentOf(me.weapon),
-        form: me.form ?? null,
+        form: me.form === "pyro" ? null : (me.form ?? null),
         now,
       },
     );
@@ -563,7 +568,7 @@ function drawPlayerOverlay(
     ctx.textBaseline = "bottom";
     ctx.fillStyle = "rgba(0,0,0,0.7)";
     ctx.fillText(info.name, cx + 1, barY - 2);
-    ctx.fillStyle = team === 0 ? "#bfdbfe" : "#fed7aa";
+    ctx.fillStyle = team === 0 ? "#fef08a" : "#fed7aa";
     ctx.fillText(info.name, cx, barY - 3);
   }
 }

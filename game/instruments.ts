@@ -21,7 +21,8 @@ export type Instrument =
   // Not instruments, but held the same way.
   | "gamepad"
   | "flamethrower"
-  | "flaregun";
+  | "flaregun"
+  | "notebook";
 
 const INSTRUMENT_OF: Partial<Record<WeaponId, Instrument>> = {
   tuba: "tuba",
@@ -44,6 +45,8 @@ const INSTRUMENT_OF: Partial<Record<WeaponId, Instrument>> = {
   controller: "gamepad",
   flamethrower: "flamethrower",
   flare: "flaregun",
+  paperplane: "notebook",
+  stickynote: "notebook",
 };
 
 /** The instrument a weapon is played on, or null for things you just throw. */
@@ -200,6 +203,15 @@ export function drawInstrument2D(ctx: CanvasRenderingContext2D, kind: Instrument
       bar(ctx, 14, 0, 28, 0, 4, "#f97316");
       bar(ctx, 16, 2, 14, 7, 3, "#1f2937");
       end = 29;
+      break;
+    case "notebook":
+      // A black-and-white composition notebook, full of doodles.
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(14, -8, 12, 16);
+      ctx.fillStyle = "#f8fafc";
+      for (let i = 0; i < 6; i++) ctx.fillRect(15 + (i % 3) * 3.6, -6.5 + Math.floor(i / 3) * 9, 1.6, 1.6);
+      ctx.fillRect(16, -2, 8, 4);
+      end = 27;
       break;
   }
   ctx.restore();

@@ -1,7 +1,7 @@
 import { MAP_HEIGHT, MAP_WIDTH, SAFE_ZONE, inSafeZone, reachable, type Point } from "../shared/map";
 import { hasLineOfSight } from "../shared/physics";
 import type { InputFrame } from "../shared/protocol";
-import { WEAPONS, type WeaponId } from "../shared/archetypes";
+import { UNNOTICED_SPOT_RANGE, WEAPONS, type WeaponId } from "../shared/archetypes";
 import type { Match, PlayerState } from "./match";
 import { findPath, isOpen } from "./nav";
 
@@ -65,6 +65,8 @@ const PREFERRED_RANGE: Record<WeaponId, number> = {
   flare: 450,
   afterburn: 200,
   airblast: 180,
+  paperplane: 600,
+  stickynote: 380,
 };
 
 function wrapAngle(a: number) {
@@ -228,6 +230,8 @@ export class BotBrain {
       if (!p.alive || p.team === self.team || match.isJailed(p)) continue;
       const d = Math.hypot(p.x - self.x, p.y - self.y);
       if (d > VIEW_RANGE) continue;
+      // An unnoticed Quiet Kid only gets spotted up close.
+      if (match.isHidden(p) && d > UNNOTICED_SPOT_RANGE) continue;
       if (!hasLineOfSight(self.x, self.y, p.x, p.y)) continue;
       // Prefer the current target and whoever is shooting us.
       let score = d;

@@ -9,7 +9,7 @@ import LoadoutPicker from "./LoadoutPicker";
 import PrincipalCard from "./PrincipalCard";
 
 const TEAM_STYLES = [
-  { text: "text-blue-400", border: "border-blue-500/40", bg: "bg-blue-500/10", button: "bg-blue-500 hover:bg-blue-400" },
+  { text: "text-yellow-400", border: "border-yellow-500/40", bg: "bg-yellow-500/10", button: "bg-yellow-600 hover:bg-yellow-500" },
   { text: "text-orange-400", border: "border-orange-500/40", bg: "bg-orange-500/10", button: "bg-orange-500 hover:bg-orange-400" },
 ];
 

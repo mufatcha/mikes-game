@@ -18,14 +18,15 @@ export const SKIN: Record<ArchetypeId, string> = {
   gamer: "#e0ac69",
   // The Pyro's face is all gas mask.
   pyro: "#3f3f46",
+  quietkid: "#e8b796",
   principal: "#d6a57c",
   // The mascots' "skin" is the fruit itself.
-  blueberry: "#4338ca",
+  lemon: "#facc15",
   orangepeel: "#f97316",
 };
 
 function isMascot(a: ArchetypeId) {
-  return a === "blueberry" || a === "orangepeel";
+  return a === "lemon" || a === "orangepeel";
 }
 
 const INK = "#1f2937";
@@ -55,6 +56,10 @@ export function drawFace(
   ctx.lineJoin = "round";
 
   // Things behind the head.
+  if (a === "quietkid") {
+    // The hood, pulled up.
+    circle(ctx, cx, cy - r * 0.06, r * 1.22, "#4b5563");
+  }
   if (a === "clown") {
     const wig = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7"];
     for (let i = 0; i < 9; i++) {
@@ -84,16 +89,23 @@ export function drawFace(
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.clip();
-  if (a === "blueberry") {
-    // The dusty bloom on a blueberry's skin.
-    for (let i = 0; i < 14; i++) {
-      circle(ctx, cx + Math.cos(i * 2.4) * r * 0.75 * ((i % 4) / 4 + 0.2), cy + Math.sin(i * 2.4) * r * 0.7 * ((i % 3) / 3 + 0.25), r * 0.12, "rgba(199,210,254,0.18)");
+  if (a === "lemon") {
+    // Dimpled lemon peel, with a shine.
+    for (let i = 0; i < 18; i++) {
+      circle(ctx, cx + Math.cos(i * 2.1) * r * ((i % 5) / 5 + 0.1), cy + Math.sin(i * 2.1) * r * ((i % 4) / 4 + 0.1), r * 0.04, "rgba(161,98,7,0.35)");
     }
+    circle(ctx, cx - r * 0.4, cy - r * 0.45, r * 0.18, "rgba(255,255,255,0.35)");
   } else if (a === "orangepeel") {
     // Dimpled peel.
     for (let i = 0; i < 22; i++) {
       circle(ctx, cx + Math.cos(i * 1.9) * r * ((i % 5) / 5 + 0.1), cy + Math.sin(i * 1.9) * r * ((i % 4) / 4 + 0.1), r * 0.045, "rgba(154,52,18,0.35)");
     }
+  } else if (a === "quietkid") {
+    // Messy brown hair under the hood.
+    ctx.fillStyle = "#4a3426";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.72, r * 1.02, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
   } else if (a === "teacher") {
     ctx.fillStyle = "#6b4423";
     ctx.beginPath();
@@ -170,18 +182,15 @@ export function drawFace(
     ctx.moveTo(cx + r * 0.2, cy - r * 1.1);
     ctx.lineTo(cx + r * 0.25, cy - r * 1.3);
     ctx.stroke();
-  } else if (a === "blueberry") {
-    // The little five-pointed crown on top of a blueberry.
-    ctx.fillStyle = "#1e1b4b";
+  } else if (a === "lemon") {
+    // A lemon's pointy little nub on top, and a leaf.
+    ctx.fillStyle = "#facc15";
     ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const ang = -Math.PI / 2 + (i * Math.PI) / 5;
-      const rr = i % 2 ? r * 0.12 : r * 0.3;
-      const px = cx + Math.cos(ang) * rr;
-      const py = cy - r * 0.86 + Math.sin(ang) * rr * 0.6;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
+    ctx.ellipse(cx, cy - r * 0.98, r * 0.18, r * 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#16a34a";
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.3, cy - r * 1.08, r * 0.32, r * 0.13, 0.4, 0, Math.PI * 2);
     ctx.fill();
   } else if (a === "orangepeel") {
     // A stem and a leaf on top.
@@ -195,6 +204,9 @@ export function drawFace(
     ctx.beginPath();
     ctx.ellipse(cx + r * 0.32, cy - r * 1.12, r * 0.34, r * 0.14, -0.4, 0, Math.PI * 2);
     ctx.fill();
+  } else if (a === "quietkid") {
+    // Earbuds in, always.
+    for (const s of [-1, 1]) circle(ctx, cx + s * r * 0.96, cy + r * 0.1, r * 0.11, "#f8fafc");
   } else if (a === "gamer") {
     // A gaming headset: band over the top, glowing ear cups, and a mic.
     ctx.strokeStyle = "#111827";
@@ -258,7 +270,24 @@ export function drawFace(
         ctx.fill();
       }
     }
-    if (a === "pyro") {
+    if (a === "quietkid") {
+      // Eyes hidden behind a long, swooping fringe of brown hair, hanging down from the top.
+      ctx.fillStyle = "#4a3426";
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy - r * 0.6);
+      ctx.quadraticCurveTo(cx - r * 0.3, ey + r * 0.32, cx + r * 0.75, ey + r * 0.05);
+      ctx.lineTo(cx + r, cy - r * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = r * 0.04;
+      for (const t of [0.25, 0.5, 0.75]) {
+        ctx.beginPath();
+        ctx.moveTo(cx - r + t * r * 2, cy - r * 0.6);
+        ctx.lineTo(cx - r * 0.6 + t * r * 1.4, ey + r * 0.1);
+        ctx.stroke();
+      }
+    } else if (a === "pyro") {
       // The gas mask's two big round lenses, dark with a glint.
       for (const s of [-1, 1]) {
         circle(ctx, cx + s * ex, ey - r * 0.05, r * 0.3, "#9ca3af");
@@ -322,6 +351,14 @@ export function drawFace(
       ctx.ellipse(cx - r * 0.2, cy + r * 0.38, r * 0.24, r * 0.1, 0.2, 0, Math.PI * 2);
       ctx.ellipse(cx + r * 0.2, cy + r * 0.38, r * 0.24, r * 0.1, -0.2, 0, Math.PI * 2);
       ctx.fill();
+    } else if (a === "quietkid") {
+      // Not much to say: a small flat mouth.
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = r * 0.07;
+      ctx.beginPath();
+      ctx.moveTo(cx - r * 0.13, cy + r * 0.34);
+      ctx.lineTo(cx + r * 0.13, cy + r * 0.34);
+      ctx.stroke();
     } else if (a === "pyro") {
       // No mouth showing: just the gas mask's round filter.
       circle(ctx, cx, cy + r * 0.42, r * 0.26, "#6b7280");
@@ -464,6 +501,19 @@ export function drawOutfit(
       ctx.lineTo(x + w, y);
       ctx.fill();
       break;
+    case "quietkid":
+      // A plain grey hoodie: front pocket, and the earbud wire running down into it.
+      ctx.fillStyle = "#4b5563";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "#374151";
+      ctx.fillRect(x + w * 0.22, y + h * 0.6, w * 0.56, h * 0.25);
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = Math.max(1, w * 0.025);
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.12, y);
+      ctx.quadraticCurveTo(cx - w * 0.05, y + h * 0.35, cx, y + h * 0.62);
+      ctx.stroke();
+      break;
     case "pyro":
       // A fireproof suit: leather belt and a strap across the chest, a pocket.
       ctx.fillStyle = "#78350f";
@@ -552,7 +602,7 @@ export function drawOutfit(
       ctx.fill();
       tie("#b91c1c");
       break;
-    case "blueberry":
+    case "lemon":
     case "orangepeel":
       drawJersey(ctx, a, x, y, w, h, false);
       break;
@@ -568,8 +618,8 @@ function drawJersey(ctx: CanvasRenderingContext2D, a: ArchetypeId, x: number, y:
   ctx.font = `900 ${Math.max(6, w * 0.45)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = a === "blueberry" ? "#e0e7ff" : "#fff7ed";
-  ctx.fillText(back ? "1" : a === "blueberry" ? "B" : "O", x + w / 2, y + h * 0.6);
+  ctx.fillStyle = a === "lemon" ? "#713f12" : "#fff7ed";
+  ctx.fillText(back ? "1" : a === "lemon" ? "L" : "O", x + w / 2, y + h * 0.6);
 }
 
 function wrapAngle(a: number) {
@@ -593,6 +643,7 @@ function drawBackOfHead(ctx: CanvasRenderingContext2D, cx: number, cy: number, r
     orchestra: "#3f2a1d",
     gamer: "#1c1917",
     pyro: "#3f3f46",
+    quietkid: "#292524",
     bandkid: "#1c1917",
   };
   if (a === "clown") {
@@ -632,13 +683,22 @@ function drawBackOfHead(ctx: CanvasRenderingContext2D, cx: number, cy: number, r
 /** The back of each outfit: no ties or pockets, but you can still tell the class. */
 function drawOutfitBack(ctx: CanvasRenderingContext2D, a: ArchetypeId, x: number, y: number, w: number, h: number) {
   switch (a) {
-    case "blueberry":
+    case "lemon":
     case "orangepeel":
       drawJersey(ctx, a, x, y, w, h, true);
       break;
     case "orchestra":
       ctx.fillStyle = "#111827"; // the back of the concert jacket
       ctx.fillRect(x, y, w, h);
+      break;
+    case "quietkid":
+      // Just a plain hoodie from behind, with the hood up.
+      ctx.fillStyle = "#4b5563";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "#374151";
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, y + h * 0.1, w * 0.36, h * 0.18, 0, 0, Math.PI);
+      ctx.fill();
       break;
     case "pyro": {
       // The air tank for the flamethrower, strapped on the back.

@@ -206,7 +206,7 @@ export class Room {
         this.mode = msg.mode;
         // Nobody becomes the Principal without choosing it: everyone starts as a student.
         if (this.mode === "boss") for (const c of this.clients.values()) c.team = 0;
-        // Duel: one player on each side, the host on the Blueberry side.
+        // Duel: one player on each side, the host on the Lemon side.
         if (this.mode === "duel") {
           const order = [...this.clients.values()].sort((a, b) => (a.id === this.hostId ? -1 : b.id === this.hostId ? 1 : 0));
           order.forEach((c, i) => (c.team = i === 0 ? 0 : 1));

@@ -69,6 +69,9 @@ const SHOT_SOUNDS: Record<WeaponId, ShotSound> = {
   flare: { freq: 1800, q: 2, duration: 0.12, gain: 0.45, thump: 160 },
   afterburn: { freq: 400, q: 0.4, duration: 0.15, gain: 0.3, thump: 60 },
   airblast: { freq: 250, q: 0.3, duration: 0.45, gain: 0.85, thump: 50 },
+  // The Quiet Kid: barely a sound.
+  paperplane: { freq: 1800, q: 0.6, duration: 0.08, gain: 0.12, thump: 300 },
+  stickynote: { freq: 2400, q: 1, duration: 0.04, gain: 0.12, thump: 400 },
 };
 
 /** Tiny synthesized sound effects, so the game needs no audio files. */

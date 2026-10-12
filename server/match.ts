@@ -52,6 +52,7 @@ import type { BulletSnap, GameEvent, InputFrame, PlayerSnap, ZoneSnap } from "..
 import {
   ABILITY_IDS,
   AFTERBURN_DAMAGE,
+  UNNOTICED_TIME,
   POWER_UP_HEAL,
   superRateOf,
   AIRBLAST_CONE,
@@ -179,9 +180,11 @@ export interface PlayerState extends MatchEntry {
   revealUntil: number;
   /** Peely's Thick Rind: can't be hurt until this match time. */
   shieldUntil: number;
+  /** Quiet Kid's Unnoticed: enemies can't see them until this match time. */
+  hiddenUntil: number;
   /** Can't ride the TARDIS again until this match time. */
   tardisReadyAt: number;
-  /** Barry's Antioxidants: faster until this match time. */
+  /** Lenny's Vitamin C: faster until this match time. */
   hasteUntil: number;
   /** Feet off the floor (jumping, or up on a desk), and rising speed. */
   z: number;
@@ -330,6 +333,11 @@ export class Match {
     return hasAbilities(p.loadout.archetype);
   }
 
+  /** The Quiet Kid's Unnoticed is on: enemies can't see them unless they're right next to them. */
+  isHidden(p: PlayerState) {
+    return this.time < p.hiddenUntil;
+  }
+
   isJailed(p: PlayerState) {
     return this.time < p.jailedUntil;
   }
@@ -453,6 +461,7 @@ export class Match {
         ...(p.alive && p.crouching && { crouch: true }),
         ...(p.alive && p.form && { form: p.form, formLeft: r1(Math.max(0, p.formUntil - this.time)) }),
         ...(p.alive && this.time < p.burnUntil && { burning: true }),
+        ...(p.alive && this.isHidden(p) && { hidden: true }),
         slot: p.slot,
         ammo: p.ammo[p.slot],
         reload:
@@ -554,6 +563,7 @@ export class Match {
       shieldUntil: 0,
       hasteUntil: 0,
       tardisReadyAt: 0,
+      hiddenUntil: 0,
       pitch: 0,
       z: 0,
       vz: 0,
@@ -975,6 +985,7 @@ export class Match {
     p.vz = 0;
     p.crouching = false;
     p.form = null;
+    p.hiddenUntil = 0;
     p.burnUntil = 0;
     p.vy = 0;
     p.aim = p.team === 0 ? 0 : Math.PI;
@@ -1208,7 +1219,7 @@ export class Match {
       case "intercom":
         p.revealUntil = this.time + INTERCOM_TIME;
         break;
-      // Barry the Blueberry.
+      // Lenny the Lemon.
       case "berryblast":
         this.fan(p, "berryblast", 5, 0.4);
         break;
@@ -1349,8 +1360,14 @@ export class Match {
         p.hp = Math.min(p.maxHp, p.hp + POWER_UP_HEAL);
         p.reloadEnd = -1;
         this.events.push({ k: "summon", by: p.id, who, x: r1(p.x), y: r1(p.y) });
+        // The Pyro arrives with a whoosh: a free Airblast.
+        if (who === "pyro") this.airblast(p);
         break;
       }
+      case "unnoticed":
+        // The Quiet Kid slips out of everyone's attention.
+        p.hiddenUntil = this.time + UNNOTICED_TIME;
+        break;
       case "airblast":
         this.airblast(p);
         break;
@@ -1360,7 +1377,7 @@ export class Match {
 
   /**
    * Charge forward up to `distance` where you aim (the Jock's Touchdown Dash,
-   * Barry's Roll Out), hitting and stunning everyone you run into.
+   * Lenny's Roll Out), hitting and stunning everyone you run into.
    */
   private charge(p: PlayerState, distance: number, weapon: WeaponId, stun: number) {
     const dx = Math.cos(p.aim);
@@ -1571,7 +1588,7 @@ export class Match {
       if (aim !== undefined) p.aim = aim;
       this.useAbility(p.id, a, foe?.id);
     };
-    if (p.loadout.archetype === "blueberry") {
+    if (p.loadout.archetype === "lemon") {
       if (ready("antioxidants") && hurt) return fire("antioxidants");
       if (!foe) return;
       const at = Math.atan2(foe.y - p.y, foe.x - p.x);
