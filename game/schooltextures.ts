@@ -356,7 +356,6 @@ export function floorTexel(x: number, y: number): number {
   const gx = Math.max(0, Math.min(GRID_W - 1, Math.floor(x / CELL)));
   const gy = Math.max(0, Math.min(GRID_H - 1, Math.floor(y / CELL)));
   const kind = FLOOR_KINDS[grid()[gy * GRID_W + gx]];
-  const n = hash(Math.floor(x / 2), Math.floor(y / 2));
   switch (kind) {
     case "court": {
       // Gym floor: honey-colored planks with staggered joints.
@@ -368,21 +367,21 @@ export function floorTexel(x: number, y: number): number {
     }
     case "carpet": {
       const d = (Math.floor(x / 16) + Math.floor(y / 16)) & 1 ? 8 : 0;
-      return rgb(46 + n * 14 + d, 64 + n * 14 + d, 112 + n * 16 + d);
+      return rgb(53 + d, 71 + d, 120 + d);
     }
     case "checker": {
       if (mod(x, 24) < 0.8 || mod(y, 24) < 0.8) return rgb(110, 110, 110);
       const light = (Math.floor(x / 24) + Math.floor(y / 24)) & 1;
-      return light ? rgb(224 - n * 12, 218 - n * 12, 204 - n * 12) : rgb(92 - n * 10, 104 - n * 10, 126 - n * 10);
+      return light ? rgb(218, 212, 198) : rgb(87, 99, 121);
     }
     case "tiles": {
       if (mod(x, 36) < 1 || mod(y, 36) < 1) return rgb(140, 140, 140);
       const alt = (Math.floor(x / 36) + Math.floor(y / 36)) & 1 ? 14 : 0;
-      return rgb(228 - alt - n * 8, 228 - alt - n * 8, 222 - alt - n * 8);
+      return rgb(224 - alt, 224 - alt, 218 - alt);
     }
     case "stripes": {
       const s = mod(x + y, 40) < 20 ? 8 : 0;
-      return rgb(66 + s + n * 8, 70 + s + n * 8, 80 + s + n * 8);
+      return rgb(70 + s, 74 + s, 84 + s);
     }
     case "splatter": {
       const cell = hash(Math.floor(x / 18), Math.floor(y / 18));
@@ -390,14 +389,13 @@ export function floorTexel(x: number, y: number): number {
         const p = PAINT[Math.floor(cell * 100) % PAINT.length];
         return rgb(p[0], p[1], p[2]);
       }
-      return rgb(150 - n * 25, 150 - n * 25, 154 - n * 25);
+      return rgb(138, 138, 142);
     }
     default: {
-      // Hallways: polished speckled tile.
+      // Hallways: polished tile.
       if (mod(x, 30) < 0.9 || mod(y, 30) < 0.9) return rgb(150, 146, 136);
       const tint = hash(Math.floor(x / 30), Math.floor(y / 30)) * 10;
-      const speck = n > 0.9 ? 40 : 0;
-      return rgb(218 - tint - speck, 212 - tint - speck, 196 - tint - speck);
+      return rgb(218 - tint, 212 - tint, 196 - tint);
     }
   }
 }
@@ -412,6 +410,5 @@ export function ceilingTexel(x: number, y: number): number {
     if (mod(x, 10) < 0.6 || mod(y, 10) < 0.6) return rgb(214, 222, 232) | GLOW;
     return rgb(240, 247, 255) | GLOW;
   }
-  const dot = hash(Math.floor(x * 1.5), Math.floor(y * 1.5)) > 0.92 ? 28 : 0;
-  return rgb(212 - dot, 210 - dot, 202 - dot);
+  return rgb(212, 210, 202);
 }

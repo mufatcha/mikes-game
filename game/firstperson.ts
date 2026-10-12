@@ -1,4 +1,4 @@
-import { MAX_PITCH, THROW_HEIGHT, type Team } from "@/shared/constants";
+import { EYE_HEIGHT, MAX_PITCH, THROW_HEIGHT, type Team } from "@/shared/constants";
 import { MAP_HEIGHT, MAP_WIDTH, WALLS, type Wall } from "@/shared/map";
 import { segmentRectHit } from "@/shared/physics";
 import type { BulletSnap, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
@@ -38,7 +38,7 @@ import { FOG_SIGHT } from "./vision";
 const FOV = (75 * Math.PI) / 180;
 const MAX_VIEW = 2600;
 /** Heights in world units; the camera sits at eye height, the ceiling at the top of the walls. */
-const EYE = 32;
+const EYE = EYE_HEIGHT;
 const CEILING = 80;
 const PLAYER_HEIGHT = FIGURE_HEIGHT;
 /** Darkness things fade into with distance (a dim school hallway, not black). */

@@ -15,8 +15,10 @@ export const PLAYER_HEIGHT = 56;
 // 3D throw physics, used only when a match is played in the 3D view.
 /** Downward pull on thrown things, in units per second squared. */
 export const GRAVITY = 600;
+/** In 3D you see from this height: a little below the top of your head. */
+export const EYE_HEIGHT = 48;
 /** Throws leave your hand at this height. */
-export const THROW_HEIGHT = 38;
+export const THROW_HEIGHT = 44;
 /** The ceiling (and the top of the walls). */
 export const CEILING_HEIGHT = 80;
 /** How far you can look (and throw) up or down, in radians. */

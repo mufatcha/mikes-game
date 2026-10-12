@@ -2,6 +2,7 @@ import {
   BASE_SPEED,
   CEILING_HEIGHT,
   DT,
+  EYE_HEIGHT,
   GRAVITY,
   MAX_HP,
   MAX_PITCH,
@@ -1008,7 +1009,7 @@ export class Match {
         let reach = JAM_RANGE;
         const foe = p.isBot && targetId ? this.players.get(targetId) : undefined;
         if (foe) reach = Math.min(reach, Math.hypot(foe.x - p.x, foe.y - p.y));
-        else if (this.view3d && p.pitch < -0.05) reach = Math.min(reach, 32 / Math.tan(-p.pitch));
+        else if (this.view3d && p.pitch < -0.05) reach = Math.min(reach, EYE_HEIGHT / Math.tan(-p.pitch));
         const ex = p.x + Math.cos(p.aim) * reach;
         const ey = p.y + Math.sin(p.aim) * reach;
         const wall = firstWallHitWithNormal(p.x, p.y, ex, ey);
