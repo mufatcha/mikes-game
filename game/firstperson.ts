@@ -71,7 +71,7 @@ const OUTER_SET = new Set(OUTER);
 const ALL_WALLS = [...WALLS, ...OUTER];
 const WALL_INDEX = new Map(ALL_WALLS.map((w, i) => [w, i]));
 /** These reach (nearly) the ceiling and hide everything behind them. */
-const FULL_HEIGHT = new Set(["wall", "locker"]);
+const FULL_HEIGHT = new Set(["wall", "locker", "clinic"]);
 
 interface Hit {
   wall: Wall;
@@ -95,9 +95,14 @@ function exitT(x: number, y: number, ex: number, ey: number, r: Wall) {
   return tmax;
 }
 
+/**
+ * The nearest full-height wall along a ray, and every shorter thing (desks,
+ * tables, shelves…) in front of it, farthest first. You can see over short
+ * things, so a desk behind another desk still shows above it.
+ */
 function castRay(x: number, y: number, dx: number, dy: number) {
   let tall: Hit | null = null;
-  let low: Hit | null = null;
+  const lows: Hit[] = [];
   const ex = x + dx * MAX_VIEW;
   const ey = y + dy * MAX_VIEW;
   for (const w of ALL_WALLS) {
@@ -117,13 +122,13 @@ function castRay(x: number, y: number, dx: number, dy: number) {
     };
     if (surface === "outer" || FULL_HEIGHT.has(w.kind)) {
       if (!tall || dist < tall.dist) tall = h;
-    } else if (!low || dist < low.dist) {
-      low = h;
+    } else {
+      lows.push(h);
     }
   }
   // Shorter things only matter if they're in front of the wall.
-  if (low && tall && low.dist >= tall.dist) low = null;
-  return { tall, low };
+  const front = lows.filter((l) => !tall || l.dist < tall.dist).sort((a, b) => b.dist - a.dist);
+  return { tall, lows: front };
 }
 
 function fogAmount(dist: number) {
@@ -256,9 +261,10 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
   for (let c = 0; c < cols; c++) {
     const sx = c * step + step / 2;
     const rayAngle = yaw + Math.atan((sx - w / 2) / proj);
-    const { tall, low } = castRay(x, y, Math.cos(rayAngle), Math.sin(rayAngle));
+    const { tall, lows } = castRay(x, y, Math.cos(rayAngle), Math.sin(rayAngle));
     const fix = Math.cos(rayAngle - yaw); // undo the fish-eye
-    for (const hit of [tall, low]) {
+    // Back to front: the wall, then furniture from farthest to nearest.
+    for (const hit of [tall, ...lows]) {
       if (!hit) continue;
       const d = Math.max(1, hit.dist * fix);
       const height = SURFACE_HEIGHT[hit.surface];
@@ -294,7 +300,9 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
     }
     if (tall) depth[c] = tall.dist * fix;
     // Tall shelves hide people behind them too.
-    if (low && SURFACE_HEIGHT[low.surface] >= PLAYER_HEIGHT) depth[c] = Math.min(depth[c], low.dist * fix);
+    for (const low of lows) {
+      if (SURFACE_HEIGHT[low.surface] >= PLAYER_HEIGHT) depth[c] = Math.min(depth[c], low.dist * fix);
+    }
   }
   ctx.imageSmoothingEnabled = true;
 

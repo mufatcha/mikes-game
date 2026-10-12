@@ -61,6 +61,7 @@ const WALL_STYLES: Record<WallKind, { fill: string; top: string }> = {
   bleacher: { fill: "#6b5a3a", top: "#8c7750" },
   easel: { fill: "#7c5e3c", top: "#c084fc" },
   locker: { fill: "#2f5d9e", top: "#4f83c9" },
+  clinic: { fill: "#e2e8f0", top: "#ef4444" },
 };
 /** World area that fits on screen; bigger screens zoom in rather than see more. */
 const VIEW_AREA = 1500 * 860;

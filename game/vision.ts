@@ -1,5 +1,5 @@
 import { segmentRect } from "@/shared/physics";
-import { HALLS, ROOMS, WALLS, type Rect, type Wall, type WallKind } from "@/shared/map";
+import { HALLS, ROOMS, SAFE_ZONE, WALLS, type Rect, type Wall, type WallKind } from "@/shared/map";
 
 /** You can always see this close around you, in every direction. */
 export const NEAR_SIGHT = 170;
@@ -19,6 +19,7 @@ const BLOCKS_SIGHT: Record<WallKind, boolean> = {
   table: false,
   bleacher: false,
   easel: false,
+  clinic: true,
 };
 const OCCLUDERS: Wall[] = WALLS.filter((w) => BLOCKS_SIGHT[w.kind]);
 
@@ -36,6 +37,8 @@ function inside(r: Rect, x: number, y: number) {
  */
 export function litAreasAt(x: number, y: number, fog = false): Rect[] {
   if (fog) return [];
+  // The Nurse's Office is its own little building inside the main hall.
+  if (inside(SAFE_ZONE, x, y)) return [SAFE_ZONE];
   const room = ROOMS.find((r) => inside(r, x, y));
   if (room) return [room];
   if (HALLS.some((h) => inside(h, x, y))) return HALLS;
@@ -98,7 +101,9 @@ export function sightPolygon(x: number, y: number, range = FAR_SIGHT): [number, 
  * Checks the target's center and both sides, so someone half out of cover still shows.
  */
 export function canSee(x: number, y: number, aim: number, tx: number, ty: number, r: number, fog = false) {
-  if (litAreasAt(x, y, fog).some((a) => inside(a, tx, ty))) return true;
+  // Sharing a room (or the halls) means you see each other, but the halls don't see into the Nurse's Office.
+  const sameSide = inside(SAFE_ZONE, x, y) === inside(SAFE_ZONE, tx, ty);
+  if (sameSide && litAreasAt(x, y, fog).some((a) => inside(a, tx, ty))) return true;
   const dist = Math.hypot(tx - x, ty - y);
   if (dist > (fog ? FOG_SIGHT : FAR_SIGHT) + r) return false;
   // Fog of War has no cone: just the circle around you.

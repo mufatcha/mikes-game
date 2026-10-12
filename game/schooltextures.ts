@@ -1,4 +1,4 @@
-import { HALLS, MAP_HEIGHT, MAP_WIDTH, ROOMS, WALL_HEIGHT, type FloorPattern, type WallKind } from "@/shared/map";
+import { HALLS, MAP_HEIGHT, MAP_WIDTH, ROOMS, WALL_HEIGHT, inSafeZone, type FloorPattern, type WallKind } from "@/shared/map";
 
 /**
  * Procedural textures for the first-person school: painted cinderblock walls
@@ -24,6 +24,7 @@ export const TEX_UNITS: Record<Surface, number> = {
   table: 32,
   bleacher: 40,
   easel: 40,
+  clinic: 56,
 };
 
 /** How tall each surface is, in world units (also the texture height). */
@@ -126,6 +127,43 @@ function wallCanvas(variant: WallVariant) {
     g.lineTo(cx + 3.5 * u, cy + 1 * u);
     g.stroke();
   }
+  return c;
+}
+
+/**
+ * The Nurse's Office: clean white tile below, mint paint above, a red
+ * stripe, and a red cross on a white disc. Symmetric, so it reads the same
+ * from inside and outside.
+ */
+function clinicCanvas() {
+  const c = canvas(TEX_UNITS.clinic, SURFACE_HEIGHT.clinic);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#d1fae5";
+  g.fillRect(0, 0, w, h);
+  // Tile on the lower half.
+  const tileTop = h * 0.55;
+  g.fillStyle = "#f8fafc";
+  g.fillRect(0, tileTop, w, h - tileTop);
+  g.fillStyle = "#cbd5e1";
+  for (let y = tileTop; y < h; y += 8 * u) g.fillRect(0, y, w, 0.5 * u);
+  for (let x = 0; x < w; x += 8 * u) g.fillRect(x, tileTop, 0.5 * u, h - tileTop);
+  // Red stripe between them, and a darker baseboard.
+  g.fillStyle = "#ef4444";
+  g.fillRect(0, tileTop - 3 * u, w, 3 * u);
+  g.fillStyle = "#94a3b8";
+  g.fillRect(0, h - 3 * u, w, 3 * u);
+  // A red cross on a white disc.
+  const cx = w / 2;
+  const cy = h * 0.3;
+  g.fillStyle = "#fff";
+  g.beginPath();
+  g.arc(cx, cy, 13 * u, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = "#dc2626";
+  g.fillRect(cx - 3.5 * u, cy - 10 * u, 7 * u, 20 * u);
+  g.fillRect(cx - 10 * u, cy - 3.5 * u, 20 * u, 7 * u);
   return c;
 }
 
@@ -289,6 +327,7 @@ export function wallTexture(surface: Surface, variant: WallVariant = "plain"): H
     else if (surface === "outer") c = outerCanvas();
     else if (surface === "locker") c = lockerCanvas();
     else if (surface === "shelf") c = shelfCanvas();
+    else if (surface === "clinic") c = clinicCanvas();
     else c = furnitureCanvas(surface);
     cache.set(key, c);
   }
@@ -353,6 +392,11 @@ const PAINT: RGB[] = [
 
 /** Floor color at a world position, by which room it's in. */
 export function floorTexel(x: number, y: number): number {
+  if (inSafeZone(x, y)) {
+    // The Nurse's Office: white tile with mint grout.
+    if (mod(x, 20) < 0.8 || mod(y, 20) < 0.8) return rgb(167, 214, 190);
+    return rgb(236, 244, 240);
+  }
   const gx = Math.max(0, Math.min(GRID_W - 1, Math.floor(x / CELL)));
   const gy = Math.max(0, Math.min(GRID_H - 1, Math.floor(y / CELL)));
   const kind = FLOOR_KINDS[grid()[gy * GRID_W + gx]];

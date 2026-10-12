@@ -1,6 +1,6 @@
 import type { ArchetypeId } from "./archetypes";
 
-export type WallKind = "wall" | "desk" | "shelf" | "table" | "bleacher" | "locker" | "easel";
+export type WallKind = "wall" | "desk" | "shelf" | "table" | "bleacher" | "locker" | "easel" | "clinic";
 
 /** How tall each kind of wall or furniture is, in world units. In 3D, throws can fly over the low ones. */
 export const WALL_HEIGHT: Record<WallKind, number> = {
@@ -11,6 +11,7 @@ export const WALL_HEIGHT: Record<WallKind, number> = {
   table: 26,
   bleacher: 30,
   easel: 46,
+  clinic: 80,
 };
 
 export interface Rect {
@@ -136,6 +137,14 @@ export const SCHOOL_TABLES = CAFETERIA_TABLES.map(({ x, y }) => ({
 const CLASS_DESKS = [220, 330, 440].flatMap((y) => [2000, 2130, 2260, 2390, 2520].map((x) => ({ x, y })));
 const DETENTION_DESKS = [1150, 1350, 1550].flatMap((y) => [1200, 1550].map((x) => ({ x, y })));
 
+/**
+ * The Nurse's Office: a little building in the middle of the main hall,
+ * with a door at each end. Small enough to leave room to walk past it.
+ */
+const NURSE = { x: 1190, y: 780, w: 220, h: 140 };
+const NURSE_WALL = 10;
+const NURSE_DOOR: [number, number] = [NURSE.y + NURSE.h / 2 - 35, NURSE.y + NURSE.h / 2 + 35];
+
 export const WALLS: Wall[] = [
   // Gym
   ...lockerWallV(0, MAIN_HALL.y1, HALL_A.x1 - T, "right", [[250, 370]]),
@@ -174,9 +183,15 @@ export const WALLS: Wall[] = [
   ...lockerWallV(MAIN_HALL.y2, MAP_HEIGHT, HALL_B.x2, "left", [[1400, 1520]]),
   ...[1180, 1420, 1620].flatMap((y) => [2020, 2200, 2380].map((x) => box("easel", x, y, 80, 50))),
 
-  // Locker banks in the main hall for cover (the Nurse's Office sits between them)
+  // Locker banks in the main hall for cover, either side of the Nurse's Office
   box("locker", 420, 830, 160, 40),
   box("locker", 2020, 830, 160, 40),
+
+  // The Nurse's Office building.
+  ...stripH("clinic", NURSE.x, NURSE.x + NURSE.w, NURSE.y, NURSE_WALL, []),
+  ...stripH("clinic", NURSE.x, NURSE.x + NURSE.w, NURSE.y + NURSE.h - NURSE_WALL, NURSE_WALL, []),
+  ...stripV("clinic", NURSE.y + NURSE_WALL, NURSE.y + NURSE.h - NURSE_WALL, NURSE.x, NURSE_WALL, [NURSE_DOOR]),
+  ...stripV("clinic", NURSE.y + NURSE_WALL, NURSE.y + NURSE.h - NURSE_WALL, NURSE.x + NURSE.w - NURSE_WALL, NURSE_WALL, [NURSE_DOOR]),
 ];
 
 /** Benches beside the lunch tables and a chair behind every desk. */
@@ -194,7 +209,7 @@ export const DECOR: Decor[] = [
  * The Nurse's Office: heals and protects whoever stands in it, but they can't
  * throw from inside, and staying too long makes them pass out.
  */
-export const SAFE_ZONE: Rect & { name: string } = { name: "Nurse's Office", x: 1180, y: 765, w: 240, h: 170 };
+export const SAFE_ZONE: Rect & { name: string } = { name: "Nurse's Office", ...NURSE };
 
 export function inSafeZone(x: number, y: number) {
   return x >= SAFE_ZONE.x && x <= SAFE_ZONE.x + SAFE_ZONE.w && y >= SAFE_ZONE.y && y <= SAFE_ZONE.y + SAFE_ZONE.h;
