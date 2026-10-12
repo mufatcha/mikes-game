@@ -50,6 +50,9 @@ import {
   DASH_STUN,
   EXTRA_CREDIT_HEAL,
   EXTRA_CREDIT_RADIUS,
+  FIGHT_SONG_HEAL,
+  FIGHT_SONG_RADIUS,
+  FIGHT_SONG_TIME,
   OVERCLOCK_SPEED,
   OVERCLOCK_TIME,
   PAINT_BOMB_RADIUS,
@@ -308,7 +311,7 @@ export class Match {
   }
 
   currentWeapon(p: PlayerState): WeaponId {
-    return weaponsOf(p.loadout.archetype)[p.slot];
+    return weaponsOf(p.loadout.archetype, p.loadout.section)[p.slot];
   }
 
   addPlayer(e: MatchEntry) {
@@ -390,6 +393,7 @@ export class Match {
         protected: p.alive && this.time < p.protectedUntil,
         weapon: this.currentWeapon(p),
         archetype: p.loadout.archetype,
+        ...(p.loadout.section && { section: p.loadout.section }),
         slot: p.slot,
         ammo: p.ammo[p.slot],
         reload:
@@ -444,7 +448,7 @@ export class Match {
   }
 
   fullAmmo(loadout: Loadout): [number, number] {
-    const [a, b] = weaponsOf(loadout.archetype);
+    const [a, b] = weaponsOf(loadout.archetype, loadout.section);
     return [WEAPONS[a].magSize, WEAPONS[b].magSize];
   }
 
@@ -1117,6 +1121,17 @@ export class Match {
         break;
       case "overclock":
         p.overclockUntil = this.time + OVERCLOCK_TIME;
+        break;
+      case "fightsong":
+        for (const t of this.players.values()) {
+          if (!t.alive || t.team !== p.team) continue;
+          if (Math.hypot(t.x - p.x, t.y - p.y) > FIGHT_SONG_RADIUS) continue;
+          t.hp = Math.min(t.maxHp, t.hp + FIGHT_SONG_HEAL);
+          t.hasteUntil = Math.max(t.hasteUntil, this.time + FIGHT_SONG_TIME);
+        }
+        break;
+      case "crescendo":
+        this.fan(p, "note", 9, 0.6);
         break;
     }
     this.events.push({ k: "super", by: p.id, super: def.id, x: r1(p.x), y: r1(p.y) });

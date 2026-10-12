@@ -66,6 +66,7 @@ const SLEEVES: Partial<Record<ArchetypeId, string>> = {
   teacher: "#3f6212",
   jock: "#f8fafc",
   principal: "#1f2937",
+  orchestra: "#111827",
 };
 
 // ---------------------------------------------------------------- textures
@@ -382,6 +383,15 @@ function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number)
   if (a === "teacher") parts.push({ c: [0, -6.5, 54], h: [3, 2.5, 3], color: "#6b4423" });
   if (a === "artkid") parts.push({ c: [1, 0.5, 56.2], h: [8, 8, 1.3], color: "#b91c1c" });
   if (a === "jock") parts.push({ c: [0, 0, 51.5], h: [7.3, 7.3, 1], color: "#dc2626" });
+  if (a === "bandkid") {
+    // The marching shako: navy, a gold band, a black visor and a tall white plume.
+    parts.push(
+      { c: [0, 0, 60], h: [6.5, 6.5, 4.5], color: "#1e3a8a" },
+      { c: [0, 0, 56.3], h: [6.7, 6.7, 0.8], color: "#facc15" },
+      { c: [0, 7.5, 55.6], h: [5, 2.2, 0.5], color: "#111827" },
+      { c: [0, 1.5, 67], h: [1.3, 1.3, 3], color: "#f8fafc" },
+    );
+  }
   if (a === "clown") {
     parts.push(
       { c: [-8.5, -1, 51], h: [2.5, 4.5, 4], color: "#f59e0b" },

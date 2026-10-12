@@ -16,6 +16,8 @@ import {
   DEFAULT_LOADOUT,
   hasAbilities,
   seatLoadout,
+  SECTIONS,
+  classLimit,
   sanitizeLoadout,
   type AbilityId,
   type ArchetypeId,
@@ -176,7 +178,8 @@ export class Room {
         const wanted = sanitizeLoadout(msg.loadout);
         if (this.takenClasses(client.team, id).has(wanted.archetype)) {
           const name = ARCHETYPES[wanted.archetype].name;
-          this.send(client.ws, { t: "error", message: `Your team already has a ${name}.` });
+          const full = classLimit(wanted.archetype) > 1 ? `${classLimit(wanted.archetype)} ${name}s` : `a ${name}`;
+          this.send(client.ws, { t: "error", message: `Your team already has ${full}.` });
           break;
         }
         client.loadout = wanted;
@@ -356,20 +359,33 @@ export class Room {
     this.match!.setLoadout(client.id, client.loadout);
   }
 
-  /** Classes already held (or queued for next respawn) by teammates other than `exceptId`. */
+  /**
+   * Classes the team is full up on, counting what teammates other than
+   * `exceptId` hold (or have queued for their next respawn). Most classes
+   * allow one per team; the Orchestra Kid allows two.
+   */
   private takenClasses(team: Team, exceptId: string | null, extra: MatchEntry[] = []) {
     const taken = new Set<ArchetypeId>();
     // Seven students and six classes: in boss mode, students can share.
     if (this.mode === "boss" || this.mode === "duel") return taken;
+    // Who plays what, per player, so someone isn't counted twice.
+    const held = new Map<string, Set<ArchetypeId>>();
+    const add = (id: string, a: ArchetypeId) => {
+      if (!held.has(id)) held.set(id, new Set());
+      held.get(id)!.add(a);
+    };
     for (const c of this.clients.values()) {
-      if (c.ready && c.team === team && c.id !== exceptId) taken.add(c.loadout.archetype);
+      if (c.ready && c.team === team && c.id !== exceptId) add(c.id, c.loadout.archetype);
     }
     for (const p of this.match?.players.values() ?? []) {
       if (p.team !== team || p.id === exceptId) continue;
-      taken.add(p.loadout.archetype);
-      if (p.pendingLoadout) taken.add(p.pendingLoadout.archetype);
+      add(p.id, p.loadout.archetype);
+      if (p.pendingLoadout) add(p.id, p.pendingLoadout.archetype);
     }
-    for (const e of extra) if (e.team === team) taken.add(e.loadout.archetype);
+    for (const e of extra) if (e.team === team) add(e.id, e.loadout.archetype);
+    const counts = new Map<ArchetypeId, number>();
+    for (const set of held.values()) for (const a of set) counts.set(a, (counts.get(a) ?? 0) + 1);
+    for (const [a, n] of counts) if (n >= classLimit(a)) taken.add(a);
     return taken;
   }
 
@@ -377,7 +393,7 @@ export class Room {
   private claimClass(team: Team, id: string, wanted: Loadout): Loadout {
     const taken = this.takenClasses(team, id);
     if (!taken.has(wanted.archetype)) return wanted;
-    return { archetype: ARCHETYPE_IDS.find((a) => !taken.has(a)) ?? wanted.archetype };
+    return sanitizeLoadout({ archetype: ARCHETYPE_IDS.find((a) => !taken.has(a)) ?? wanted.archetype });
   }
 
   private makeBot(team: Team, extra: MatchEntry[] = []): MatchEntry {
@@ -398,7 +414,10 @@ export class Room {
       ]);
       const freeClasses = ARCHETYPE_IDS.filter((a) => !used.has(a));
       const pool = freeClasses.length > 0 ? freeClasses : ARCHETYPE_IDS;
-      loadout = { archetype: pool[Math.floor(Math.random() * pool.length)] };
+      const archetype = pool[Math.floor(Math.random() * pool.length)];
+      // Band and orchestra bots play a random section.
+      const sections = SECTIONS[archetype];
+      loadout = sections ? { archetype, section: sections[Math.floor(Math.random() * sections.length)].id } : { archetype };
     }
     return {
       id: `bot-${++this.botSeq}`,

@@ -13,6 +13,8 @@ export const SKIN: Record<ArchetypeId, string> = {
   artkid: "#f5d0a9",
   nerd: "#ffdbac",
   clown: "#fafafa",
+  bandkid: "#8d5524",
+  orchestra: "#ffe0bd",
   principal: "#d6a57c",
   // The mascots' "skin" is the fruit itself.
   blueberry: "#4338ca",
@@ -106,6 +108,18 @@ export function drawFace(
     ctx.beginPath();
     ctx.ellipse(cx, cy - r * 0.8, r, r * 0.42, 0, 0, Math.PI * 2);
     ctx.fill();
+  } else if (a === "orchestra") {
+    // Neatly combed hair with a side part, ready for the concert.
+    ctx.fillStyle = "#3f2a1d";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.78, r * 1.05, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = r * 0.05;
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.35, cy - r);
+    ctx.lineTo(cx - r * 0.3, cy - r * 0.45);
+    ctx.stroke();
   } else if (a === "lunchlady") {
     // Hairnet over the hair.
     ctx.fillStyle = "#9ca3af";
@@ -167,6 +181,20 @@ export function drawFace(
     ctx.fillStyle = "#16a34a";
     ctx.beginPath();
     ctx.ellipse(cx + r * 0.32, cy - r * 1.12, r * 0.34, r * 0.14, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (a === "bandkid") {
+    // A tall marching-band shako: navy with a gold band, a black visor and a white plume.
+    ctx.fillStyle = "#1e3a8a";
+    ctx.fillRect(cx - r * 0.72, cy - r * 1.55, r * 1.44, r * 0.85);
+    ctx.fillStyle = "#facc15";
+    ctx.fillRect(cx - r * 0.72, cy - r * 0.98, r * 1.44, r * 0.14);
+    ctx.fillStyle = "#111827";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.7, r * 0.8, r * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f8fafc";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 1.72, r * 0.18, r * 0.3, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -391,6 +419,42 @@ export function drawOutfit(
       ctx.lineTo(x + w, y);
       ctx.fill();
       break;
+    case "bandkid":
+      // Marching-band uniform: white cross-belts, a row of gold buttons, gold collar.
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = Math.max(1, w * 0.1);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w, y + h * 0.75);
+      ctx.moveTo(x + w, y);
+      ctx.lineTo(x, y + h * 0.75);
+      ctx.stroke();
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(x, y, w, h * 0.06);
+      for (let i = 0; i < 4; i++) circle(ctx, cx, y + h * (0.2 + i * 0.2), w * 0.05, "#facc15");
+      break;
+    case "orchestra":
+      // Black concert jacket over a white shirt, and a black bow tie.
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.2, y);
+      ctx.lineTo(cx + w * 0.2, y);
+      ctx.lineTo(cx, y + h * 0.6);
+      ctx.fill();
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.moveTo(cx, y + h * 0.06);
+      ctx.lineTo(cx - w * 0.14, y);
+      ctx.lineTo(cx - w * 0.14, y + h * 0.12);
+      ctx.closePath();
+      ctx.moveTo(cx, y + h * 0.06);
+      ctx.lineTo(cx + w * 0.14, y);
+      ctx.lineTo(cx + w * 0.14, y + h * 0.12);
+      ctx.closePath();
+      ctx.fill();
+      break;
     case "principal":
       // Dark suit jacket over a team-colored shirt, red tie.
       ctx.fillStyle = "#1f2937";
@@ -446,6 +510,8 @@ function drawBackOfHead(ctx: CanvasRenderingContext2D, cx: number, cy: number, r
     jock: "#1c1917",
     artkid: "#7c4a1e",
     nerd: "#78350f",
+    orchestra: "#3f2a1d",
+    bandkid: "#1c1917",
   };
   if (a === "clown") {
     const wig = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7"];
@@ -487,6 +553,23 @@ function drawOutfitBack(ctx: CanvasRenderingContext2D, a: ArchetypeId, x: number
     case "blueberry":
     case "orangepeel":
       drawJersey(ctx, a, x, y, w, h, true);
+      break;
+    case "orchestra":
+      ctx.fillStyle = "#111827"; // the back of the concert jacket
+      ctx.fillRect(x, y, w, h);
+      break;
+    case "bandkid":
+      // Cross-belts meet in the middle of the back too, and a gold-trimmed collar.
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = Math.max(1, w * 0.1);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w, y + h * 0.75);
+      ctx.moveTo(x + w, y);
+      ctx.lineTo(x, y + h * 0.75);
+      ctx.stroke();
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(x, y, w, h * 0.06);
       break;
     case "teacher":
       ctx.fillStyle = "#3f6212"; // the cardigan covers the whole back

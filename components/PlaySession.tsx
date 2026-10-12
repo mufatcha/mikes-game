@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ResultsMessage, RoomState } from "@/shared/protocol";
-import type { ArchetypeId, Loadout } from "@/shared/archetypes";
+import { classLimit, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { GameConnection } from "@/game/connection";
 import {
   GAME_TITLE,
@@ -55,11 +55,15 @@ function Session({ code, name }: { code: string; name: string }) {
   // The server has the final say on our class (one of each per team, except in boss mode).
   const meEntry = room?.roster.find((r) => r.id === myId);
   const loadout = meEntry?.loadout ?? savedLoadout;
-  const taken = new Map<ArchetypeId, string>(
-    (room?.roster ?? [])
-      .filter((r) => room?.mode !== "boss" && meEntry && r.team === meEntry.team && r.id !== myId)
-      .map((r) => [r.loadout.archetype, r.name]),
+  // Classes our team is full up on (one each, but two Orchestra Kids), mapped to who has them.
+  const teammates = (room?.roster ?? []).filter(
+    (r) => room?.mode !== "boss" && meEntry && r.team === meEntry.team && r.id !== myId,
   );
+  const taken = new Map<ArchetypeId, string>();
+  for (const a of new Set(teammates.map((r) => r.loadout.archetype))) {
+    const who = teammates.filter((r) => r.loadout.archetype === a);
+    if (who.length >= classLimit(a)) taken.set(a, who.map((r) => r.name).join(" & "));
+  }
 
   // Tell the server our class levels whenever our saved XP changes (e.g. after a match).
   const classXp = useClassXp();

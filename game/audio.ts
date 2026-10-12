@@ -40,6 +40,24 @@ const SHOT_SOUNDS: Record<WeaponId, ShotSound> = {
   peel: { freq: 700, q: 1, duration: 0.15, gain: 0.5, thump: 110 },
   bigorange: { freq: 330, q: 0.5, duration: 0.3, gain: 0.75, thump: 55 },
   segment: { freq: 800, q: 0.7, duration: 0.1, gain: 0.45, thump: 100 },
+  // Band and orchestra: pitched roughly like the instrument.
+  tuba: { freq: 180, q: 4, duration: 0.3, gain: 0.7, thump: 55 },
+  trombone: { freq: 320, q: 5, duration: 0.12, gain: 0.45, thump: 120 },
+  drumsticks: { freq: 2600, q: 2, duration: 0.04, gain: 0.35, thump: 280 },
+  cymbal: { freq: 6000, q: 0.5, duration: 0.45, gain: 0.55, thump: 90 },
+  trumpet: { freq: 880, q: 6, duration: 0.1, gain: 0.45, thump: 200 },
+  fanfare: { freq: 660, q: 4, duration: 0.25, gain: 0.6, thump: 120 },
+  reed: { freq: 1200, q: 6, duration: 0.08, gain: 0.4, thump: 220 },
+  piccolo: { freq: 3000, q: 8, duration: 0.04, gain: 0.3, thump: 350 },
+  violin: { freq: 1400, q: 7, duration: 0.06, gain: 0.32, thump: 260 },
+  pizzicato: { freq: 700, q: 6, duration: 0.12, gain: 0.45, thump: 150 },
+  oboe: { freq: 1000, q: 7, duration: 0.09, gain: 0.4, thump: 220 },
+  bassoon: { freq: 220, q: 5, duration: 0.25, gain: 0.6, thump: 70 },
+  horn: { freq: 440, q: 5, duration: 0.18, gain: 0.55, thump: 100 },
+  hornblast: { freq: 350, q: 4, duration: 0.3, gain: 0.65, thump: 80 },
+  timpani: { freq: 120, q: 2, duration: 0.45, gain: 0.85, thump: 45 },
+  triangle: { freq: 4200, q: 10, duration: 0.25, gain: 0.3, thump: 400 },
+  note: { freq: 990, q: 8, duration: 0.3, gain: 0.55, thump: 130 },
 };
 
 /** Tiny synthesized sound effects, so the game needs no audio files. */

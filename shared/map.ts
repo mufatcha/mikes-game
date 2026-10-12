@@ -264,6 +264,24 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 820, y: 1720 },
     { x: 438, y: 1720 },
   ],
+  // The pep band warms up in the gym.
+  bandkid: [
+    { x: 200, y: 150 },
+    { x: 650, y: 150 },
+    { x: 300, y: 330 },
+    { x: 580, y: 330 },
+    { x: 250, y: 500 },
+    { x: 620, y: 500 },
+  ],
+  // The orchestra rehearses in the cafeteria.
+  orchestra: [
+    { x: 438, y: 1130 },
+    { x: 438, y: 1300 },
+    { x: 438, y: 1450 },
+    { x: 438, y: 1650 },
+    { x: 60, y: 1460 },
+    { x: 820, y: 1460 },
+  ],
   clown: [
     { x: 1400, y: 1150 },
     { x: 1400, y: 1300 },

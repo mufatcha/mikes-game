@@ -39,6 +39,23 @@ const PREFERRED_RANGE: Record<WeaponId, number> = {
   peel: 150,
   bigorange: 450,
   segment: 300,
+  tuba: 380,
+  trombone: 300,
+  drumsticks: 360,
+  cymbal: 380,
+  trumpet: 500,
+  fanfare: 220,
+  reed: 650,
+  piccolo: 300,
+  violin: 400,
+  pizzicato: 230,
+  oboe: 600,
+  bassoon: 380,
+  horn: 480,
+  hornblast: 200,
+  timpani: 400,
+  triangle: 420,
+  note: 450,
 };
 
 function wrapAngle(a: number) {

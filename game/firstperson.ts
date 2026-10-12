@@ -257,6 +257,12 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
   const step = Math.max(2, Math.ceil(w / 640));
   const cols = Math.ceil(w / step);
   const depth = new Float32Array(cols).fill(MAX_VIEW);
+  /**
+   * Low furniture in each column: how far away it is and the screen line it
+   * reaches up to. Anything farther away is hidden below that line, so a
+   * desk hides the legs of whoever is standing behind it.
+   */
+  const cover: { d: number; y: number }[][] = Array.from({ length: cols }, () => []);
   ctx.imageSmoothingEnabled = false;
   for (let c = 0; c < cols; c++) {
     const sx = c * step + step / 2;
@@ -284,9 +290,11 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
       }
       // Furniture below eye level: you can see its top, from the near edge to the far edge.
       const topColor = TOP_COLORS[hit.surface];
+      const far = Math.max(d, hit.exit * fix);
+      const farY = horizon + ((EYE - height) * proj) / far;
+      // Its outline reaches up to the far edge of its top (if you're looking down on it).
+      if (hit !== tall) cover[c].push({ d, y: height < EYE ? Math.min(top, farY) : top });
       if (topColor && height < EYE) {
-        const far = Math.max(d, hit.exit * fix);
-        const farY = horizon + ((EYE - height) * proj) / far;
         if (top - farY > 0.5) {
           const fog = fogAmount((d + far) / 2);
           const [r, g, b] = topColor.map((v, i) => Math.round(v * (1 - fog) + FOG[i] * fog));
@@ -413,14 +421,17 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
       ctx.globalAlpha = 0.85;
       sp.draw();
     } else {
-      // Clip to the columns where this sprite is in front of the wall.
+      // Clip to the columns where this sprite is in front of the wall, and
+      // above any desk or table between you and it.
       ctx.beginPath();
       let any = false;
       for (let c = c0; c <= c1; c++) {
-        if (depth[c] > perp) {
-          ctx.rect(c * step, 0, step, h);
-          any = true;
-        }
+        if (depth[c] <= perp) continue;
+        let bottom = h;
+        for (const cv of cover[c]) if (cv.d < perp) bottom = Math.min(bottom, cv.y);
+        if (bottom <= 0) continue;
+        ctx.rect(c * step, 0, step, bottom);
+        any = true;
       }
       if (any) {
         ctx.clip();

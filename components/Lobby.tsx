@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { GAME_MODES, VIEWS, isPrincipalSeat, teamNamesFor, teamSizeFor, type GameMode, type Team } from "@/shared/constants";
 import type { RoomState } from "@/shared/protocol";
-import { ARCHETYPES, hasAbilities, seatLoadout, type ArchetypeId, type Loadout } from "@/shared/archetypes";
+import { ARCHETYPES, hasAbilities, seatLoadout, sectionOf, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { keyLabel, useKeybinds } from "@/lib/settings";
 import LoadoutPicker from "./LoadoutPicker";
 import PrincipalCard from "./PrincipalCard";
@@ -193,6 +193,7 @@ export default function Lobby({
                         <p className="text-xs text-zinc-400">
                           {ARCHETYPES[seatLoadout(mode, team)?.archetype ?? m.loadout.archetype].emoji}{" "}
                           {ARCHETYPES[seatLoadout(mode, team)?.archetype ?? m.loadout.archetype].name}
+                          {!isPrincipalSeat(mode, team) && m.loadout.section && ` · ${sectionOf(m.loadout.archetype, m.loadout.section)?.name}`}
                           {!isPrincipalSeat(mode, team) && !hasAbilities(m.loadout.archetype) && <span className="ml-1.5 font-semibold text-amber-300">Lv {m.level}</span>}
                         </p>
                       </div>

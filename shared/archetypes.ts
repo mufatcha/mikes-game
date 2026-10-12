@@ -32,7 +32,26 @@ export type WeaponId =
   | "squirt"
   | "peel"
   | "bigorange"
-  | "segment";
+  | "segment"
+  // Band Kid sections.
+  | "tuba"
+  | "trombone"
+  | "drumsticks"
+  | "cymbal"
+  | "trumpet"
+  | "fanfare"
+  | "reed"
+  | "piccolo"
+  // Orchestra Kid sections.
+  | "violin"
+  | "pizzicato"
+  | "oboe"
+  | "bassoon"
+  | "horn"
+  | "hornblast"
+  | "timpani"
+  | "triangle"
+  | "note";
 
 export type ArchetypeId =
   | "teacher"
@@ -41,6 +60,8 @@ export type ArchetypeId =
   | "artkid"
   | "nerd"
   | "clown"
+  | "bandkid"
+  | "orchestra"
   | "principal"
   | "blueberry"
   | "orangepeel";
@@ -244,6 +265,100 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1000, spread: 0, pellets: 1, range: 380, auto: false,
     radius: 5, color: "#fdba74", style: "blob",
   },
+  // Band Kid: Low Brass.
+  tuba: {
+    id: "tuba", name: "Tuba Blast", damage: 34, fireRate: 1.8, magSize: 6, reloadTime: 2,
+    projectileSpeed: 950, spread: 0.03, pellets: 1, range: 750, auto: false,
+    radius: 9, color: "#ca8a04", style: "blob",
+  },
+  trombone: {
+    id: "trombone", name: "Trombone Slide", damage: 15, fireRate: 6, magSize: 18, reloadTime: 1.6,
+    projectileSpeed: 1300, spread: 0.06, pellets: 1, range: 500, auto: true,
+    radius: 4, color: "#facc15", style: "streak",
+  },
+  // Band Kid: Percussion.
+  drumsticks: {
+    id: "drumsticks", name: "Drumsticks", damage: 10, fireRate: 11, magSize: 30, reloadTime: 1.5,
+    projectileSpeed: 1500, spread: 0.07, pellets: 1, range: 650, auto: true,
+    radius: 2, color: "#d6a76b", style: "streak",
+  },
+  cymbal: {
+    id: "cymbal", name: "Cymbal Crash", damage: 38, fireRate: 1.1, magSize: 3, reloadTime: 2,
+    projectileSpeed: 1100, spread: 0.02, pellets: 1, range: 800, auto: false,
+    radius: 10, color: "#fbbf24", style: "ball", bounces: 1, stun: 0.5,
+  },
+  // Band Kid: Brass.
+  trumpet: {
+    id: "trumpet", name: "Trumpet Blast", damage: 19, fireRate: 5, magSize: 15, reloadTime: 1.4,
+    projectileSpeed: 1700, spread: 0.025, pellets: 1, range: 900, auto: false,
+    radius: 3, color: "#fde047", style: "streak",
+  },
+  fanfare: {
+    id: "fanfare", name: "Fanfare", damage: 12, fireRate: 1.4, magSize: 5, reloadTime: 2,
+    projectileSpeed: 1300, spread: 0.18, pellets: 4, range: 450, auto: false,
+    radius: 4, color: "#fef08a", style: "blob",
+  },
+  // Band Kid: Woodwind.
+  reed: {
+    id: "reed", name: "Reed Darts", damage: 26, fireRate: 3, magSize: 10, reloadTime: 1.6,
+    projectileSpeed: 1900, spread: 0.012, pellets: 1, range: 1200, auto: false,
+    radius: 2, color: "#a3e635", style: "streak",
+  },
+  piccolo: {
+    id: "piccolo", name: "Piccolo Trill", damage: 9, fireRate: 12, magSize: 36, reloadTime: 1.6,
+    projectileSpeed: 1600, spread: 0.08, pellets: 1, range: 550, auto: true,
+    radius: 2, color: "#e0f2fe", style: "streak",
+  },
+  // Orchestra Kid: Strings.
+  violin: {
+    id: "violin", name: "Violin Bow", damage: 12, fireRate: 9, magSize: 30, reloadTime: 1.6,
+    projectileSpeed: 1500, spread: 0.05, pellets: 1, range: 750, auto: true,
+    radius: 2, color: "#b45309", style: "streak",
+  },
+  pizzicato: {
+    id: "pizzicato", name: "Pizzicato", damage: 13, fireRate: 1.5, magSize: 6, reloadTime: 1.8,
+    projectileSpeed: 1350, spread: 0.16, pellets: 4, range: 450, auto: false,
+    radius: 3, color: "#fcd34d", style: "ball",
+  },
+  // Orchestra Kid: Woodwind.
+  oboe: {
+    id: "oboe", name: "Oboe Dart", damage: 23, fireRate: 3.4, magSize: 12, reloadTime: 1.5,
+    projectileSpeed: 1800, spread: 0.015, pellets: 1, range: 1100, auto: false,
+    radius: 2, color: "#86efac", style: "streak",
+  },
+  bassoon: {
+    id: "bassoon", name: "Bassoon Honk", damage: 40, fireRate: 1.4, magSize: 4, reloadTime: 2.1,
+    projectileSpeed: 1000, spread: 0.03, pellets: 1, range: 750, auto: false,
+    radius: 8, color: "#7c2d12", style: "blob",
+  },
+  // Orchestra Kid: Brass.
+  horn: {
+    id: "horn", name: "French Horn", damage: 27, fireRate: 2.5, magSize: 8, reloadTime: 1.8,
+    projectileSpeed: 1250, spread: 0.03, pellets: 1, range: 900, auto: false,
+    radius: 6, color: "#f59e0b", style: "ball",
+  },
+  hornblast: {
+    id: "hornblast", name: "Horn Blast", damage: 13, fireRate: 1.2, magSize: 4, reloadTime: 2,
+    projectileSpeed: 1200, spread: 0.2, pellets: 5, range: 400, auto: false,
+    radius: 4, color: "#fde68a", style: "blob",
+  },
+  // Orchestra Kid: Percussion.
+  timpani: {
+    id: "timpani", name: "Timpani Boom", damage: 50, fireRate: 1.25, magSize: 3, reloadTime: 2.2,
+    projectileSpeed: 950, spread: 0.02, pellets: 1, range: 1000, auto: false,
+    radius: 12, color: "#78350f", style: "ball", bounces: 1,
+  },
+  triangle: {
+    id: "triangle", name: "Triangle Ding", damage: 14, fireRate: 7, magSize: 20, reloadTime: 1.4,
+    projectileSpeed: 1600, spread: 0.04, pellets: 1, range: 750, auto: true,
+    radius: 3, color: "#e5e7eb", style: "streak",
+  },
+  // Orchestra Kid super.
+  note: {
+    id: "note", name: "Crescendo", damage: 32, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1300, spread: 0, pellets: 1, range: 900, auto: false,
+    radius: 7, color: "#c084fc", style: "ball",
+  },
   // Thrown by the Principal's abilities, not held.
   quiz: {
     id: "quiz", name: "Pop Quiz", damage: 18, fireRate: 1, magSize: 1, reloadTime: 1,
@@ -294,6 +409,19 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     defense: 0, speed: 1.0, primary: "spitball", secondary: "peashooter",
     ratings: { attack: 5, defense: 1, speed: 3, range: 5 },
   },
+  // Their weapons come from the section you pick (see SECTIONS); these are the defaults.
+  bandkid: {
+    id: "bandkid", name: "Band Kid", emoji: "🎺",
+    tagline: "Marches to the beat of their own drum. Pick your section.",
+    defense: 0.15, speed: 1.05, primary: "tuba", secondary: "trombone",
+    ratings: { attack: 3, defense: 2, speed: 4, range: 3 },
+  },
+  orchestra: {
+    id: "orchestra", name: "Orchestra Kid", emoji: "🎻",
+    tagline: "First chair, first strike. Two can play on a team.",
+    defense: 0.1, speed: 1.0, primary: "violin", secondary: "pizzicato",
+    ratings: { attack: 3, defense: 2, speed: 3, range: 4 },
+  },
   // Boss of the 7v1 mode; never in the class picker.
   principal: {
     id: "principal", name: "Principal", emoji: "👔",
@@ -336,21 +464,69 @@ export function seatLoadout(mode: GameMode, team: Team): Loadout | null {
 /** The classes students can pick (not the Principal or the mascots). */
 export const ARCHETYPE_IDS: ArchetypeId[] = (Object.keys(ARCHETYPES) as ArchetypeId[]).filter((a) => !hasAbilities(a));
 
+export type SectionId =
+  | "lowbrass"
+  | "percussion"
+  | "brass"
+  | "woodwind"
+  | "strings"
+  | "orchwinds"
+  | "orchbrass"
+  | "orchpercussion";
+
+/** A section of the band or orchestra: which instrument you play, and so what you throw. */
+export interface SectionDef {
+  id: SectionId;
+  name: string;
+  emoji: string;
+  primary: WeaponId;
+  secondary: WeaponId;
+}
+
+/** Classes where you also pick a section. */
+export const SECTIONS: Partial<Record<ArchetypeId, SectionDef[]>> = {
+  bandkid: [
+    { id: "lowbrass", name: "Low Brass", emoji: "📯", primary: "tuba", secondary: "trombone" },
+    { id: "percussion", name: "Percussion", emoji: "🥁", primary: "drumsticks", secondary: "cymbal" },
+    { id: "brass", name: "Brass", emoji: "🎺", primary: "trumpet", secondary: "fanfare" },
+    { id: "woodwind", name: "Woodwind", emoji: "🎷", primary: "reed", secondary: "piccolo" },
+  ],
+  orchestra: [
+    { id: "strings", name: "Strings", emoji: "🎻", primary: "violin", secondary: "pizzicato" },
+    { id: "orchwinds", name: "Woodwind", emoji: "🪈", primary: "oboe", secondary: "bassoon" },
+    { id: "orchbrass", name: "Brass", emoji: "📯", primary: "horn", secondary: "hornblast" },
+    { id: "orchpercussion", name: "Percussion", emoji: "🥁", primary: "timpani", secondary: "triangle" },
+  ],
+};
+
+export function sectionOf(archetype: ArchetypeId, section?: SectionId): SectionDef | undefined {
+  const list = SECTIONS[archetype];
+  return list?.find((s) => s.id === section) ?? list?.[0];
+}
+
+/** How many of a class one team can have: just one, except the Orchestra Kid. */
+export function classLimit(archetype: ArchetypeId) {
+  return archetype === "orchestra" ? 2 : 1;
+}
+
 export interface Loadout {
   archetype: ArchetypeId;
+  /** Band and Orchestra Kids: which section they play in. */
+  section?: SectionId;
 }
 
 export const DEFAULT_LOADOUT: Loadout = { archetype: "teacher" };
 
 export function sanitizeLoadout(value: unknown): Loadout {
   const v = (value ?? {}) as Partial<Loadout>;
-  return {
-    archetype: ARCHETYPE_IDS.includes(v.archetype as ArchetypeId) ? v.archetype! : DEFAULT_LOADOUT.archetype,
-  };
+  const archetype = ARCHETYPE_IDS.includes(v.archetype as ArchetypeId) ? v.archetype! : DEFAULT_LOADOUT.archetype;
+  const section = sectionOf(archetype, v.section)?.id;
+  return section ? { archetype, section } : { archetype };
 }
 
-export function weaponsOf(archetype: ArchetypeId): [WeaponId, WeaponId] {
-  const a = ARCHETYPES[archetype];
+/** A class's two weapons; for the band and orchestra, the section's instruments. */
+export function weaponsOf(archetype: ArchetypeId, section?: SectionId): [WeaponId, WeaponId] {
+  const a = sectionOf(archetype, section) ?? ARCHETYPES[archetype];
   return [a.primary, a.secondary];
 }
 
@@ -500,7 +676,7 @@ export function detentionSeconds(score: number) {
 
 // ---------------------------------------------------------------- class supers
 
-export type SuperId = "extracredit" | "meatball" | "dash" | "paintbomb" | "overclock" | "pies";
+export type SuperId = "extracredit" | "meatball" | "dash" | "paintbomb" | "overclock" | "pies" | "fightsong" | "crescendo";
 
 export interface SuperDef {
   id: SuperId;
@@ -535,6 +711,14 @@ export const SUPERS: Partial<Record<ArchetypeId, SuperDef>> = {
     id: "pies", name: "Pie Barrage", emoji: "🥧",
     description: "Throw five heavy cream pies in a fan.",
   },
+  bandkid: {
+    id: "fightsong", name: "Fight Song", emoji: "📣",
+    description: "Strike up the school song: you and every teammate nearby heal 25 and move 30% faster for 6 seconds.",
+  },
+  orchestra: {
+    id: "crescendo", name: "Crescendo", emoji: "🎼",
+    description: "Swell to a fortissimo: a wide fan of 9 big music notes.",
+  },
 };
 
 /** Damage you need to deal to fill your super from empty. */
@@ -550,6 +734,9 @@ export const PAINT_BOMB_RADIUS = 220;
 export const PAINT_BOMB_SLOW = 3;
 export const OVERCLOCK_TIME = 6;
 export const OVERCLOCK_SPEED = 1.35;
+export const FIGHT_SONG_RADIUS = 320;
+export const FIGHT_SONG_TIME = 6;
+export const FIGHT_SONG_HEAL = 25;
 
 /** Weapons that only come from supers and abilities; they don't charge your super. */
 export const SPECIAL_WEAPONS: WeaponId[] = [
@@ -566,4 +753,5 @@ export const SPECIAL_WEAPONS: WeaponId[] = [
   "peel",
   "bigorange",
   "segment",
+  "note",
 ];

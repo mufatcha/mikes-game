@@ -1,6 +1,6 @@
 import type { GameMode, Team } from "./constants";
 import type { PrankAction } from "./pranks";
-import type { AbilityId, ArchetypeId, Loadout, SuperId, WeaponId } from "./archetypes";
+import type { AbilityId, ArchetypeId, Loadout, SectionId, SuperId, WeaponId } from "./archetypes";
 import type { ClassLevels, ClassXp } from "./progress";
 
 export type Phase = "lobby" | "match" | "results";
@@ -73,6 +73,8 @@ export interface PlayerSnap {
   protected: boolean;
   weapon: WeaponId;
   archetype: ArchetypeId;
+  /** Band and Orchestra Kids: the section they play in (sets their weapons). */
+  section?: SectionId;
   slot: number;
   ammo: number;
   /** Reload progress from 0 to 1, or -1 when not reloading. */

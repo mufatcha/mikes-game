@@ -19,10 +19,10 @@ To test with friends on the same network, open the web app at your machine's LAN
 ## How it plays
 
 - **Create private match** gives you a 6-character invite code and link. Only people with the code can join.
-- Pick a team and a class in the lobby: Teacher, Lunch Lady, Jock, Art Kid, Nerd, or Class Clown. Each has its own stats and throwables. The host starts the match, and bots fill the open slots up to 4v4.
+- Pick a team and a class in the lobby: Teacher, Lunch Lady, Jock, Art Kid, Nerd, Class Clown, Band Kid or Orchestra Kid. Each has its own stats and throwables. The Band Kid also picks a section (Low Brass: Tuba Blast and Trombone Slide; Percussion: Drumsticks and Cymbal Crash; Brass: Trumpet Blast and Fanfare; Woodwind: Reed Darts and Piccolo Trill), and so does the Orchestra Kid (Strings: Violin Bow and Pizzicato; Woodwind: Oboe Dart and Bassoon Honk; Brass: French Horn and Horn Blast; Percussion: Timpani Boom and Triangle Ding). The host starts the match, and bots fill the open slots up to 4v4.
 - Friends can join mid-match and take over a bot. If someone leaves, a bot takes their place.
-- The map is one big school with street-style hallways (asphalt with road markings) lined with lockers. Every room is shared by both teams, and each class spawns in its own room: Teacher in the Classroom, Lunch Lady in the Cafeteria, Jock in the Gym, Art Kid in the Art Room, Nerd in the Library, Class Clown in Detention.
-- Each team can have only one of each class (e.g. one Lunch Lady per team). Taken classes are greyed out in the picker.
+- The map is one big school with street-style hallways (asphalt with road markings) lined with lockers. Every room is shared by both teams, and each class spawns in its own room: Teacher in the Classroom, Lunch Lady in the Cafeteria, Jock in the Gym, Art Kid in the Art Room, Nerd in the Library, Class Clown in Detention, Band Kid in the Gym, Orchestra Kid in the Cafeteria.
+- Each team can have only one of each class (e.g. one Lunch Lady per team), except the Orchestra Kid: two per team. Taken classes are greyed out in the picker.
 - The Nurse's Office in the middle of the main hall heals you and protects you from damage, but you can't throw from inside it. Stay longer than 30 seconds, or go in 3 times within 20 seconds (ducking in and out to heal), and you pass out, then respawn with half health.
 - First team to 50 kills wins, or whoever leads when the 8-minute timer runs out.
 
@@ -36,6 +36,8 @@ To test with friends on the same network, open the web app at your machine's LAN
 **Fog of War (4v4).** Same rules as Team Battle, but you can only see a small circle around you: no long view cone and no seeing a whole room. Walls still block sight.
 
 **3D first person (any mode).** Under **View** in the lobby, the host can switch any mode (Team Battle, Fog of War, the Principal 7v1 and the Duel) to 3D. Everyone is a 3D figure in their class outfit, walking, holding their throw, and you see your own arm and ball. Click the game to grab the mouse, then move the mouse to look in any direction (all the way around, and up and down); W/A/S/D walk and strafe relative to where you're facing, and left click throws. Esc gives the mouse back and opens the menu. The minimap shows which way you're facing. In Fog of War the school goes dark just past the circle you can see; the Principal's Intercom shows students through walls with a red outline, and Detention picks the student closest to your crosshair. On phones, the aim stick turns you side to side and tilts your view up and down.
+
+In 3D, desks, tables and other low furniture hide the part of anyone standing behind them.
 
 **3D throw physics.** In 3D, everything you throw flies in 3D: it goes where you look (aim up to lob, down to bounce it off the floor), gravity pulls it into an arc, and its shadow on the floor shows where it'll come down. Balls bounce off the floor, the ceiling and desk tops and roll to a stop; splats and darts end where they land. Throws sail over desks, tables and bleachers if they're high enough (but not lockers, shelves or walls), and a throw that passes over someone's head misses. Bots lob far enough to reach you.
 
@@ -57,7 +59,7 @@ To test with friends on the same network, open the web app at your machine's LAN
 
 Controls: WASD to move, mouse to aim, left click to shoot, R to reload, 1/2/Q/mouse wheel to switch weapons, Space for your super, Tab for the scoreboard, B to change class (it applies on respawn), Esc for the menu. To change the keys, click the gear icon on the home screen or in the Esc menu.
 
-**Supers.** Every class has a super that charges as you deal damage (and slowly on its own). When the meter above your weapon panel says READY, press Space (⭐ on phones): Teacher heals nearby teammates (Extra Credit), Lunch Lady throws a fan of meatballs (Mystery Meat), Jock charges through enemies (Touchdown Dash), Art Kid splashes and slows everyone nearby (Paint Bomb), Nerd fires and moves faster for 6 seconds (Overclock), and the Class Clown throws five cream pies (Pie Barrage).
+**Supers.** Every class has a super that charges as you deal damage (and slowly on its own). When the meter above your weapon panel says READY, press Space (⭐ on phones): Teacher heals nearby teammates (Extra Credit), Lunch Lady throws a fan of meatballs (Mystery Meat), Jock charges through enemies (Touchdown Dash), Art Kid splashes and slows everyone nearby (Paint Bomb), Nerd fires and moves faster for 6 seconds (Overclock), the Class Clown throws five cream pies (Pie Barrage), the Band Kid heals nearby teammates 25 and speeds them up 30% for 6 seconds (Fight Song), and the Orchestra Kid throws a wide fan of 9 music notes (Crescendo).
 
 **Class XP and levels.** Playing a class earns XP for that class: damage dealt, knockouts, finishing a match and winning it. Levels go from 1 to 10, and each level adds 3% damage and 3% max health to that class. XP is saved in your browser, the class picker shows your level and progress, and the results screen shows what you earned.
 

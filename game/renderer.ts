@@ -1472,7 +1472,7 @@ export class Renderer {
     ctx.font = "800 26px ui-sans-serif, system-ui, sans-serif";
     const aw = ctx.measureText(`${me.ammo}`).width;
     this.text(`/ ${weapon.magSize}`, cw - 258 + aw, ch - 33, 14, "#9ca3af");
-    const slots = weaponsOf(me.archetype);
+    const slots = weaponsOf(me.archetype, me.section);
     slots.forEach((id, i) => {
       const active = me.slot === i;
       this.text(
