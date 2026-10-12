@@ -1,6 +1,20 @@
 import type { ArchetypeId } from "./archetypes";
 
-export type WallKind = "wall" | "desk" | "shelf" | "table" | "bleacher" | "locker" | "easel" | "clinic" | "tardis";
+export type WallKind =
+  | "wall"
+  | "desk"
+  | "shelf"
+  | "table"
+  | "bleacher"
+  | "locker"
+  | "easel"
+  | "clinic"
+  | "tardis"
+  // Inside the TARDIS.
+  | "tardiswall"
+  | "tardisdoor"
+  | "console"
+  | "rotor";
 
 /** How tall each kind of wall or furniture is, in world units. In 3D, throws can fly over the low ones. */
 export const WALL_HEIGHT: Record<WallKind, number> = {
@@ -13,6 +27,10 @@ export const WALL_HEIGHT: Record<WallKind, number> = {
   easel: 46,
   clinic: 80,
   tardis: 72,
+  tardiswall: 80,
+  tardisdoor: 80,
+  console: 30,
+  rotor: 80,
 };
 
 export interface Rect {
@@ -152,10 +170,51 @@ const NURSE_DOOR: [number, number] = [NURSE.y + NURSE.h / 2 - 35, NURSE.y + NURS
  */
 export const TARDIS: Rect = { x: 1634, y: 2, w: 38, h: 38 };
 
-/** Walking into the TARDIS doors (in front of its south face) takes you somewhere else. */
+/** Walking into the TARDIS doors (in front of its south face) takes you inside. */
 export function atTardisDoor(x: number, y: number) {
   return x > TARDIS.x + 6 && x < TARDIS.x + TARDIS.w - 6 && y > TARDIS.y + TARDIS.h && y < TARDIS.y + TARDIS.h + 26;
 }
+
+/**
+ * Inside the TARDIS: a big console room, far bigger than the box. It sits
+ * off the east edge of the school, closed in by its own walls; the inside
+ * of the police box doors is in the middle of its south wall.
+ */
+export const TARDIS_INSIDE: Rect = { x: MAP_WIDTH + 400, y: 300, w: 560, h: 420 };
+const TI = TARDIS_INSIDE;
+const TI_WALL = 20;
+const TI_DOOR = 32;
+const TI_DOOR_X = TI.x + TI.w / 2;
+
+export function inTardis(x: number, y: number) {
+  return x > TI.x - TI_WALL && x < TI.x + TI.w + TI_WALL && y > TI.y - TI_WALL && y < TI.y + TI.h + TI_WALL;
+}
+
+/** Walking back into the doors from inside takes you out to the Library. */
+export function atTardisExit(x: number, y: number) {
+  return Math.abs(x - TI_DOOR_X) < TI_DOOR - 6 && y > TI.y + TI.h - 26;
+}
+
+/** Where you end up going in, and coming back out. */
+export const TARDIS_ARRIVE_INSIDE: Point = { x: TI_DOOR_X, y: TI.y + TI.h - 90 };
+export const TARDIS_ARRIVE_OUTSIDE: Point = { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h + 80 };
+
+/** For the minimap: anyone inside the TARDIS shows where the box is. */
+export function onMap(x: number, y: number): Point {
+  return inTardis(x, y) ? { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h / 2 } : { x, y };
+}
+
+const TARDIS_ROOM: Wall[] = [
+  box("tardiswall", TI.x - TI_WALL, TI.y - TI_WALL, TI.w + TI_WALL * 2, TI_WALL),
+  box("tardiswall", TI.x - TI_WALL, TI.y, TI_WALL, TI.h),
+  box("tardiswall", TI.x + TI.w, TI.y, TI_WALL, TI.h),
+  box("tardiswall", TI.x - TI_WALL, TI.y + TI.h, TI.w / 2 + TI_WALL - TI_DOOR, TI_WALL),
+  box("tardisdoor", TI_DOOR_X - TI_DOOR, TI.y + TI.h, TI_DOOR * 2, TI_WALL),
+  box("tardiswall", TI_DOOR_X + TI_DOOR, TI.y + TI.h, TI.w / 2 + TI_WALL - TI_DOOR, TI_WALL),
+  // The console in the middle, with the time rotor rising out of it.
+  box("console", TI_DOOR_X - 35, TI.y + TI.h / 2 - 35, 70, 70),
+  box("rotor", TI_DOOR_X - 8, TI.y + TI.h / 2 - 8, 16, 16),
+];
 
 export const WALLS: Wall[] = [
   // Gym
@@ -201,6 +260,7 @@ export const WALLS: Wall[] = [
 
   // Shh.
   box("tardis", TARDIS.x, TARDIS.y, TARDIS.w, TARDIS.h),
+  ...TARDIS_ROOM,
 
   // The Nurse's Office building.
   ...stripH("clinic", NURSE.x, NURSE.x + NURSE.w, NURSE.y, NURSE_WALL, []),

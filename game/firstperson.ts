@@ -59,6 +59,7 @@ const TOP_COLORS: Partial<Record<Surface, [number, number, number]>> = {
   table: [214, 218, 224],
   desk: [176, 136, 88],
   bleacher: [172, 148, 102],
+  console: [30, 64, 84],
 };
 
 /** The outside of the building: walls just past the map edge, with windows. */
@@ -72,7 +73,7 @@ const OUTER_SET = new Set(OUTER);
 const ALL_WALLS = [...WALLS, ...OUTER];
 const WALL_INDEX = new Map(ALL_WALLS.map((w, i) => [w, i]));
 /** These reach (nearly) the ceiling and hide everything behind them. */
-const FULL_HEIGHT = new Set(["wall", "locker", "clinic"]);
+const FULL_HEIGHT = new Set(["wall", "locker", "clinic", "tardiswall", "tardisdoor", "rotor"]);
 
 interface Hit {
   wall: Wall;

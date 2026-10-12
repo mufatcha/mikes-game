@@ -15,6 +15,8 @@ import {
   MAP_WIDTH,
   ROOMS,
   SAFE_ZONE,
+  TARDIS_INSIDE,
+  onMap,
   SCHOOL_TABLES,
   WALLS,
   inSafeZone,
@@ -64,6 +66,10 @@ const WALL_STYLES: Record<WallKind, { fill: string; top: string }> = {
   locker: { fill: "#2f5d9e", top: "#4f83c9" },
   clinic: { fill: "#e2e8f0", top: "#ef4444" },
   tardis: { fill: "#0f3b82", top: "#1e3a8a" },
+  tardiswall: { fill: "#b89c66", top: "#e8dcc0" },
+  tardisdoor: { fill: "#0f3b82", top: "#1e3a8a" },
+  console: { fill: "#334155", top: "#22d3ee" },
+  rotor: { fill: "#22d3ee", top: "#a5f3fc" },
 };
 /** World area that fits on screen; bigger screens zoom in rather than see more. */
 const VIEW_AREA = 1500 * 860;
@@ -718,16 +724,22 @@ export class Renderer {
           break;
         }
         case "tardis": {
-          // Vworp, vworp: heard where they vanished and where they reappear.
           const mine = e.who === myId;
           const near = Math.min(
             Math.hypot(e.x - this.myX, e.y - this.myY),
             Math.hypot(e.tx - this.myX, e.ty - this.myY),
           );
-          this.sfx.tardis(mine ? 0.9 : Math.max(0, 1 - near / HEARING_RANGE));
-          this.burst(e.x, e.y, "#60a5fa", 24, 160);
-          this.burst(e.tx, e.ty, "#60a5fa", 24, 160);
-          if (mine) this.showBanner("🟦 It's bigger on the inside!", "#93c5fd", 3000);
+          const vol = mine ? 0.9 : Math.max(0, 1 - near / HEARING_RANGE);
+          if (e.inside) {
+            // Stepping in: the hum of the console room.
+            this.sfx.tardis(vol * 0.6);
+            if (mine) this.showBanner("🟦 It's bigger on the inside!", "#93c5fd", 3000);
+          } else {
+            // The doors creak shut behind you.
+            this.sfx.blip(220, 0.18, 0.15 * vol, "triangle");
+            if (mine) this.showBanner("🚪 Back out in the Library", "#bfdbfe", 2000);
+          }
+          this.burst(e.tx, e.ty, "#60a5fa", 16, 120);
           break;
         }
         case "jailed": {
@@ -856,6 +868,33 @@ export class Renderer {
     ctx.strokeStyle = "#cbd5e1";
     ctx.lineWidth = 10;
     ctx.strokeRect(-5, -5, MAP_WIDTH + 10, MAP_HEIGHT + 10);
+
+    this.drawTardisFloor();
+  }
+
+  /** Inside the TARDIS (off the edge of the map): a metal grate floor with a ring of light round the console. */
+  private drawTardisFloor() {
+    const { ctx } = this;
+    const t = TARDIS_INSIDE;
+    ctx.fillStyle = "#363a44";
+    ctx.fillRect(t.x, t.y, t.w, t.h);
+    ctx.strokeStyle = "#1c1e24";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let x = t.x; x <= t.x + t.w; x += 16) {
+      ctx.moveTo(x, t.y);
+      ctx.lineTo(x, t.y + t.h);
+    }
+    for (let y = t.y; y <= t.y + t.h; y += 16) {
+      ctx.moveTo(t.x, y);
+      ctx.lineTo(t.x + t.w, y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(103,232,249,0.85)";
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(t.x + t.w / 2, t.y + t.h / 2, 74, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   private floorPattern(room: Room) {
@@ -1636,7 +1675,10 @@ export class Renderer {
     ctx.fillStyle = "#1f2430";
     ctx.fillRect(x0, y0, w, h);
     ctx.fillStyle = "#4a5468";
-    for (const wall of WALLS) ctx.fillRect(x0 + wall.x * k, y0 + wall.y * k, wall.w * k, wall.h * k);
+    // The TARDIS interior is off the edge of the map; it doesn't show here.
+    for (const wall of WALLS) {
+      if (wall.x < MAP_WIDTH) ctx.fillRect(x0 + wall.x * k, y0 + wall.y * k, wall.w * k, wall.h * k);
+    }
     ctx.fillStyle = "rgba(74,222,128,0.6)";
     ctx.fillRect(x0 + SAFE_ZONE.x * k, y0 + SAFE_ZONE.y * k, SAFE_ZONE.w * k, SAFE_ZONE.h * k);
     const myTeam = roster.get(this.conn.myId ?? "")?.team;
@@ -1645,27 +1687,31 @@ export class Renderer {
       if (!p.alive || !info || info.team !== myTeam || p.id === this.conn.myId) continue;
       ctx.fillStyle = TEAM_COLORS[info.team];
       ctx.beginPath();
-      ctx.arc(x0 + p.x * k, y0 + p.y * k, 3, 0, Math.PI * 2);
+      const at = onMap(p.x, p.y);
+      ctx.arc(x0 + at.x * k, y0 + at.y * k, 3, 0, Math.PI * 2);
       ctx.fill();
     }
     // Intercom: every student shows up in red.
     ctx.fillStyle = "#f87171";
     for (const p of revealed) {
       ctx.beginPath();
-      ctx.arc(x0 + p.x * k, y0 + p.y * k, 3, 0, Math.PI * 2);
+      const at = onMap(p.x, p.y);
+      ctx.arc(x0 + at.x * k, y0 + at.y * k, 3, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.fillStyle = "#fff";
     ctx.beginPath();
-    ctx.arc(x0 + this.myX * k, y0 + this.myY * k, 3.5, 0, Math.PI * 2);
+    // Inside the TARDIS you show up where the box is.
+    const me = onMap(this.myX, this.myY);
+    ctx.arc(x0 + me.x * k, y0 + me.y * k, 3.5, 0, Math.PI * 2);
     ctx.fill();
     if (this.view3d) {
       // First person: show which way you're facing.
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(x0 + this.myX * k, y0 + this.myY * k);
-      ctx.lineTo(x0 + this.myX * k + Math.cos(aim) * 12, y0 + this.myY * k + Math.sin(aim) * 12);
+      ctx.moveTo(x0 + me.x * k, y0 + me.y * k);
+      ctx.lineTo(x0 + me.x * k + Math.cos(aim) * 12, y0 + me.y * k + Math.sin(aim) * 12);
       ctx.stroke();
     }
   }

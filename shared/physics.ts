@@ -1,11 +1,11 @@
 import { PLAYER_RADIUS } from "./constants";
-import { MAP_HEIGHT, MAP_WIDTH, WALLS, type Rect } from "./map";
+import { MAP_HEIGHT, MAP_WIDTH, WALLS, inTardis, type Rect } from "./map";
 
 function clamp(v: number, lo: number, hi: number) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-/** Push a circle out of every wall it overlaps, and keep it inside the map. */
+/** Push a circle out of every wall it overlaps, and keep it inside the map (or inside the TARDIS, which has its own walls). */
 function resolve(pos: { x: number; y: number }, r: number, walls: Rect[]) {
   for (const w of walls) {
     const cx = clamp(pos.x, w.x, w.x + w.w);
@@ -31,6 +31,7 @@ function resolve(pos: { x: number; y: number }, r: number, walls: Rect[]) {
       else pos.y = w.y + w.h + r;
     }
   }
+  if (inTardis(pos.x, pos.y)) return;
   pos.x = clamp(pos.x, r, MAP_WIDTH - r);
   pos.y = clamp(pos.y, r, MAP_HEIGHT - r);
 }

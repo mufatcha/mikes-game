@@ -146,8 +146,8 @@ export type GameEvent =
   | { k: "jailed"; by: string; target: string; secs: number }
   /** Someone used their class super. */
   | { k: "super"; by: string; super: SuperId; x: number; y: number }
-  /** Someone stepped into the TARDIS at (x, y) and came out at (tx, ty). */
-  | { k: "tardis"; who: string; x: number; y: number; tx: number; ty: number };
+  /** Someone went through the TARDIS doors at (x, y) and came out at (tx, ty): inside, or back out. */
+  | { k: "tardis"; who: string; x: number; y: number; tx: number; ty: number; inside: boolean };
 
 export interface Snapshot {
   t: "snap";

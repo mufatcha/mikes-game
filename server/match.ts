@@ -22,7 +22,16 @@ import {
   type GameMode,
   type Team,
 } from "../shared/constants";
-import { SPAWNS, WALLS, WALL_HEIGHT, atTardisDoor, inSafeZone } from "../shared/map";
+import {
+  SPAWNS,
+  TARDIS_ARRIVE_INSIDE,
+  TARDIS_ARRIVE_OUTSIDE,
+  WALLS,
+  WALL_HEIGHT,
+  atTardisDoor,
+  atTardisExit,
+  inSafeZone,
+} from "../shared/map";
 import { firstWallHitWithNormal, hasLineOfSight, movePlayer, segmentCircle, segmentRectHit } from "../shared/physics";
 import type { BulletSnap, GameEvent, InputFrame, PlayerSnap, ZoneSnap } from "../shared/protocol";
 import {
@@ -911,22 +920,21 @@ export class Match {
    * and you pass out.
    */
   /**
-   * The TARDIS hidden in the Library: walk into its doors and it's bigger on
-   * the inside, letting you out at a random spot in some other room.
+   * The TARDIS hidden in the Library: walk into its doors and you step inside
+   * its console room (it's bigger on the inside); walk back into the doors
+   * from inside and you're out in the Library again. Bots stay out, since
+   * they can't find their way around in there.
    */
   private rideTardis(p: PlayerState) {
-    if (this.time < p.tardisReadyAt || this.isJailed(p) || !atTardisDoor(p.x, p.y)) return;
-    // Anywhere but the Library, where you got in.
-    const spots = Object.entries(SPAWNS)
-      .filter(([a]) => a !== "nerd")
-      .flatMap(([, list]) => list);
-    const to = spots[Math.floor(Math.random() * spots.length)];
-    this.events.push({ k: "tardis", who: p.id, x: r1(p.x), y: r1(p.y), tx: to.x, ty: to.y });
+    if (p.isBot || this.time < p.tardisReadyAt || this.isJailed(p)) return;
+    const goingIn = atTardisDoor(p.x, p.y);
+    if (!goingIn && !atTardisExit(p.x, p.y)) return;
+    const to = goingIn ? TARDIS_ARRIVE_INSIDE : TARDIS_ARRIVE_OUTSIDE;
+    this.events.push({ k: "tardis", who: p.id, x: r1(p.x), y: r1(p.y), tx: to.x, ty: to.y, inside: goingIn });
     p.x = to.x;
     p.y = to.y;
     p.inputs = [];
-    p.brain?.reset();
-    p.tardisReadyAt = this.time + 3;
+    p.tardisReadyAt = this.time + 1;
   }
 
   private updateSafeZone(p: PlayerState) {

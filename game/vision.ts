@@ -1,5 +1,5 @@
 import { segmentRect } from "@/shared/physics";
-import { HALLS, ROOMS, SAFE_ZONE, WALLS, type Rect, type Wall, type WallKind } from "@/shared/map";
+import { HALLS, ROOMS, SAFE_ZONE, TARDIS_INSIDE, WALLS, type Rect, type Wall, type WallKind } from "@/shared/map";
 
 /** You can always see this close around you, in every direction. */
 export const NEAR_SIGHT = 170;
@@ -21,6 +21,11 @@ const BLOCKS_SIGHT: Record<WallKind, boolean> = {
   easel: false,
   clinic: true,
   tardis: true,
+  tardiswall: true,
+  tardisdoor: true,
+  // You can see over the console, but not through the time rotor.
+  console: false,
+  rotor: true,
 };
 const OCCLUDERS: Wall[] = WALLS.filter((w) => BLOCKS_SIGHT[w.kind]);
 
@@ -40,6 +45,8 @@ export function litAreasAt(x: number, y: number, fog = false): Rect[] {
   if (fog) return [];
   // The Nurse's Office is its own little building inside the main hall.
   if (inside(SAFE_ZONE, x, y)) return [SAFE_ZONE];
+  // Inside the TARDIS you can see the whole console room.
+  if (inside(TARDIS_INSIDE, x, y)) return [TARDIS_INSIDE];
   const room = ROOMS.find((r) => inside(r, x, y));
   if (room) return [room];
   if (HALLS.some((h) => inside(h, x, y))) return HALLS;

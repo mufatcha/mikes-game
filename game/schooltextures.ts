@@ -1,4 +1,15 @@
-import { HALLS, MAP_HEIGHT, MAP_WIDTH, ROOMS, WALL_HEIGHT, inSafeZone, type FloorPattern, type WallKind } from "@/shared/map";
+import {
+  HALLS,
+  MAP_HEIGHT,
+  MAP_WIDTH,
+  ROOMS,
+  TARDIS_INSIDE,
+  WALL_HEIGHT,
+  inSafeZone,
+  inTardis,
+  type FloorPattern,
+  type WallKind,
+} from "@/shared/map";
 
 /**
  * Procedural textures for the first-person school: painted cinderblock walls
@@ -26,6 +37,10 @@ export const TEX_UNITS: Record<Surface, number> = {
   easel: 40,
   clinic: 56,
   tardis: 38,
+  tardiswall: 40,
+  tardisdoor: 64,
+  console: 35,
+  rotor: 16,
 };
 
 /** How tall each surface is, in world units (also the texture height). */
@@ -226,6 +241,140 @@ function tardisCanvas() {
   return c;
 }
 
+/** Inside the TARDIS: warm walls covered in glowing roundels, over a dark metal skirting. */
+function roundelCanvas() {
+  const c = canvas(TEX_UNITS.tardiswall, SURFACE_HEIGHT.tardiswall);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#b89c66";
+  g.fillRect(0, 0, w, h);
+  for (const cy of [16, 36, 56]) {
+    for (const cx of [10, 30]) {
+      const glow = g.createRadialGradient(cx * u, cy * u, 1, cx * u, cy * u, 8 * u);
+      glow.addColorStop(0, "#fffbeb");
+      glow.addColorStop(0.6, "#fcd34d");
+      glow.addColorStop(1, "#8a6d3b");
+      g.fillStyle = glow;
+      g.beginPath();
+      g.arc(cx * u, cy * u, 7.5 * u, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = "#6b5530";
+      g.lineWidth = 0.8 * u;
+      g.stroke();
+    }
+  }
+  // Metal skirting and a trim along the top.
+  g.fillStyle = "#3f3f46";
+  g.fillRect(0, h - 10 * u, w, 10 * u);
+  g.fillStyle = "#52525b";
+  for (let x = 0; x < w; x += 4 * u) g.fillRect(x, h - 10 * u, 1 * u, 10 * u);
+  g.fillStyle = "#8a6d3b";
+  g.fillRect(0, 0, w, 3 * u);
+  return c;
+}
+
+/** The inside of the police box doors, with light coming in through the windows. */
+function tardisDoorCanvas() {
+  const c = canvas(TEX_UNITS.tardisdoor, SURFACE_HEIGHT.tardisdoor);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  // The roundel wall around the doors.
+  g.fillStyle = "#b89c66";
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = "#3f3f46";
+  g.fillRect(0, h - 10 * u, w, 10 * u);
+  // The doors themselves, set into the wall.
+  const x0 = 10 * u;
+  const dw = w - 20 * u;
+  const top = 12 * u;
+  g.fillStyle = "#0a2a5e";
+  g.fillRect(x0 - 2 * u, top - 2 * u, dw + 4 * u, h - top - 10 * u + 2 * u);
+  g.fillStyle = "#0f3b82";
+  g.fillRect(x0, top, dw, h - top - 10 * u);
+  g.fillStyle = "#0a2a5e";
+  g.fillRect(x0 + dw / 2 - 0.6 * u, top, 1.2 * u, h - top - 10 * u);
+  for (const d of [0, 1]) {
+    const dx = x0 + d * (dw / 2);
+    // Windows, bright from the Library outside.
+    g.fillStyle = "#fef9c3";
+    for (let col = 0; col < 3; col++) {
+      for (let row = 0; row < 2; row++) {
+        g.fillRect(dx + (1.5 + col * 7) * u, top + (3 + row * 6.5) * u, 5.5 * u, 5.5 * u);
+      }
+    }
+    g.strokeStyle = "#0a2a5e";
+    g.lineWidth = 0.8 * u;
+    for (let p = 0; p < 3; p++) g.strokeRect(dx + 2 * u, top + (18 + p * 13) * u, dw / 2 - 4 * u, 11 * u);
+  }
+  // The latch.
+  g.fillStyle = "#cbd5e1";
+  g.fillRect(x0 + dw / 2 - 3 * u, top + 30 * u, 1.2 * u, 4 * u);
+  return c;
+}
+
+/** The control console: dark panels covered in buttons, dials, switches and a lever. */
+function consoleCanvas() {
+  const c = canvas(TEX_UNITS.console, SURFACE_HEIGHT.console);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  g.fillStyle = "#1f2937";
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = "#334155";
+  g.fillRect(1 * u, 1 * u, w - 2 * u, 12 * u);
+  const lights = ["#ef4444", "#22c55e", "#eab308", "#3b82f6", "#f8fafc", "#a855f7"];
+  for (let i = 0; i < 12; i++) {
+    g.fillStyle = lights[(i * 5) % lights.length];
+    g.beginPath();
+    g.arc((3 + (i % 6) * 5.5) * u, (4 + Math.floor(i / 6) * 5) * u, 1.3 * u, 0, Math.PI * 2);
+    g.fill();
+  }
+  // A dial, a row of switches and a big lever.
+  g.fillStyle = "#e5e7eb";
+  g.beginPath();
+  g.arc(9 * u, 20 * u, 4 * u, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = "#111827";
+  g.lineWidth = 0.6 * u;
+  g.beginPath();
+  g.moveTo(9 * u, 20 * u);
+  g.lineTo(11.5 * u, 17.5 * u);
+  g.stroke();
+  g.fillStyle = "#94a3b8";
+  for (let i = 0; i < 4; i++) g.fillRect((17 + i * 3) * u, 17 * u, 1.4 * u, 4 * u);
+  g.fillStyle = "#b91c1c";
+  g.fillRect(29 * u, 15 * u, 1.5 * u, 9 * u);
+  g.beginPath();
+  g.arc(29.75 * u, 15 * u, 1.8 * u, 0, Math.PI * 2);
+  g.fill();
+  // Trim along the base.
+  g.fillStyle = "#0f172a";
+  g.fillRect(0, h - 3 * u, w, 3 * u);
+  return c;
+}
+
+/** The time rotor: a glowing glass column with tubes inside. */
+function rotorCanvas() {
+  const c = canvas(TEX_UNITS.rotor, SURFACE_HEIGHT.rotor);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  const glass = g.createLinearGradient(0, 0, w, 0);
+  glass.addColorStop(0, "#0e7490");
+  glass.addColorStop(0.5, "#a5f3fc");
+  glass.addColorStop(1, "#0e7490");
+  g.fillStyle = glass;
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = "rgba(236,254,255,0.8)";
+  for (const x of [4, 8, 12]) g.fillRect((x - 0.5) * u, 0, 1 * u, h);
+  // Rings up the column.
+  g.fillStyle = "rgba(14,116,144,0.9)";
+  for (let y = 6; y < 80; y += 9) g.fillRect(0, y * u, w, 1.2 * u);
+  return c;
+}
+
 /** The outside wall: cinderblock with tall windows showing a bright sky. */
 function outerCanvas() {
   const c = canvas(TEX_UNITS.outer, SURFACE_HEIGHT.outer);
@@ -388,6 +537,10 @@ export function wallTexture(surface: Surface, variant: WallVariant = "plain"): H
     else if (surface === "shelf") c = shelfCanvas();
     else if (surface === "clinic") c = clinicCanvas();
     else if (surface === "tardis") c = tardisCanvas();
+    else if (surface === "tardiswall") c = roundelCanvas();
+    else if (surface === "tardisdoor") c = tardisDoorCanvas();
+    else if (surface === "console") c = consoleCanvas();
+    else if (surface === "rotor") c = rotorCanvas();
     else c = furnitureCanvas(surface);
     cache.set(key, c);
   }
@@ -451,7 +604,19 @@ const PAINT: RGB[] = [
 ];
 
 /** Floor color at a world position, by which room it's in. */
+/** How far a point is from the middle of the TARDIS console room. */
+function fromConsole(x: number, y: number) {
+  return Math.hypot(x - (TARDIS_INSIDE.x + TARDIS_INSIDE.w / 2), y - (TARDIS_INSIDE.y + TARDIS_INSIDE.h / 2));
+}
+
 export function floorTexel(x: number, y: number): number {
+  if (inTardis(x, y)) {
+    // A dark metal grate, with a ring of light around the console.
+    const d = fromConsole(x, y);
+    if (d > 70 && d < 78) return rgb(103, 232, 249);
+    if (mod(x, 16) < 1.2 || mod(y, 16) < 1.2) return rgb(28, 30, 36);
+    return (Math.floor(x / 4) + Math.floor(y / 4)) & 1 ? rgb(58, 62, 72) : rgb(50, 54, 63);
+  }
   if (inSafeZone(x, y)) {
     // The Nurse's Office: white tile with mint grout.
     if (mod(x, 20) < 0.8 || mod(y, 20) < 0.8) return rgb(167, 214, 190);
@@ -506,6 +671,13 @@ export function floorTexel(x: number, y: number): number {
 
 /** Ceiling color at a world position, packed; bit 24 is set for the glowing light panels. */
 export function ceilingTexel(x: number, y: number): number {
+  if (inTardis(x, y)) {
+    // Dark, with a glowing ring above the console and small lights dotted around.
+    const d = fromConsole(x, y);
+    if (d > 50 && d < 66) return rgb(165, 243, 252) | GLOW;
+    if (mod(x, 60) < 4 && mod(y, 60) < 4) return rgb(254, 243, 199) | GLOW;
+    return rgb(46, 40, 32);
+  }
   if (mod(x, 40) < 1.2 || mod(y, 40) < 1.2) return rgb(150, 150, 146);
   const ix = Math.floor(x / 40);
   const iy = Math.floor(y / 40);
