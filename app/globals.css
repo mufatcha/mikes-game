@@ -51,11 +51,11 @@ body {
   .title-bob, .title-jab-right, .title-jab-left, .title-pulse { animation: none; }
 }
 
-/* Title screen: blue on the left, orange on the right, a bright clash line down the middle. */
+/* Title screen: lemon yellow on the left, orange on the right, a bright clash line down the middle. */
 .title-bg {
   background:
     radial-gradient(ellipse at 50% 45%, rgba(254, 243, 199, 0.55), transparent 35%),
-    linear-gradient(100deg, #1e3a8a 0%, #2f55d4 30%, #4f7cff 47%, #fef3c7 49.6%, #fef3c7 50.4%, #ff9b42 53%, #f97316 70%, #9a3412 100%);
+    linear-gradient(100deg, #713f12 0%, #ca8a04 30%, #fde047 47%, #fef3c7 49.6%, #fef3c7 50.4%, #ff9b42 53%, #f97316 70%, #9a3412 100%);
 }
 /* Comic-book dots over the background. */
 .title-halftone {

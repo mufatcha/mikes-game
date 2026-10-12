@@ -82,7 +82,7 @@ export default function Home() {
       <div className="relative z-10 flex w-full max-w-md flex-col gap-6 rounded-2xl border border-white/15 bg-black/60 p-6 shadow-2xl backdrop-blur-md">
         <VsClash className="absolute -top-16 left-1/2 h-28 -translate-x-1/2" />
         <div className="pt-6 text-center">
-          <h1 className="bg-gradient-to-r from-blue-400 via-amber-200 to-orange-400 bg-clip-text text-5xl font-black uppercase italic tracking-tight text-transparent drop-shadow-[0_3px_0_rgba(0,0,0,0.6)] sm:text-6xl">
+          <h1 className="bg-gradient-to-r from-yellow-300 via-amber-200 to-orange-400 bg-clip-text text-5xl font-black uppercase italic tracking-tight text-transparent drop-shadow-[0_3px_0_rgba(0,0,0,0.6)] sm:text-6xl">
             {GAME_TITLE}
           </h1>
           <p className="mt-3 text-zinc-300">
