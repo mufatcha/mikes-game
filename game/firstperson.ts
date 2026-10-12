@@ -18,6 +18,7 @@ import {
   FIGURE_HEIGHT,
   drawAvatar,
   drawBall3D,
+  drawSpark3D,
   drawFloorZone3D,
   drawViewModel,
   type AvatarDraw,
@@ -212,6 +213,8 @@ export interface FirstPersonScene {
   shakeY: number;
   players: PlayerSnap[];
   bullets: BulletSnap[];
+  /** Hit and impact sparks, in world space. */
+  sparks: { x: number; y: number; color: string; size: number; alpha: number }[];
   /** Jam Puddles and Peel Traps on the floor. */
   zones: ZoneSnap[];
   roster: Map<string, RosterEntry>;
@@ -366,6 +369,19 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
         const color = wpn.color === "rainbow" ? PAINT_COLORS[b.id % PAINT_COLORS.length] : wpn.color;
         drawBall3D(ctx, cam, b.x, b.y, b.z ?? THROW_HEIGHT, Math.max(3, wpn.radius), color, fog);
       },
+    });
+  }
+  for (const sp of s.sparks) {
+    const dist = Math.hypot(sp.x - x, sp.y - y);
+    const fog = fogAmount(dist);
+    if (fog >= 0.99) continue;
+    sprites.push({
+      px: sp.x,
+      py: sp.y,
+      dist,
+      reach: sp.size,
+      // Sparks fly out about where things get hit: chest height.
+      draw: () => drawSpark3D(ctx, cam, sp.x, sp.y, THROW_HEIGHT, sp.size, sp.color, sp.alpha * (1 - fog)),
     });
   }
   sprites.sort((a, b) => b.dist - a.dist);

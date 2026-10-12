@@ -537,6 +537,26 @@ export function drawBall3D(
   flush(out);
 }
 
+/** A hit or impact spark at a point in the air, sized by distance. */
+export function drawSpark3D(
+  ctx: CanvasRenderingContext2D,
+  cam: Camera3D,
+  x: number,
+  y: number,
+  z: number,
+  size: number,
+  color: string,
+  alpha: number,
+) {
+  const p = project(cam, x, y, z);
+  if (p.depth < 4) return;
+  const s = Math.max(1, (size * 0.6 * cam.proj) / p.depth);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fillRect(p.sx - s / 2, p.sy - s / 2, s, s);
+  ctx.globalAlpha = 1;
+}
+
 /** Fill a circle lying flat on the floor. Skipped if any of it is behind the camera. */
 function floorPolygon(ctx: CanvasRenderingContext2D, cam: Camera3D, x: number, y: number, r: number, sides: number, fill: string, wobble = 0) {
   const pts: Screen[] = [];

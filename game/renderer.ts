@@ -233,6 +233,8 @@ export class Renderer {
     if (this.view3d) {
       // First person: the 3D view replaces the top-down world; the HUD below stays the same.
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      // Sparks are aged here but drawn by the 3D view, in 3D, hidden behind walls.
+      this.updateParticles(dt, false);
       const seen = drawFirstPerson({
         ctx,
         w: this.cw,
@@ -246,6 +248,7 @@ export class Renderer {
         players,
         bullets,
         zones,
+        sparks: this.particles.map((p) => ({ x: p.x, y: p.y, color: p.color, size: p.size, alpha: p.life / p.maxLife })),
         roster,
         myId,
         now,
@@ -258,7 +261,6 @@ export class Renderer {
       // The Intercom also marks every student on the minimap, as in the top-down view.
       const myTeam = roster.get(myId ?? "")?.team;
       revealed = me?.reveal ? players.filter((p) => p.alive && roster.get(p.id)?.team !== myTeam) : [];
-      this.updateParticles(0);
     } else {
       const s = this.scale * this.dpr;
       ctx.setTransform(
@@ -1335,7 +1337,8 @@ export class Renderer {
     }
   }
 
-  private updateParticles(dt: number) {
+  /** Move and age the sparks; draw them too, unless the 3D view is drawing them itself. */
+  private updateParticles(dt: number, draw = true) {
     const { ctx } = this;
     const alive: Particle[] = [];
     for (const p of this.particles) {
@@ -1345,9 +1348,11 @@ export class Renderer {
       p.y += p.vy * dt;
       p.vx *= 0.9;
       p.vy *= 0.9;
-      ctx.globalAlpha = p.life / p.maxLife;
-      ctx.fillStyle = p.color;
-      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      if (draw) {
+        ctx.globalAlpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      }
       alive.push(p);
     }
     ctx.globalAlpha = 1;
