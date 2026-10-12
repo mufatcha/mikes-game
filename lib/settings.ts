@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { DEFAULT_LOADOUT, sanitizeLoadout, type Loadout } from "@/shared/archetypes";
+import { ARCHETYPE_IDS, DEFAULT_LOADOUT, sanitizeLoadout, type Loadout } from "@/shared/archetypes";
+import { levelsFromXp, type ClassXp } from "@/shared/progress";
 
 export const GAME_TITLE = "School Wars";
 
@@ -82,13 +83,14 @@ export const KEY_ACTIONS = [
   { id: "swap", label: "Switch weapon" },
   { id: "scoreboard", label: "Scoreboard (hold)" },
   { id: "loadout", label: "Change class" },
-  { id: "ability1", label: "Principal: Detention" },
-  { id: "ability2", label: "Principal: Stern Lecture" },
-  { id: "ability3", label: "Principal: Pop Quiz" },
-  { id: "ability4", label: "Principal: Intercom" },
+  { id: "super", label: "Super" },
+  { id: "ability1", label: "Principal power 1 (Detention / Hall Pass)" },
+  { id: "ability2", label: "Principal power 2 (Lecture / Suspension)" },
+  { id: "ability3", label: "Principal power 3 (Pop Quiz / Staff Meeting)" },
+  { id: "ability4", label: "Principal power 4 (Intercom / Report Card)" },
 ] as const;
 
-/** Key actions for the Principal's abilities, in ABILITIES order. */
+/** Key actions for the Principal's four powers, in abilitiesFor(mode) order. */
 export const ABILITY_ACTIONS = ["ability1", "ability2", "ability3", "ability4"] as const;
 
 export type KeyAction = (typeof KEY_ACTIONS)[number]["id"];
@@ -106,6 +108,7 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   swap: "KeyQ",
   scoreboard: "Tab",
   loadout: "KeyB",
+  super: "Space",
   ability1: "KeyE",
   ability2: "KeyF",
   ability3: "KeyC",
@@ -161,6 +164,49 @@ export function resetKeybinds() {
   write(KEYBINDS_KEY, JSON.stringify(DEFAULT_KEYBINDS));
 }
 
+// ---------------------------------------------------------------- class XP
+
+const XP_KEY = "mg.xp";
+let cachedXpRaw: string | null | undefined;
+let cachedXp: ClassXp = {};
+
+function readXp(): ClassXp {
+  const raw = read(XP_KEY);
+  if (raw !== cachedXpRaw) {
+    cachedXpRaw = raw;
+    cachedXp = {};
+    try {
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      for (const id of ARCHETYPE_IDS) {
+        const v = Number(parsed[id]);
+        if (Number.isFinite(v) && v > 0) cachedXp[id] = Math.floor(v);
+      }
+    } catch {
+      cachedXp = {};
+    }
+  }
+  return cachedXp;
+}
+
+/** XP earned with each class, saved in this browser. */
+export function useClassXp() {
+  return useSyncExternalStore(subscribe, readXp, () => ({}) as ClassXp);
+}
+
+export function getClassLevels() {
+  return levelsFromXp(readXp());
+}
+
+/** Add XP earned in a match. */
+export function addClassXp(earned: ClassXp) {
+  const next: ClassXp = { ...readXp() };
+  for (const id of ARCHETYPE_IDS) {
+    const gain = Math.floor(Number(earned[id]) || 0);
+    if (gain > 0) next[id] = (next[id] ?? 0) + gain;
+  }
+  write(XP_KEY, JSON.stringify(next));
+}
+
 /** Thumbsticks and buttons: "auto" shows them on phones and tablets only. */
 export type TouchControlsMode = "auto" | "on" | "off";
 const TOUCH_KEY = "mg.touch";
@@ -201,6 +247,7 @@ const KEY_NAMES: Record<string, string> = {
   Comma: ",",
   Period: ".",
   Slash: "/",
+  Space: "Space",
 };
 
 /** A short readable name for a KeyboardEvent.code, like "W", "1" or "L Shift". */

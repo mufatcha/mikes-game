@@ -25,6 +25,12 @@ const SHOT_SOUNDS: Record<WeaponId, ShotSound> = {
   redpen: { freq: 3600, q: 3, duration: 0.04, gain: 0.3, thump: 350 },
   quiz: { freq: 1100, q: 0.6, duration: 0.3, gain: 0.6, thump: 100 },
   lecture: { freq: 300, q: 0.5, duration: 0.4, gain: 0.8, thump: 50 },
+  meatball: { freq: 450, q: 0.6, duration: 0.2, gain: 0.6, thump: 70 },
+  pie: { freq: 800, q: 0.5, duration: 0.22, gain: 0.55, thump: 90 },
+  tackle: { freq: 200, q: 0.5, duration: 0.35, gain: 0.8, thump: 45 },
+  paintbomb: { freq: 550, q: 0.4, duration: 0.4, gain: 0.8, thump: 60 },
+  suspension: { freq: 2600, q: 3, duration: 0.1, gain: 0.45, thump: 260 },
+  reportcard: { freq: 350, q: 0.5, duration: 0.35, gain: 0.75, thump: 55 },
 };
 
 /** Tiny synthesized sound effects, so the game needs no audio files. */

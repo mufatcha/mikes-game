@@ -10,12 +10,16 @@ import {
   GAME_TITLE,
   gameServerUrl,
   wakeGameServer,
+  addClassXp,
+  getClassLevels,
   getSavedLoadout,
   saveLoadout,
   saveName,
   useSavedLoadout,
+  useClassXp,
   useSavedName,
 } from "@/lib/settings";
+import { levelsFromXp } from "@/shared/progress";
 import GameView from "./GameView";
 import Lobby from "./Lobby";
 
@@ -57,6 +61,12 @@ function Session({ code, name }: { code: string; name: string }) {
       .map((r) => [r.loadout.archetype, r.name]),
   );
 
+  // Tell the server our class levels whenever our saved XP changes (e.g. after a match).
+  const classXp = useClassXp();
+  useEffect(() => {
+    conn?.send({ t: "levels", levels: levelsFromXp(classXp) });
+  }, [conn, classXp]);
+
   useEffect(() => {
     if (!notice) return;
     const id = setTimeout(() => setNotice(null), 3000);
@@ -78,17 +88,22 @@ function Session({ code, name }: { code: string; name: string }) {
         if (cancelled) return;
         if (res.status === 404) return setError("No match with that code. Check the code or ask for a new invite.");
         const info = (await res.json()) as { full?: boolean };
-        if (info.full) return setError("This match is full (8 players).");
+        if (info.full) return setError("This match is full.");
         connection = new GameConnection(
           code,
-          { name, loadout: getSavedLoadout() },
+          { name, loadout: getSavedLoadout(), levels: getClassLevels() },
           {
             onWelcome: setMyId,
             onRoom: (r) => {
               setRoom(r);
               if (r.phase !== "results") setResults(null);
             },
-            onResults: setResults,
+            onResults: (r) => {
+              // Bank the XP we earned before showing the results.
+              const mine = r.players.find((p) => p.id === connection?.myId);
+              if (mine) addClassXp(mine.xp);
+              setResults(r);
+            },
             onError: (message, fatal) => {
               if (fatal) setError(message);
               else setNotice(message);

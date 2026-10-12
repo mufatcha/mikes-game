@@ -1,23 +1,43 @@
 "use client";
 
-import { ABILITIES, ARCHETYPES } from "@/shared/archetypes";
+import {
+  ARCHETYPES,
+  BOSS_DAMAGE_BONUS,
+  BOSS_SPEED_BONUS,
+  DUEL_PRINCIPAL_HP,
+  STUDENT_LIVES,
+  abilitiesFor,
+} from "@/shared/archetypes";
+import { winScoreFor, type GameMode } from "@/shared/constants";
 import { ABILITY_ACTIONS, keyLabel, useKeybinds } from "@/lib/settings";
 
-/** What the Principal can do, shown to whoever takes the Principal seat. */
-export default function PrincipalCard() {
+/** What the Principal can do in this mode, shown to whoever takes a Principal seat. */
+export default function PrincipalCard({ mode }: { mode: GameMode }) {
   const binds = useKeybinds();
   const p = ARCHETYPES.principal;
+  const duel = mode === "duel";
   return (
     <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 p-4">
       <p className="text-lg font-bold text-white">
-        {p.emoji} You are the Principal
+        {p.emoji} You are {duel ? "a dueling Principal" : "the Principal"}
       </p>
       <p className="mt-1 text-sm text-zinc-300">
-        {p.maxHp} health, takes {Math.round((1 - p.defense) * 100)}% damage, and doesn&apos;t respawn. Survive until the
-        bell to win. The Nurse&apos;s Office won&apos;t help you.
+        {duel ? (
+          <>
+            {DUEL_PRINCIPAL_HP} health and takes {Math.round((1 - p.defense) * 100)}% damage. You respawn, and the first
+            Principal to {winScoreFor(mode)} knockouts wins.
+          </>
+        ) : (
+          <>
+            {p.maxHp} health, takes {Math.round((1 - p.defense) * 100)}% damage, moves{" "}
+            {Math.round((BOSS_SPEED_BONUS - 1) * 100)}% faster and hits {Math.round((BOSS_DAMAGE_BONUS - 1) * 100)}% harder
+            than usual, and doesn&apos;t respawn. Students only have {STUDENT_LIVES} lives each: survive until the
+            bell or knock every student out of lives to win. The Nurse&apos;s Office won&apos;t help you.
+          </>
+        )}
       </p>
       <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-        {ABILITIES.map((a, i) => (
+        {abilitiesFor(mode).map((a, i) => (
           <li key={a.id} className="rounded-lg bg-black/30 p-3">
             <p className="font-semibold text-white">
               {a.emoji} {a.name}{" "}

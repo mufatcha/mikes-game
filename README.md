@@ -26,14 +26,27 @@ To test with friends on the same network, open the web app at your machine's LAN
 - The Nurse's Office in the middle of the main hall heals you and protects you from damage, but you can't throw from inside it. Stay longer than 30 seconds, or go in 3 times within 20 seconds (ducking in and out to heal), and you pass out, then respawn with half health.
 - First team to 50 kills wins, or whoever leads when the 8-minute timer runs out.
 
-**The Principal (7v1).** The host can switch the lobby to this mode. Seven students (who can share classes) take on one Principal: a bigger, slower boss with 8000 health and 25% damage resistance, who doesn't respawn and gets nothing from the Nurse's Office. Students win by knocking the Principal out; the Principal wins by surviving the 6-minute timer. Click **Be the Principal** in the lobby to take the seat, or a bot plays it. The Principal's abilities (keys can be changed in Settings; phones get buttons):
+**The Principal (7v1).** The host can switch the lobby to this mode. Seven students (who can share classes) take on one Principal: a bigger, slower boss with 10000 health, 25% damage resistance, 12% extra speed and 20% extra damage, who doesn't respawn and gets nothing from the Nurse's Office. Each student has 3 lives; after the third knockout they spectate. Students win by knocking the Principal out; the Principal wins by surviving the 6-minute timer or knocking every student out of lives. Click **Be the Principal** in the lobby to take the seat, or a bot plays it. The Principal's abilities (keys can be changed in Settings; phones get buttons):
 
-- 🔒 **Detention** (E, 25s cooldown): pick a student in sight, then stop the skill-check needle. The closer to the center, the longer they're locked in the Detention room: 20–30 seconds. Locked-up students can't move or throw, and can't be hurt.
-- 📣 **Stern Lecture** (F, 12s): 20 damage and a 1.5-second stun to every student nearby in sight.
-- 📝 **Pop Quiz** (C, 8s): a ring of 16 quiz papers in every direction.
-- 📢 **Intercom** (X, 25s): see every student through walls for 6 seconds; students get a warning.
+- 🔒 **Detention** (E, 20s cooldown): pick a student in sight, then stop the skill-check needle. The closer to the center, the longer they're locked in the Detention room: 20–30 seconds. Locked-up students can't move or throw, and can't be hurt.
+- 📣 **Stern Lecture** (F, 10s): 20 damage and a 1.5-second stun to every student nearby in sight.
+- 📝 **Pop Quiz** (C, 6s): a ring of 16 quiz papers in every direction.
+- 📢 **Intercom** (X, 20s): see every student through walls for 6 seconds; students get a warning.
 
-Controls: WASD to move, mouse to aim, left click to shoot, R to reload, 1/2/Q/mouse wheel to switch weapons, Tab for the scoreboard, B to change class (it applies on respawn), Esc for the menu. To change the keys, click the gear icon on the home screen or in the Esc menu.
+**Fog of War (4v4).** Same rules as Team Battle, but you can only see a small circle around you: no long view cone and no seeing a whole room. Walls still block sight.
+
+**Principal Duel (1v1).** Two Principals fight with their own set of powers (same keys as the 7v1 abilities). Each has 1500 health and respawns; first to 3 knockouts wins, or whoever leads after 5 minutes. A duel room holds two players.
+
+- 📋 **Hall Pass** (E, 7s): teleport-dash 350 units where you aim.
+- ⏸️ **Suspension Slip** (F, 11s): a fast slip that stuns for 2 seconds.
+- 🛡️ **Staff Meeting** (C, 16s): nothing can hurt you for 2.5 seconds.
+- 📉 **Report Card** (X, 9s): a huge, slow shot for 90 damage.
+
+Controls: WASD to move, mouse to aim, left click to shoot, R to reload, 1/2/Q/mouse wheel to switch weapons, Space for your super, Tab for the scoreboard, B to change class (it applies on respawn), Esc for the menu. To change the keys, click the gear icon on the home screen or in the Esc menu.
+
+**Supers.** Every class has a super that charges as you deal damage (and slowly on its own). When the meter above your weapon panel says READY, press Space (⭐ on phones): Teacher heals nearby teammates (Extra Credit), Lunch Lady throws a fan of meatballs (Mystery Meat), Jock charges through enemies (Touchdown Dash), Art Kid splashes and slows everyone nearby (Paint Bomb), Nerd fires and moves faster for 6 seconds (Overclock), and the Class Clown throws five cream pies (Pie Barrage).
+
+**Class XP and levels.** Playing a class earns XP for that class: damage dealt, knockouts, finishing a match and winning it. Levels go from 1 to 10, and each level adds 3% damage and 3% max health to that class. XP is saved in your browser, the class picker shows your level and progress, and the results screen shows what you earned.
 
 Line of sight: inside a room you can see the whole room, and in the hallways you can see all the hallways. Looking out of where you are (through a doorway, say), you see a short way all around you and far in a cone where you aim. Walls, lockers and shelves block your view, so you only see through a doorway what you'd see from where you stand. Enemies you can't see aren't drawn; teammates always are. Desks, tables, bleachers and easels are low enough to see over.
 

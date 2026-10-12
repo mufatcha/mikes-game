@@ -2,9 +2,9 @@ import {
   SAFE_ZONE_MAX_TIME,
   SAFE_ZONE_MAX_VISITS,
   SAFE_ZONE_VISIT_WINDOW,
-  SCORE_TO_WIN,
   TEAM_COLORS,
   teamNamesFor,
+  winScoreFor,
   type GameMode,
   type Team,
 } from "@/shared/constants";
@@ -25,7 +25,11 @@ import {
 } from "@/shared/map";
 import type { BulletSnap, GameEvent, PlayerSnap, RosterEntry } from "@/shared/protocol";
 import {
-  ABILITIES,
+  abilitiesFor,
+  EXTRA_CREDIT_RADIUS,
+  PAINT_BOMB_RADIUS,
+  STUDENT_LIVES,
+  SUPERS,
   ARCHETYPES,
   DETENTION_RANGE,
   LECTURE_RADIUS,
@@ -37,7 +41,7 @@ import { abilitySlots } from "./layout";
 import { ABILITY_ACTIONS, getKeybinds, keyLabel } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
-import { CONE_HALF, FAR_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
+import { CONE_HALF, FAR_SIGHT, FOG_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
 
 const TEAM_TINTS = ["rgba(147,197,253,0.7)", "rgba(253,186,116,0.7)"] as const;
 const PAINT_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#eab308", "#ec4899", "#a855f7"];
@@ -238,7 +242,7 @@ export class Renderer {
         (!me ||
           p.id === myId ||
           roster.get(p.id)?.team === myTeam ||
-          canSee(this.myX, this.myY, view.aim, p.x, p.y, radiusFor(p.archetype))),
+          canSee(this.myX, this.myY, view.aim, p.x, p.y, radiusFor(p.archetype), this.mode === "fog")),
     );
     // The Principal's Intercom shows every student, even through walls.
     const revealed = me?.reveal ? players.filter((p) => p.alive && !shown.includes(p)) : [];
@@ -278,6 +282,7 @@ export class Renderer {
     this.drawFeed(now);
     if (me) this.drawStatus(me, !view.crosshair);
     if (me?.cds) this.drawAbilityBar(me, !view.crosshair);
+    else if (me && SUPERS[me.archetype]) this.drawSuperMeter(me, !view.crosshair);
     this.drawBanner(now);
     if (view.scoreboard) this.drawScoreboard(roster);
     if (view.crosshair) this.drawCrosshair(view.mouseX, view.mouseY, now, me);
@@ -293,7 +298,7 @@ export class Renderer {
   detentionTarget: string | null = null;
   /** Enemies on screen last frame, for picking a Detention target. */
   private targetable: PlayerSnap[] = [];
-  private shockwaves: { x: number; y: number; born: number }[] = [];
+  private shockwaves: { x: number; y: number; born: number; color: string; radius: number }[] = [];
   private banner: { text: string; color: string; until: number } | null = null;
 
   /**
@@ -349,10 +354,10 @@ export class Renderer {
     this.shockwaves = this.shockwaves.filter((w) => now - w.born < 500);
     for (const w of this.shockwaves) {
       const f = (now - w.born) / 500;
-      ctx.strokeStyle = `rgba(251,191,36,${0.8 * (1 - f)})`;
+      ctx.strokeStyle = `rgba(${w.color},${0.8 * (1 - f)})`;
       ctx.lineWidth = 8 * (1 - f) + 2;
       ctx.beginPath();
-      ctx.arc(w.x, w.y, LECTURE_RADIUS * (0.2 + 0.8 * f), 0, Math.PI * 2);
+      ctx.arc(w.x, w.y, w.radius * (0.2 + 0.8 * f), 0, Math.PI * 2);
       ctx.stroke();
     }
   }
@@ -388,7 +393,43 @@ export class Renderer {
     ctx.fillStyle = frac > 0.5 ? "#f97316" : frac > 0.25 ? "#facc15" : "#ef4444";
     ctx.fillRect(x + 14, 40, (w - 28) * frac, 16);
     this.text(boss ? `${boss.hp} / ${boss.maxHp}` : "", cw / 2, 48, 11, "#f9fafb", "center", 800);
-    this.text(`Students knocked out: ${snap.scores[1]}`, cw / 2, 66, 10, "#9ca3af", "center", 600);
+    const left = snap.players.filter((p) => p.archetype !== "principal" && (p.alive || (p.lives ?? 1) > 0)).length;
+    this.text(`Students left: ${left} · knockouts: ${snap.scores[1]}`, cw / 2, 66, 10, "#9ca3af", "center", 600);
+  }
+
+  /** Your super's charge, above the weapon panel; it glows when ready. */
+  private drawSuperMeter(me: PlayerSnap, touch: boolean) {
+    const def = SUPERS[me.archetype];
+    if (!def) return;
+    const { ctx, cw, ch } = this;
+    const x = cw - 276;
+    const y = ch - 76 - 36;
+    const w = 260;
+    const ready = me.sup >= 1;
+    this.panel(x, y, w, 30);
+    if (ready) {
+      const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 150);
+      ctx.strokeStyle = `rgba(251,191,36,${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(x + 1, y + 1, w - 2, 28, 8);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(x + 12, y + 20, w - 24, 5);
+    ctx.fillStyle = ready ? "#fbbf24" : "#a16207";
+    ctx.fillRect(x + 12, y + 20, (w - 24) * Math.min(1, me.sup), 5);
+    this.text(`${def.emoji} ${def.name.toUpperCase()}`, x + 12, y + 10, 11, ready ? "#fde68a" : "#9ca3af", "left", 800);
+    const key = touch ? "⭐" : keyLabel(getKeybinds().super);
+    this.text(
+      ready ? `READY · ${key}` : `${Math.floor(me.sup * 100)}%`,
+      x + w - 12,
+      y + 10,
+      11,
+      ready ? "#fde68a" : "#6b7280",
+      "right",
+      800,
+    );
   }
 
   /** The Principal's four abilities with their keys and cooldowns. */
@@ -396,7 +437,7 @@ export class Renderer {
     const { ctx } = this;
     const binds = getKeybinds();
     const slots = abilitySlots(this.cw, this.ch);
-    ABILITIES.forEach((a, i) => {
+    abilitiesFor(this.mode).forEach((a, i) => {
       const s = slots[i];
       const cd = me.cds?.[i] ?? 0;
       const ready = cd <= 0 && me.alive && !me.stunned;
@@ -435,21 +476,24 @@ export class Renderer {
     // Cut the visible area out of the fog, in world space.
     f.setTransform(this.ctx.getTransform());
     f.globalCompositeOperation = "destination-out";
+    const fogMode = this.mode === "fog";
     // The room or hallways you're in, a little past the edges so their walls are lit too.
     f.fillStyle = "#000";
-    for (const a of litAreasAt(x, y)) f.fillRect(a.x - 12, a.y - 12, a.w + 24, a.h + 24);
+    for (const a of litAreasAt(x, y, fogMode)) f.fillRect(a.x - 12, a.y - 12, a.w + 24, a.h + 24);
     f.save();
     f.beginPath();
-    for (const [px, py] of sightPolygon(x, y)) f.lineTo(px, py);
+    for (const [px, py] of sightPolygon(x, y, fogMode ? FOG_SIGHT + 20 : undefined)) f.lineTo(px, py);
     f.closePath();
     f.clip();
 
-    const ring = f.createRadialGradient(x, y, NEAR_SIGHT * 0.55, x, y, NEAR_SIGHT);
+    // Fog of War: just a soft circle around you, no cone.
+    const near = fogMode ? FOG_SIGHT : NEAR_SIGHT;
+    const ring = f.createRadialGradient(x, y, near * (fogMode ? 0.7 : 0.55), x, y, near);
     ring.addColorStop(0, "#000");
     ring.addColorStop(1, "rgba(0,0,0,0)");
     f.fillStyle = ring;
     f.beginPath();
-    f.arc(x, y, NEAR_SIGHT, 0, Math.PI * 2);
+    f.arc(x, y, near, 0, Math.PI * 2);
     f.fill();
 
     // The cone, with softened sides and a fade at the far end.
@@ -458,11 +502,13 @@ export class Renderer {
     cone.addColorStop(0.8, "#000");
     cone.addColorStop(1, "rgba(0,0,0,0)");
     f.fillStyle = cone;
-    for (const [extra, alpha] of [
-      [0, 1],
-      [0.05, 0.5],
-      [0.1, 0.25],
-    ]) {
+    for (const [extra, alpha] of fogMode
+      ? []
+      : [
+          [0, 1],
+          [0.05, 0.5],
+          [0.1, 0.25],
+        ]) {
       f.globalAlpha = alpha;
       f.beginPath();
       f.moveTo(x, y);
@@ -562,6 +608,32 @@ export class Renderer {
           if (victim && team !== undefined) this.burst(victim.x, victim.y, TEAM_COLORS[team], 22, 260);
           break;
         }
+        case "super": {
+          const def = Object.values(SUPERS).find((s) => s?.id === e.super);
+          const mine = e.by === myId;
+          const dist = Math.hypot(e.x - this.myX, e.y - this.myY);
+          const vol = mine ? 0.9 : Math.max(0, 1 - dist / HEARING_RANGE);
+          this.burst(e.x, e.y, "#fde68a", 26, 300);
+          if (e.super === "paintbomb") {
+            this.shockwaves.push({ x: e.x, y: e.y, born: now, color: "236,72,153", radius: PAINT_BOMB_RADIUS });
+            for (const c of PAINT_COLORS) this.burst(e.x, e.y, c, 8, 380);
+            this.sfx.shot("paintbomb", vol);
+          } else if (e.super === "extracredit") {
+            this.shockwaves.push({ x: e.x, y: e.y, born: now, color: "74,222,128", radius: EXTRA_CREDIT_RADIUS });
+            this.sfx.shot("lecture", vol * 0.6);
+          } else if (e.super === "dash") {
+            this.burst(e.x, e.y, "#dc2626", 20, 260);
+            this.sfx.shot("tackle", vol);
+          } else if (e.super === "overclock") {
+            this.burst(e.x, e.y, "#22d3ee", 24, 260);
+            this.sfx.shot("redpen", vol);
+          }
+          if (mine) {
+            this.shake = Math.max(this.shake, 6);
+            if (def) this.showBanner(`${def.emoji} ${def.name.toUpperCase()}!`, "#fde68a", 1500);
+          }
+          break;
+        }
         case "jailed": {
           this.feed.push({
             killer: roster.get(e.by),
@@ -582,7 +654,7 @@ export class Renderer {
         case "ability": {
           const mine = e.by === myId;
           if (e.ability === "lecture") {
-            this.shockwaves.push({ x: e.x, y: e.y, born: now });
+            this.shockwaves.push({ x: e.x, y: e.y, born: now, color: "251,191,36", radius: LECTURE_RADIUS });
             const dist = Math.hypot(e.x - this.myX, e.y - this.myY);
             this.sfx.shot("lecture", mine ? 0.9 : Math.max(0, 1 - dist / HEARING_RANGE));
             if (dist < LECTURE_RADIUS + 60) this.shake = Math.max(this.shake, 8);
@@ -592,6 +664,12 @@ export class Renderer {
               mine ? "#fde68a" : "#f87171",
               4000,
             );
+          } else if (e.ability === "hallpass") {
+            // The dash happened on the server; puff where they left from.
+            this.burst(e.x, e.y, "#e2e8f0", 18, 220);
+          } else if (e.ability === "staffmeeting") {
+            this.burst(e.x, e.y, "#fde047", 20, 200);
+            if (mine) this.showBanner("🛡️ Staff Meeting: nothing can hurt you", "#fde68a", 2000);
           }
           break;
         }
@@ -1095,6 +1173,27 @@ export class Renderer {
       ctx.stroke();
     }
     if (p.jailed > 0) this.drawJailBars(x, y, r, p.jailed);
+    if (p.shielded) {
+      // Staff Meeting: a golden bubble nothing gets through.
+      ctx.fillStyle = "rgba(253,224,71,0.18)";
+      ctx.strokeStyle = `rgba(253,224,71,${0.7 + 0.3 * Math.sin(now / 60)})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, r + 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    if (p.boosted) {
+      // Overclock: a crackling cyan ring.
+      ctx.strokeStyle = `rgba(34,211,238,${0.6 + 0.4 * Math.sin(now / 40)})`;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 5]);
+      ctx.lineDashOffset = -now / 20;
+      ctx.beginPath();
+      ctx.arc(x, y, r + 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     if (p.stunned) {
       // Little stars circling the head.
       ctx.font = `${r * 0.7}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
@@ -1148,9 +1247,10 @@ export class Renderer {
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillStyle = "rgba(0,0,0,0.7)";
-      ctx.fillText(info.name, x + k, top - 3 * k + k);
+      const label = info.level > 1 && p.archetype !== "principal" ? `${info.name} · Lv ${info.level}` : info.name;
+      ctx.fillText(label, x + k, top - 3 * k + k);
       ctx.fillStyle = team === 0 ? "#bfdbfe" : "#fed7aa";
-      ctx.fillText(info.name, x, top - 3 * k);
+      ctx.fillText(label, x, top - 3 * k);
     }
   }
 
@@ -1229,7 +1329,7 @@ export class Renderer {
     this.text(String(snap.scores[0]), cx - 85, 40, 28, TEAM_COLORS[0], "center", 800);
     this.text(String(snap.scores[1]), cx + 85, 40, 28, TEAM_COLORS[1], "center", 800);
     this.text(formatTime(snap.timeLeft), cx, 34, 18, "#e5e7eb", "center", 700);
-    this.text(`FIRST TO ${SCORE_TO_WIN}`, cx, 54, 10, "#9ca3af", "center", 600);
+    this.text(`FIRST TO ${winScoreFor(this.mode)}`, cx, 54, 10, "#9ca3af", "center", 600);
   }
 
   private drawFeed(now: number) {
@@ -1272,6 +1372,10 @@ export class Renderer {
     ctx.fillStyle = hpFrac > 0.5 ? "#4ade80" : hpFrac > 0.25 ? "#facc15" : "#ef4444";
     ctx.fillRect(30, ch - 46, 180 * hpFrac, 14);
     this.text(String(me.hp), 262, ch - 39, 22, "#f9fafb", "right", 800);
+    if (me.lives !== undefined) {
+      // 7v1 lives as hearts.
+      this.text("❤".repeat(me.lives) + "♡".repeat(Math.max(0, STUDENT_LIVES - me.lives)), 262, ch - 60, 13, "#f87171", "right", 800);
+    }
 
     // Weapon
     this.panel(cw - 276, ch - 76, 260, 60);
@@ -1303,18 +1407,25 @@ export class Renderer {
 
     // Center messages
     if (!me.alive) {
-      this.panel(cw / 2 - 160, ch / 2 - 60, 320, 96);
+      this.panel(cw / 2 - 190, ch / 2 - 60, 380, 96);
       this.text(this.deathMessage ?? "Eliminated", cw / 2, ch / 2 - 32, 16, "#f87171", "center", 700);
-      this.text(
-        `Respawning in ${me.respawn.toFixed(1)}${this.passedOut ? " · half health" : ""}`,
-        cw / 2,
-        ch / 2 - 4,
-        20,
-        "#f9fafb",
-        "center",
-        800,
-      );
-      this.text(touch ? "Tap ☰ to change class" : `Press ${keyLabel(binds.loadout)} to change class`, cw / 2, ch / 2 + 22, 12, "#9ca3af", "center");
+      if (me.lives === 0) {
+        // 7v1: out of lives, watching the rest of the match.
+        this.text("Out of lives!", cw / 2, ch / 2 - 4, 20, "#f9fafb", "center", 800);
+        this.text("Spectating until the match ends", cw / 2, ch / 2 + 22, 12, "#9ca3af", "center");
+      } else {
+        const lives = me.lives !== undefined ? ` · ${me.lives} ${me.lives === 1 ? "life" : "lives"} left` : "";
+        this.text(
+          `Respawning in ${me.respawn.toFixed(1)}${this.passedOut ? " · half health" : ""}${lives}`,
+          cw / 2,
+          ch / 2 - 4,
+          20,
+          "#f9fafb",
+          "center",
+          800,
+        );
+        this.text(touch ? "Tap ☰ to change class" : `Press ${keyLabel(binds.loadout)} to change class`, cw / 2, ch / 2 + 22, 12, "#9ca3af", "center");
+      }
     } else {
       this.deathMessage = null;
       this.passedOut = false;

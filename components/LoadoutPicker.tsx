@@ -1,6 +1,8 @@
 "use client";
 
-import { ARCHETYPES, ARCHETYPE_IDS, WEAPONS, type ArchetypeId, type Loadout } from "@/shared/archetypes";
+import { ARCHETYPES, ARCHETYPE_IDS, SUPERS, WEAPONS, type ArchetypeId, type Loadout } from "@/shared/archetypes";
+import { MAX_LEVEL, levelBonus, levelFromXp, xpForLevel } from "@/shared/progress";
+import { useClassXp } from "@/lib/settings";
 
 const STATS = [
   ["attack", "Attack"],
@@ -19,6 +21,30 @@ function Pips({ value }: { value: number }) {
   );
 }
 
+/** A class's level and progress toward the next one. */
+export function LevelBar({ xp }: { xp: number }) {
+  const level = levelFromXp(xp);
+  const maxed = level >= MAX_LEVEL;
+  const from = xpForLevel(level);
+  const to = xpForLevel(level + 1);
+  const frac = maxed ? 1 : (xp - from) / (to - from);
+  const bonus = Math.round((levelBonus(level) - 1) * 100);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-[11px]">
+        <span className="font-bold text-amber-300">Lv {level}</span>
+        <span className="text-zinc-500">
+          {maxed ? "MAX" : `${Math.floor(xp)} / ${to} XP`}
+          {bonus > 0 && ` · +${bonus}% dmg & HP`}
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full rounded-full bg-amber-400" style={{ width: `${Math.round(frac * 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export default function LoadoutPicker({
   loadout,
   taken,
@@ -29,6 +55,7 @@ export default function LoadoutPicker({
   taken: Map<ArchetypeId, string>;
   onChange: (l: Loadout) => void;
 }) {
+  const xp = useClassXp();
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {ARCHETYPE_IDS.map((id) => {
@@ -73,6 +100,13 @@ export default function LoadoutPicker({
               <span className="text-zinc-500">Throws:</span> {WEAPONS[a.primary].name}
               <span className="text-zinc-500"> · Backup:</span> {WEAPONS[a.secondary].name}
             </p>
+            {SUPERS[id] && (
+              <p className="text-xs text-zinc-300">
+                <span className="text-zinc-500">Super:</span> {SUPERS[id]!.emoji} {SUPERS[id]!.name}
+                <span className="text-zinc-500"> · {SUPERS[id]!.description}</span>
+              </p>
+            )}
+            <LevelBar xp={xp[id] ?? 0} />
           </button>
         );
       })}

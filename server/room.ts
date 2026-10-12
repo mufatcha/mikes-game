@@ -1,5 +1,13 @@
 import type { ServerWebSocket } from "bun";
-import { MAX_HUMANS, RESULTS_DURATION, teamSizeFor, type GameMode, type Team } from "../shared/constants";
+import {
+  GAME_MODE_IDS,
+  MAX_HUMANS,
+  RESULTS_DURATION,
+  isPrincipalSeat,
+  teamSizeFor,
+  type GameMode,
+  type Team,
+} from "../shared/constants";
 import type { ClientMessage, InputFrame, RosterEntry, ServerMessage } from "../shared/protocol";
 import {
   ABILITY_IDS,
@@ -14,6 +22,7 @@ import {
 } from "../shared/archetypes";
 import { Match, type MatchEntry } from "./match";
 import { CHEAT_CODE, PRANK_IDS } from "../shared/pranks";
+import { XP_FOR_PLAYING, XP_FOR_WINNING, clampLevel, sanitizeLevels, type ClassLevels } from "../shared/progress";
 
 export interface SocketData {
   code: string;
@@ -27,6 +36,8 @@ interface Client {
   team: Team;
   /** The student class this player picked (kept even while they're the Principal). */
   loadout: Loadout;
+  /** Levels for each class, from the XP saved in their browser. */
+  levels: ClassLevels;
   /** False until the client sends hello; until then it doesn't reserve a class. */
   ready: boolean;
 }
@@ -58,13 +69,18 @@ export class Room {
   constructor(readonly code: string) {}
 
   get isFull() {
-    return this.clients.size >= MAX_HUMANS;
+    return this.clients.size >= this.capacity;
+  }
+
+  /** Humans allowed in the room: a duel is just two players. */
+  get capacity() {
+    return this.mode === "duel" ? 2 : MAX_HUMANS;
   }
 
   join(ws: ServerWebSocket<SocketData>) {
     const id = ws.data.clientId;
     if (this.isFull) {
-      this.send(ws, { t: "error", message: "This match is full (8 players).", fatal: true });
+      this.send(ws, { t: "error", message: `This match is full (${this.capacity} players).`, fatal: true });
       ws.close();
       return;
     }
@@ -75,6 +91,7 @@ export class Room {
       name: "Player",
       team,
       loadout: this.claimClass(team, id, DEFAULT_LOADOUT),
+      levels: {},
       ready: false,
     };
     this.clients.set(id, client);
@@ -137,8 +154,17 @@ export class Room {
         if (error) this.send(client.ws, { t: "error", message: error });
         return;
       }
+      case "super":
+        if (this.match && this.phase === "match") this.match.useSuper(id);
+        return;
+      case "levels":
+        client.levels = sanitizeLevels(msg.levels, ARCHETYPE_IDS);
+        this.match?.setLevels(id, client.levels);
+        break;
       case "hello":
         client.name = cleanName(msg.name);
+        client.levels = sanitizeLevels(msg.levels, ARCHETYPE_IDS);
+        this.match?.setLevels(id, client.levels);
         client.ready = true;
         client.loadout = this.claimClass(client.team, id, sanitizeLoadout(msg.loadout));
         this.syncToMatch(client);
@@ -165,11 +191,20 @@ export class Room {
       }
       case "mode": {
         if (id !== this.hostId || this.phase !== "lobby") return;
-        if (msg.mode !== "teams" && msg.mode !== "boss") return;
+        if (!GAME_MODE_IDS.includes(msg.mode)) return;
+        if (msg.mode === "duel" && this.clients.size > 2) {
+          this.send(client.ws, { t: "error", message: "A 1v1 duel is for 2 players. Some people need to leave first." });
+          return;
+        }
         if (msg.mode === this.mode) return;
         this.mode = msg.mode;
         // Nobody becomes the Principal without choosing it: everyone starts as a student.
         if (this.mode === "boss") for (const c of this.clients.values()) c.team = 0;
+        // Duel: one player on each side, the host on the Blueberry side.
+        if (this.mode === "duel") {
+          const order = [...this.clients.values()].sort((a, b) => (a.id === this.hostId ? -1 : b.id === this.hostId ? 1 : 0));
+          order.forEach((c, i) => (c.team = i === 0 ? 0 : 1));
+        }
         this.rebalance();
         break;
       }
@@ -202,7 +237,7 @@ export class Room {
 
   /** In boss mode, team 1 is the Principal's one seat. */
   private isPrincipalSeat(team: Team) {
-    return this.mode === "boss" && team === 1;
+    return isPrincipalSeat(this.mode, team);
   }
 
   /** The class a player actually plays: the Principal seat overrides their pick. */
@@ -234,6 +269,7 @@ export class Room {
         team: c.team,
         loadout: this.effectiveLoadout(c.team, c.loadout),
         isBot: false,
+        levels: c.levels,
       });
     }
     for (const team of [0, 1] as Team[]) {
@@ -249,12 +285,26 @@ export class Room {
     const match = this.match!;
     this.phase = "results";
     this.resultsUntil = Date.now() + RESULTS_DURATION * 1000;
+    // Everyone gets XP for finishing the match, and more for winning it.
+    for (const p of match.players.values()) {
+      match.addXp(p, XP_FOR_PLAYING);
+      if (match.winner === p.team) match.addXp(p, XP_FOR_WINNING);
+    }
     const players = [...match.players.values()]
-      .map((p) => ({ id: p.id, name: p.name, team: p.team, kills: p.kills, deaths: p.deaths, isBot: p.isBot }))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        team: p.team,
+        kills: p.kills,
+        deaths: p.deaths,
+        isBot: p.isBot,
+        xp: Object.fromEntries(Object.entries(p.xp).map(([k, v]) => [k, Math.round(v ?? 0)])),
+      }))
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     this.broadcast({
       t: "results",
       mode: match.mode,
+      ...(match.mode === "boss" && { reason: match.endReason }),
       scores: match.scores,
       winner: match.winner,
       players,
@@ -275,6 +325,7 @@ export class Room {
       team: client.team,
       loadout: this.effectiveLoadout(client.team, client.loadout),
       isBot: false,
+      levels: client.levels,
     };
     if (bot) match.replacePlayer(bot.id, entry);
     else match.addPlayer(entry);
@@ -299,7 +350,7 @@ export class Room {
   private takenClasses(team: Team, exceptId: string | null, extra: MatchEntry[] = []) {
     const taken = new Set<ArchetypeId>();
     // Seven students and six classes: in boss mode, students can share.
-    if (this.mode === "boss") return taken;
+    if (this.mode === "boss" || this.mode === "duel") return taken;
     for (const c of this.clients.values()) {
       if (c.ready && c.team === team && c.id !== exceptId) taken.add(c.loadout.archetype);
     }
@@ -370,6 +421,7 @@ export class Room {
         loadout: p.loadout.archetype === "principal" ? p.loadout : (this.clients.get(p.id)?.loadout ?? p.loadout),
         isBot: p.isBot,
         isHost: p.id === this.hostId,
+        level: this.match!.levelOf(p),
       }));
     }
     return [...this.clients.values()].map((c) => ({
@@ -379,6 +431,7 @@ export class Room {
       loadout: this.effectiveLoadout(c.team, c.loadout),
       isBot: false,
       isHost: c.id === this.hostId,
+      level: clampLevel(c.levels[this.effectiveLoadout(c.team, c.loadout).archetype] ?? 1),
     }));
   }
 

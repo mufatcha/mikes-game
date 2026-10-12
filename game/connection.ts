@@ -12,6 +12,7 @@ import type {
 } from "@/shared/protocol";
 import { moveSpeedFor, radiusFor, type Loadout } from "@/shared/archetypes";
 import { gameSocketUrl } from "@/lib/settings";
+import type { ClassLevels } from "@/shared/progress";
 
 /** How far behind the newest snapshot other entities are drawn. */
 const INTERP_DELAY_MS = 100;
@@ -62,7 +63,7 @@ export class GameConnection {
 
   constructor(
     code: string,
-    private hello: { name: string; loadout: Loadout },
+    private hello: { name: string; loadout: Loadout; levels?: ClassLevels },
     private events: ConnectionEvents,
   ) {
     this.ws = new WebSocket(gameSocketUrl(code));

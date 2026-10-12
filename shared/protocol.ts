@@ -1,6 +1,7 @@
 import type { GameMode, Team } from "./constants";
 import type { PrankAction } from "./pranks";
-import type { AbilityId, ArchetypeId, Loadout, WeaponId } from "./archetypes";
+import type { AbilityId, ArchetypeId, Loadout, SuperId, WeaponId } from "./archetypes";
+import type { ClassLevels, ClassXp } from "./progress";
 
 export type Phase = "lobby" | "match" | "results";
 
@@ -18,7 +19,11 @@ export interface InputFrame {
 }
 
 export type ClientMessage =
-  | { t: "hello"; name: string; loadout: Loadout }
+  | { t: "hello"; name: string; loadout: Loadout; levels?: ClassLevels }
+  /** Your class levels changed (after earning XP). */
+  | { t: "levels"; levels: ClassLevels }
+  /** Use your class super (fires where you aim). */
+  | { t: "super" }
   | { t: "team"; team: Team }
   | { t: "loadout"; loadout: Loadout }
   | { t: "start" }
@@ -38,6 +43,8 @@ export interface RosterEntry {
   loadout: Loadout;
   isBot: boolean;
   isHost: boolean;
+  /** Level of the class they're playing. */
+  level: number;
 }
 
 export interface RoomState {
@@ -71,6 +78,8 @@ export interface PlayerSnap {
   /** Times you've entered the Nurse's Office recently; too many and you pass out. */
   visits: number;
   maxHp: number;
+  /** 7v1 students: lives left (0 = out for the match). */
+  lives?: number;
   /** Seconds left in detention, or 0. */
   jailed: number;
   stunned: boolean;
@@ -86,6 +95,12 @@ export interface PlayerSnap {
   infAmmo?: boolean;
   turbo?: boolean;
   superSpeed?: boolean;
+  /** Duel Principal's Staff Meeting is on: can't be hurt. */
+  shielded?: boolean;
+  /** Super charge, 0 to 1. */
+  sup: number;
+  /** Overclock (Nerd super) is running. */
+  boosted?: boolean;
 }
 
 export interface BulletSnap {
@@ -107,7 +122,9 @@ export type GameEvent =
   | { k: "shot"; by: string; weapon: WeaponId }
   /** The Principal used an ability (for effects and sounds). */
   | { k: "ability"; by: string; ability: AbilityId; x: number; y: number }
-  | { k: "jailed"; by: string; target: string; secs: number };
+  | { k: "jailed"; by: string; target: string; secs: number }
+  /** Someone used their class super. */
+  | { k: "super"; by: string; super: SuperId; x: number; y: number };
 
 export interface Snapshot {
   t: "snap";
@@ -123,10 +140,21 @@ export interface Snapshot {
 
 export interface ResultsMessage {
   t: "results";
+  /** Boss mode: how it ended. */
+  reason?: "knockout" | "wipe" | "bell";
   mode: GameMode;
   scores: [number, number];
   winner: Team | null;
-  players: { id: string; name: string; team: Team; kills: number; deaths: number; isBot: boolean }[];
+  players: {
+    id: string;
+    name: string;
+    team: Team;
+    kills: number;
+    deaths: number;
+    isBot: boolean;
+    /** XP earned this match, per class played. */
+    xp: ClassXp;
+  }[];
   returnIn: number;
 }
 

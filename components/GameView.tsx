@@ -3,15 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { TICK_MS, teamNamesFor } from "@/shared/constants";
 import type { ResultsMessage } from "@/shared/protocol";
-import { ABILITIES, WEAPONS, type ArchetypeId, type Loadout } from "@/shared/archetypes";
+import { ARCHETYPES, WEAPONS, abilitiesFor, type ArchetypeId, type Loadout } from "@/shared/archetypes";
+import { levelFromXp, type ClassXp } from "@/shared/progress";
 import { Sfx } from "@/game/audio";
 import type { GameConnection } from "@/game/connection";
 import { InputController } from "@/game/input";
 import { Renderer } from "@/game/renderer";
 import KeybindSettings, { SettingsButton } from "./KeybindSettings";
-import LoadoutPicker from "./LoadoutPicker";
+import LoadoutPicker, { LevelBar } from "./LoadoutPicker";
 import { CopyButton, inviteLink } from "./Lobby";
-import { keyLabel, useKeybinds, useTouchControlsMode } from "@/lib/settings";
+import { keyLabel, useClassXp, useKeybinds, useTouchControlsMode } from "@/lib/settings";
 import Modal from "./Modal";
 import PrankMenu from "./PrankMenu";
 import { CHEAT_CODE } from "@/shared/pranks";
@@ -71,7 +72,7 @@ export default function GameView({
     /** A Principal ability key or button. Detention opens the skill check (or stops it if it's open). */
     const useAbility = (index: number) => {
       const me = conn.me;
-      const ability = ABILITIES[index];
+      const ability = abilitiesFor(conn.room?.mode ?? "teams")[index];
       if (!me || !ability || me.archetype !== "principal" || !me.alive) return;
       if (ability.id !== "detention") {
         conn.send({ t: "ability", ability: ability.id });
@@ -108,6 +109,7 @@ export default function GameView({
       onActivity: () => sfx.unlock(),
       onAbility: useAbility,
       onCheatCode: () => conn.send({ t: "prank", action: "unlock", code: CHEAT_CODE }),
+      onSuper: () => conn.send({ t: "super" }),
     });
     inputRef.current = input;
     input.attach();
@@ -185,6 +187,7 @@ export default function GameView({
           active={overlay === "none" && !results}
           onMenu={() => setOverlay("menu")}
           onAbility={isPrincipal ? (i) => abilityRef.current?.(i) : undefined}
+          onSuper={isPrincipal ? undefined : () => conn.send({ t: "super" })}
         />
       )}
 
@@ -249,7 +252,7 @@ export default function GameView({
             </button>
           </div>
           {isPrincipal ? (
-            <PrincipalCard />
+            <PrincipalCard mode={conn.room?.mode ?? "boss"} />
           ) : (
             <>
               <p className="text-sm text-zinc-400">
@@ -293,6 +296,31 @@ function MenuButton({ children, onClick, danger }: { children: React.ReactNode; 
   );
 }
 
+/** XP you earned this match, per class, with your new level (already saved). */
+function XpEarned({ earned }: { earned: ClassXp }) {
+  const total = useClassXp();
+  const rows = Object.entries(earned).filter(([, v]) => (v ?? 0) > 0) as [ArchetypeId, number][];
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-5 flex flex-col gap-3 rounded-lg bg-white/5 p-4">
+      {rows.map(([id, gained]) => {
+        const now = total[id] ?? gained;
+        const before = levelFromXp(now - gained);
+        const after = levelFromXp(now);
+        return (
+          <div key={id}>
+            <p className="mb-1 text-sm text-zinc-200">
+              {ARCHETYPES[id].emoji} {ARCHETYPES[id].name} <b className="text-amber-300">+{gained} XP</b>
+              {after > before && <b className="ml-2 text-green-300">LEVEL UP! Lv {before} → {after}</b>}
+            </p>
+            <LevelBar xp={now} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Results({ results, myId }: { results: ResultsMessage; myId: string | null }) {
   const [secondsLeft, setSecondsLeft] = useState(results.returnIn);
   useEffect(() => {
@@ -308,13 +336,15 @@ function Results({ results, myId }: { results: ResultsMessage; myId: string | nu
         ? "Victory"
         : me
           ? "Defeat"
-          : `${names[results.winner]} win${results.winner === 1 && results.mode === "boss" ? "s" : ""}`;
+          : `${names[results.winner]} ${results.mode === "teams" || results.mode === "fog" || (results.mode === "boss" && results.winner === 0) ? "win" : "wins"}`;
   const subtitle =
     results.mode !== "boss" || results.winner === null
       ? null
       : results.winner === 0
         ? "The Principal has been knocked out!"
-        : "The Principal survived until the bell.";
+        : results.reason === "wipe"
+          ? "Every student ran out of lives."
+          : "The Principal survived until the bell.";
 
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-4">
@@ -345,6 +375,7 @@ function Results({ results, myId }: { results: ResultsMessage; myId: string | nu
             ))}
           </tbody>
         </table>
+        {me && <XpEarned earned={me.xp} />}
         <p className="mt-6 text-center text-sm text-zinc-400">Back to the lobby in {secondsLeft}s…</p>
       </div>
     </div>

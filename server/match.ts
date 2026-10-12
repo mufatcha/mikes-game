@@ -1,8 +1,6 @@
 import {
   BASE_SPEED,
-  BOSS_MATCH_DURATION,
   DT,
-  MATCH_DURATION,
   MAX_HP,
   PLAYER_RADIUS,
   RESPAWN_TIME,
@@ -11,9 +9,10 @@ import {
   SAFE_ZONE_MAX_VISITS,
   SAFE_ZONE_REENTRY_GRACE,
   SAFE_ZONE_VISIT_WINDOW,
-  SCORE_TO_WIN,
   SPAWN_PROTECTION,
   SWAP_TIME,
+  matchDurationFor,
+  winScoreFor,
   type GameMode,
   type Team,
 } from "../shared/constants";
@@ -21,7 +20,25 @@ import { SPAWNS, inSafeZone } from "../shared/map";
 import { firstWallHitWithNormal, hasLineOfSight, movePlayer, segmentCircle } from "../shared/physics";
 import type { BulletSnap, GameEvent, InputFrame, PlayerSnap } from "../shared/protocol";
 import {
-  ABILITIES,
+  BOSS_DAMAGE_BONUS,
+  STUDENT_LIVES,
+  BOSS_SPEED_BONUS,
+  DUEL_PRINCIPAL_HP,
+  HALL_PASS_DISTANCE,
+  STAFF_MEETING_TIME,
+  abilitiesFor,
+  DASH_DISTANCE,
+  DASH_STUN,
+  EXTRA_CREDIT_HEAL,
+  EXTRA_CREDIT_RADIUS,
+  OVERCLOCK_SPEED,
+  OVERCLOCK_TIME,
+  PAINT_BOMB_RADIUS,
+  PAINT_BOMB_SLOW,
+  SPECIAL_WEAPONS,
+  SUPERS,
+  SUPER_CHARGE_DAMAGE,
+  SUPER_PASSIVE_SECONDS,
   ARCHETYPES,
   DETENTION_RANGE,
   INTERCOM_TIME,
@@ -39,6 +56,14 @@ import {
   type WeaponId,
 } from "../shared/archetypes";
 import { BotBrain } from "./bot";
+import {
+  XP_PER_DAMAGE,
+  XP_PER_KILL,
+  clampLevel,
+  levelBonus,
+  type ClassLevels,
+  type ClassXp,
+} from "../shared/progress";
 import { FREEZE_TIME, PRANK_TIME, SLOW_MULT, SUPER_MULT, TURBO_MULT, type PrankAction } from "../shared/pranks";
 
 export interface MatchEntry {
@@ -47,6 +72,8 @@ export interface MatchEntry {
   team: Team;
   loadout: Loadout;
   isBot: boolean;
+  /** Class levels this player has earned (bots play at level 1). */
+  levels?: ClassLevels;
 }
 
 export interface PlayerState extends MatchEntry {
@@ -83,6 +110,8 @@ export interface PlayerState extends MatchEntry {
   zoneVisits: number[];
   inZone: boolean;
   zoneLeftAt: number;
+  /** Boss mode students: knockouts left before they're out for the match. */
+  lives: number;
   /** Fraction of full health to respawn with (halved after passing out). */
   spawnHpFrac: number;
   maxHp: number;
@@ -93,6 +122,8 @@ export interface PlayerState extends MatchEntry {
   stunnedUntil: number;
   /** Principal's Intercom: sees every student until this match time. */
   revealUntil: number;
+  /** Duel Principal's Staff Meeting: can't be hurt until this match time. */
+  shieldUntil: number;
   /** Principal: match time each ability is ready again. */
   cooldowns: Record<AbilityId, number>;
   // Prank menu effects.
@@ -102,6 +133,13 @@ export interface PlayerState extends MatchEntry {
   superSpeed: boolean;
   god: boolean;
   infAmmo: boolean;
+  /** Super charge, 0 to 1. */
+  superCharge: number;
+  /** Nerd super: faster firing and moving until this match time. */
+  overclockUntil: number;
+  levels: ClassLevels;
+  /** XP earned this match, per class. */
+  xp: ClassXp;
   brain: BotBrain | null;
 }
 
@@ -144,6 +182,26 @@ export class Match {
   /** Boss mode: set when the Principal is knocked out. */
   private principalDown = false;
 
+  /** Why a boss match ended, for the results screen. */
+  get endReason(): "knockout" | "wipe" | "bell" {
+    if (this.principalDown) return "knockout";
+    return this.studentsWiped() ? "wipe" : "bell";
+  }
+
+  /** Boss mode: every student has used up all their lives. */
+  studentsWiped() {
+    if (this.mode !== "boss") return false;
+    const students = [...this.players.values()].filter((p) => !this.isPrincipal(p));
+    return students.length > 0 && students.every((p) => !p.alive && p.lives === 0);
+  }
+
+  /** Boss mode: a student is down; take a life, and with none left they stay out. */
+  private loseLife(p: PlayerState) {
+    if (this.mode !== "boss" || this.isPrincipal(p)) return;
+    p.lives = Math.max(0, p.lives - 1);
+    if (p.lives === 0) p.respawnAt = Infinity;
+  }
+
   constructor(
     entries: MatchEntry[],
     readonly mode: GameMode = "teams",
@@ -152,7 +210,7 @@ export class Match {
   }
 
   get duration() {
-    return this.mode === "boss" ? BOSS_MATCH_DURATION : MATCH_DURATION;
+    return matchDurationFor(this.mode);
   }
 
   get timeLeft() {
@@ -254,12 +312,17 @@ export class Match {
       p.vy = (p.y - py) / DT;
       if (p.alive) this.updateSafeZone(p);
       if (p.isBot && p.alive && this.isPrincipal(p)) this.botAbilities(p);
+      if (p.alive && !this.isPrincipal(p)) {
+        p.superCharge = Math.min(1, p.superCharge + DT / SUPER_PASSIVE_SECONDS);
+        if (p.isBot && p.superCharge >= 1) this.botSuper(p);
+      }
     }
 
     this.updateBullets();
 
-    const scoreReached = this.mode === "teams" && (this.scores[0] >= SCORE_TO_WIN || this.scores[1] >= SCORE_TO_WIN);
-    if (scoreReached || this.principalDown || this.time >= this.duration) this.finished = true;
+    const goal = winScoreFor(this.mode);
+    const scoreReached = this.scores[0] >= goal || this.scores[1] >= goal;
+    if (scoreReached || this.principalDown || this.studentsWiped() || this.time >= this.duration) this.finished = true;
   }
 
   /** Shared snapshot body; the room adds each client's ack. Clears pending events. */
@@ -273,7 +336,7 @@ export class Match {
         aim: r2(p.aim),
         hp: Math.ceil(p.hp),
         alive: p.alive,
-        respawn: p.alive ? 0 : r1(Math.max(0, p.respawnAt - this.time)),
+        respawn: p.alive || !Number.isFinite(p.respawnAt) ? 0 : r1(Math.max(0, p.respawnAt - this.time)),
         protected: p.alive && this.time < p.protectedUntil,
         weapon: this.currentWeapon(p),
         archetype: p.loadout.archetype,
@@ -288,11 +351,12 @@ export class Match {
         zone: r1(p.zoneTime),
         visits: p.zoneVisits.length,
         maxHp: p.maxHp,
+        ...(this.mode === "boss" && !this.isPrincipal(p) && { lives: p.lives }),
         jailed: p.alive ? r1(Math.max(0, p.jailedUntil - this.time)) : 0,
         stunned: p.alive && this.time < p.stunnedUntil,
         reveal: p.alive && this.time < p.revealUntil,
         ...(this.isPrincipal(p) && {
-          cds: ABILITIES.map((a) => r1(Math.max(0, p.cooldowns[a.id] - this.time))),
+          cds: abilitiesFor(this.mode).map((a) => r1(Math.max(0, p.cooldowns[a.id] - this.time))),
         }),
         ...(this.speedMult(p) !== 1 && { speed: this.speedMult(p) }),
         ...(this.time < p.reversedUntil && { reversed: true }),
@@ -300,6 +364,9 @@ export class Match {
         ...(p.infAmmo && { infAmmo: true }),
         ...(p.turbo && { turbo: true }),
         ...(p.superSpeed && { superSpeed: true }),
+        sup: r2(p.superCharge),
+        ...(this.time < p.overclockUntil && { boosted: true }),
+        ...(this.time < p.shieldUntil && { shielded: true }),
       });
     }
     const bullets: BulletSnap[] = this.bullets.map((b) => ({
@@ -360,18 +427,33 @@ export class Match {
       inZone: false,
       zoneLeftAt: -Infinity,
       spawnHpFrac: 1,
-      maxHp: maxHpFor(e.loadout.archetype),
+      lives: STUDENT_LIVES,
+      maxHp: this.maxHpOf(e.loadout, e.levels ?? {}),
       radius: radiusFor(e.loadout.archetype),
       jailedUntil: 0,
       stunnedUntil: 0,
       revealUntil: 0,
-      cooldowns: { detention: 0, lecture: 0, quiz: 0, intercom: 0 },
+      cooldowns: {
+        detention: 0,
+        lecture: 0,
+        quiz: 0,
+        intercom: 0,
+        hallpass: 0,
+        suspension: 0,
+        staffmeeting: 0,
+        reportcard: 0,
+      },
+      shieldUntil: 0,
       reversedUntil: 0,
       slowUntil: 0,
       turbo: false,
       superSpeed: false,
       god: false,
       infAmmo: false,
+      superCharge: 0,
+      overclockUntil: 0,
+      levels: e.levels ?? {},
+      xp: {},
       brain: e.isBot ? new BotBrain() : null,
     };
     this.players.set(p.id, p);
@@ -449,7 +531,7 @@ export class Match {
   private fire(p: PlayerState, weaponId: WeaponId) {
     const weapon = WEAPONS[weaponId];
     if (!p.infAmmo) p.ammo[p.slot]--;
-    p.nextFire = this.time + 1 / weapon.fireRate;
+    p.nextFire = this.time + 1 / (weapon.fireRate * (this.time < p.overclockUntil ? 2 : 1));
     p.protectedUntil = 0;
     for (let i = 0; i < weapon.pellets; i++) {
       const angle = p.aim + (Math.random() * 2 - 1) * weapon.spread;
@@ -463,7 +545,7 @@ export class Match {
         y: p.y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        damage: weapon.damage,
+        damage: weapon.damage * this.damageMult(p),
         travelled: 0,
         bounces: weapon.bounces ?? 0,
         range: weapon.range,
@@ -523,23 +605,38 @@ export class Match {
     y: number,
   ) {
     const zoneProtected = inSafeZone(target.x, target.y) && !this.isPrincipal(target);
-    if (this.time < target.protectedUntil || zoneProtected || this.isJailed(target) || target.god) {
+    const shielded = this.time < target.shieldUntil;
+    if (this.time < target.protectedUntil || zoneProtected || this.isJailed(target) || target.god || shielded) {
       this.events.push({ k: "impact", x: r1(x), y: r1(y) });
       return;
     }
-    const dmg = b.damage * (1 - ARCHETYPES[target.loadout.archetype].defense);
+    const dmg = Math.min(target.hp, b.damage * (1 - ARCHETYPES[target.loadout.archetype].defense));
     target.hp -= dmg;
     target.brain?.onDamaged(b.owner, this.time);
     this.events.push({ k: "hit", by: b.owner, target: target.id, x: r1(x), y: r1(y), dmg: Math.round(dmg) });
+    const stun = WEAPONS[b.weapon].stun;
+    if (stun) target.stunnedUntil = Math.max(target.stunnedUntil, this.time + stun);
+    const attacker = this.players.get(b.owner);
+    if (attacker) {
+      // Dealing damage fills your super (but not damage from supers themselves) and earns class XP.
+      if (!SPECIAL_WEAPONS.includes(b.weapon)) {
+        attacker.superCharge = Math.min(1, attacker.superCharge + dmg / SUPER_CHARGE_DAMAGE);
+      }
+      this.addXp(attacker, dmg * XP_PER_DAMAGE);
+    }
     if (target.hp > 0) return;
 
     target.hp = 0;
     target.alive = false;
     target.respawnAt = this.time + RESPAWN_TIME;
     target.deaths++;
+    this.loseLife(target);
     target.inputs = [];
     const killer = this.players.get(b.owner);
-    if (killer) killer.kills++;
+    if (killer) {
+      killer.kills++;
+      this.addXp(killer, XP_PER_KILL);
+    }
     this.scores[b.team]++;
     this.events.push({ k: "kill", killer: b.owner, victim: target.id, weapon: b.weapon });
     if (this.mode === "boss" && this.isPrincipal(target)) this.principalDown = true;
@@ -550,7 +647,7 @@ export class Match {
       p.loadout = p.pendingLoadout;
       p.pendingLoadout = null;
     }
-    p.maxHp = maxHpFor(p.loadout.archetype);
+    p.maxHp = this.maxHpOf(p.loadout, p.levels);
     p.radius = radiusFor(p.loadout.archetype);
     const spawn = this.pickSpawn(p);
     p.x = spawn.x;
@@ -561,6 +658,7 @@ export class Match {
     p.hp = Math.round(p.maxHp * p.spawnHpFrac);
     p.spawnHpFrac = 1;
     p.jailedUntil = 0;
+    p.overclockUntil = 0;
     p.stunnedUntil = 0;
     p.revealUntil = 0;
     p.zoneTime = 0;
@@ -611,6 +709,7 @@ export class Match {
     p.alive = false;
     p.respawnAt = this.time + RESPAWN_TIME;
     p.deaths++;
+    this.loseLife(p);
     p.inputs = [];
     p.spawnHpFrac = 0.5;
     this.events.push({ k: "passout", victim: p.id, reason });
@@ -625,7 +724,9 @@ export class Match {
     if (!(ability in p.cooldowns)) return "Unknown ability.";
     if (this.time < p.cooldowns[ability]) return null;
     if (this.time < p.stunnedUntil) return null;
-    const def = ABILITIES.find((a) => a.id === ability)!;
+    // Each mode has its own set of four; only those can be used.
+    const def = abilitiesFor(this.mode).find((a) => a.id === ability);
+    if (!def) return "That power isn't available in this mode.";
 
     switch (ability) {
       case "detention": {
@@ -656,7 +757,7 @@ export class Match {
           if (Math.hypot(s.x - p.x, s.y - p.y) > LECTURE_RADIUS + s.radius) continue;
           if (!hasLineOfSight(p.x, p.y, s.x, s.y)) continue;
           const lecture = WEAPONS.lecture;
-          this.damage(s, { owner: p.id, team: p.team, weapon: "lecture", damage: lecture.damage }, s.x, s.y);
+          this.damage(s, { owner: p.id, team: p.team, weapon: "lecture", damage: lecture.damage * this.damageMult(p) }, s.x, s.y);
           if (s.alive) s.stunnedUntil = this.time + LECTURE_STUN;
         }
         break;
@@ -674,7 +775,7 @@ export class Match {
             y: p.y,
             vx: Math.cos(a) * w.projectileSpeed,
             vy: Math.sin(a) * w.projectileSpeed,
-            damage: w.damage,
+            damage: w.damage * this.damageMult(p),
             travelled: 0,
             bounces: 0,
             range: w.range,
@@ -686,6 +787,27 @@ export class Match {
       case "intercom":
         p.revealUntil = this.time + INTERCOM_TIME;
         break;
+      case "hallpass": {
+        const dx = Math.cos(p.aim);
+        const dy = Math.sin(p.aim);
+        for (let d = 0; d < HALL_PASS_DISTANCE; d += 25) {
+          const bx = p.x;
+          const by = p.y;
+          movePlayer(p, dx, dy, 25 / DT, DT, p.radius);
+          if (Math.hypot(p.x - bx, p.y - by) < 8) break;
+        }
+        p.inputs = [];
+        break;
+      }
+      case "suspension":
+        this.fan(p, "suspension", 1, 0);
+        break;
+      case "reportcard":
+        this.fan(p, "reportcard", 1, 0);
+        break;
+      case "staffmeeting":
+        p.shieldUntil = this.time + STAFF_MEETING_TIME;
+        break;
     }
     p.cooldowns[ability] = this.time + def.cooldown;
     p.protectedUntil = 0;
@@ -693,12 +815,166 @@ export class Match {
     return null;
   }
 
+  // ---------------------------------------------------------------- XP and levels
+
+  levelOf(p: Pick<PlayerState, "levels" | "loadout">) {
+    return clampLevel(p.levels[p.loadout.archetype] ?? 1);
+  }
+
+  /** Higher class levels hit harder. */
+  damageMult(p: PlayerState) {
+    // 7v1 buff: the boss Principal hits 20% harder.
+    const boss = this.mode === "boss" && this.isPrincipal(p) ? BOSS_DAMAGE_BONUS : 1;
+    return levelBonus(this.levelOf(p)) * boss;
+  }
+
+  private maxHpOf(loadout: Loadout, levels: ClassLevels) {
+    // Duel Principals are built for a fair 1v1, not a 7v1 siege.
+    const base = this.mode === "duel" && loadout.archetype === "principal" ? DUEL_PRINCIPAL_HP : maxHpFor(loadout.archetype);
+    return Math.round(base * levelBonus(levels[loadout.archetype] ?? 1));
+  }
+
+  /** Earn XP for the class you're playing (the Principal isn't a class you level). */
+  addXp(p: PlayerState, amount: number) {
+    if (p.isBot || this.isPrincipal(p) || amount <= 0) return;
+    const id = p.loadout.archetype;
+    p.xp[id] = (p.xp[id] ?? 0) + amount;
+  }
+
+  /** A player's levels changed mid-match; it applies from their next respawn. */
+  setLevels(id: string, levels: ClassLevels) {
+    const p = this.players.get(id);
+    if (p) p.levels = levels;
+  }
+
+  // ---------------------------------------------------------------- class supers
+
+  /** Use your class super if it's fully charged. Fires where you're aiming. */
+  useSuper(id: string) {
+    const p = this.players.get(id);
+    if (!p || !p.alive || p.superCharge < 1 || this.isPrincipal(p)) return;
+    if (this.isJailed(p) || this.time < p.stunnedUntil) return;
+    // Same rule as throwing: no supers from inside the Nurse's Office.
+    if (inSafeZone(p.x, p.y)) return;
+    const def = SUPERS[p.loadout.archetype];
+    if (!def) return;
+    p.superCharge = 0;
+    p.protectedUntil = 0;
+
+    switch (def.id) {
+      case "extracredit":
+        for (const t of this.players.values()) {
+          if (!t.alive || t.team !== p.team) continue;
+          if (Math.hypot(t.x - p.x, t.y - p.y) > EXTRA_CREDIT_RADIUS) continue;
+          t.hp = Math.min(t.maxHp, t.hp + EXTRA_CREDIT_HEAL);
+        }
+        break;
+      case "meatball":
+        this.fan(p, "meatball", 7, 0.5);
+        break;
+      case "pies":
+        this.fan(p, "pie", 5, 0.25);
+        break;
+      case "dash": {
+        const dx = Math.cos(p.aim);
+        const dy = Math.sin(p.aim);
+        const hit = new Set<PlayerState>();
+        const step = 30;
+        for (let d = 0; d < DASH_DISTANCE; d += step) {
+          const bx = p.x;
+          const by = p.y;
+          movePlayer(p, dx, dy, step / DT, DT, p.radius);
+          // Stop early if a wall stopped us.
+          if (Math.hypot(p.x - bx, p.y - by) < step * 0.3) break;
+          for (const t of this.players.values()) {
+            if (!t.alive || t.team === p.team || hit.has(t)) continue;
+            if (Math.hypot(t.x - p.x, t.y - p.y) < p.radius + t.radius + 10) hit.add(t);
+          }
+        }
+        for (const t of hit) {
+          this.damage(t, this.superShot(p, "tackle"), t.x, t.y);
+          if (t.alive) t.stunnedUntil = this.time + DASH_STUN;
+        }
+        p.inputs = [];
+        break;
+      }
+      case "paintbomb":
+        for (const t of this.players.values()) {
+          if (!t.alive || t.team === p.team || this.isJailed(t)) continue;
+          if (Math.hypot(t.x - p.x, t.y - p.y) > PAINT_BOMB_RADIUS + t.radius) continue;
+          if (!hasLineOfSight(p.x, p.y, t.x, t.y)) continue;
+          this.damage(t, this.superShot(p, "paintbomb"), t.x, t.y);
+          if (t.alive) t.slowUntil = Math.max(t.slowUntil, this.time + PAINT_BOMB_SLOW);
+        }
+        break;
+      case "overclock":
+        p.overclockUntil = this.time + OVERCLOCK_TIME;
+        break;
+    }
+    this.events.push({ k: "super", by: p.id, super: def.id, x: r1(p.x), y: r1(p.y) });
+  }
+
+  /** A damage source for a super, scaled by the user's level. */
+  private superShot(p: PlayerState, weapon: WeaponId) {
+    return { owner: p.id, team: p.team, weapon, damage: WEAPONS[weapon].damage * this.damageMult(p) };
+  }
+
+  /** Throw `count` projectiles in a fan `spread` radians wide either side of your aim. */
+  private fan(p: PlayerState, weapon: WeaponId, count: number, spread: number) {
+    const w = WEAPONS[weapon];
+    for (let i = 0; i < count; i++) {
+      const a = p.aim + (count === 1 ? 0 : -spread + (2 * spread * i) / (count - 1));
+      this.bullets.push({
+        id: this.nextBulletId++,
+        owner: p.id,
+        team: p.team,
+        weapon,
+        x: p.x,
+        y: p.y,
+        vx: Math.cos(a) * w.projectileSpeed,
+        vy: Math.sin(a) * w.projectileSpeed,
+        damage: w.damage * this.damageMult(p),
+        travelled: 0,
+        range: w.range,
+        bounces: 0,
+      });
+    }
+    this.events.push({ k: "shot", by: p.id, weapon });
+  }
+
+  /** Bots fire their super when it would help. */
+  private botSuper(p: PlayerState) {
+    if (Math.random() > 0.05) return;
+    const def = SUPERS[p.loadout.archetype];
+    if (!def) return;
+    if (def.id === "extracredit") {
+      if (p.hp < p.maxHp * 0.6) this.useSuper(p.id);
+      return;
+    }
+    let nearest: PlayerState | null = null;
+    let best = def.id === "paintbomb" || def.id === "dash" ? 300 : 600;
+    for (const t of this.players.values()) {
+      if (!t.alive || t.team === p.team || this.isJailed(t)) continue;
+      const d = Math.hypot(t.x - p.x, t.y - p.y);
+      if (d < best && hasLineOfSight(p.x, p.y, t.x, t.y)) {
+        best = d;
+        nearest = t;
+      }
+    }
+    if (!nearest) return;
+    p.aim = Math.atan2(nearest.y - p.y, nearest.x - p.x);
+    this.useSuper(p.id);
+  }
+
   // ---------------------------------------------------------------- prank menu
 
   /** Movement speed multiplier from pranks (turbo, slow). */
   speedMult(p: PlayerState) {
-    const boost = p.superSpeed ? SUPER_MULT : p.turbo ? TURBO_MULT : 1;
-    return boost * (this.time < p.slowUntil ? SLOW_MULT : 1);
+    const boost =
+      (p.superSpeed ? SUPER_MULT : p.turbo ? TURBO_MULT : 1) * (this.time < p.overclockUntil ? OVERCLOCK_SPEED : 1);
+    // 7v1 buff: the boss Principal is a bit quicker.
+    const boss = this.mode === "boss" && this.isPrincipal(p) ? BOSS_SPEED_BONUS : 1;
+    return boost * boss * (this.time < p.slowUntil ? SLOW_MULT : 1);
   }
 
   /**
@@ -772,6 +1048,7 @@ export class Match {
         t.alive = false;
         t.respawnAt = this.time + RESPAWN_TIME;
         t.deaths++;
+        this.loseLife(t);
         t.inputs = [];
         this.events.push({ k: "passout", victim: t.id, reason: "prank" });
         // In boss mode, knocking out the Principal still ends the match.
@@ -779,6 +1056,39 @@ export class Match {
         break;
     }
     return null;
+  }
+
+  /** A bot duel Principal: shield when hurt, shoot when it has a clear shot, dash away when cornered. */
+  private botDuelAbilities(p: PlayerState) {
+    if (Math.random() > 0.08) return;
+    const ready = (a: AbilityId) => this.time >= p.cooldowns[a];
+    let foe: PlayerState | null = null;
+    let dist = Infinity;
+    for (const t of this.players.values()) {
+      if (!t.alive || t.team === p.team) continue;
+      const d = Math.hypot(t.x - p.x, t.y - p.y);
+      if (d < dist && d < 900 && hasLineOfSight(p.x, p.y, t.x, t.y)) {
+        dist = d;
+        foe = t;
+      }
+    }
+    if (ready("staffmeeting") && foe && p.hp < p.maxHp * 0.35) {
+      this.useAbility(p.id, "staffmeeting");
+      return;
+    }
+    if (!foe) return;
+    const aimAtFoe = Math.atan2(foe.y - p.y, foe.x - p.x);
+    if (ready("hallpass") && dist < 220 && p.hp < p.maxHp * 0.5) {
+      // Dash away from them.
+      p.aim = aimAtFoe + Math.PI;
+      this.useAbility(p.id, "hallpass");
+    } else if (ready("suspension")) {
+      p.aim = aimAtFoe;
+      this.useAbility(p.id, "suspension");
+    } else if (ready("reportcard") && dist < 600) {
+      p.aim = aimAtFoe;
+      this.useAbility(p.id, "reportcard");
+    }
   }
 
   /** A free spot in the Detention room. */
@@ -792,6 +1102,10 @@ export class Match {
 
   /** A bot Principal uses its abilities when they'd help. */
   private botAbilities(p: PlayerState) {
+    if (this.mode === "duel") {
+      this.botDuelAbilities(p);
+      return;
+    }
     const ready = (a: AbilityId) => this.time >= p.cooldowns[a];
     const students = [...this.players.values()].filter((s) => s.alive && s.team !== p.team && !this.isJailed(s));
     const inSight = students

@@ -3,7 +3,6 @@
 import { useEffect, useState, useSyncExternalStore, type RefObject } from "react";
 import type { InputController } from "@/game/input";
 import { abilitySlots } from "@/game/layout";
-import { ABILITIES } from "@/shared/archetypes";
 
 /** How far, in screen pixels, a thumbstick can be pushed. */
 const STICK = 60;
@@ -43,6 +42,7 @@ export default function TouchControls({
   active,
   onMenu,
   onAbility,
+  onSuper,
 }: {
   inputRef: RefObject<InputController | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -50,6 +50,8 @@ export default function TouchControls({
   onMenu: () => void;
   /** Set when you're the Principal: tap targets over the ability bar. */
   onAbility?: (index: number) => void;
+  /** Set for students: the super button. */
+  onSuper?: () => void;
 }) {
   const [move, setMove] = useState<Stick | null>(null);
   const [aim, setAim] = useState<Stick | null>(null);
@@ -179,7 +181,18 @@ export default function TouchControls({
         )}
       </div>
 
-      <div className="pointer-events-auto absolute bottom-[96px] right-4 flex gap-3">
+      <div className="pointer-events-auto absolute bottom-[124px] right-4 flex gap-3">
+        {onSuper && (
+          <TouchButton
+            big
+            onPointerDown={(e) => {
+              stop(e);
+              onSuper();
+            }}
+          >
+            ⭐
+          </TouchButton>
+        )}
         <TouchButton
           big
           onPointerDown={(e) => {
@@ -205,7 +218,7 @@ export default function TouchControls({
           <button
             key={i}
             type="button"
-            aria-label={ABILITIES[i].name}
+            aria-label={`Principal power ${i + 1}`}
             className="pointer-events-auto absolute touch-none rounded-lg active:bg-white/20"
             style={{ left: s.x, top: s.y, width: s.w, height: s.h }}
             onPointerDown={(e) => {

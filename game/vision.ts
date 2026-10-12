@@ -7,6 +7,8 @@ export const NEAR_SIGHT = 170;
 export const FAR_SIGHT = 1300;
 /** Half the width of the cone you see in front of you. */
 export const CONE_HALF = (55 * Math.PI) / 180;
+/** Fog of War mode: all you can see is this close around you. */
+export const FOG_SIGHT = 320;
 
 /** Tall things block sight; desks, tables, bleachers and easels are low enough to see over. */
 const BLOCKS_SIGHT: Record<WallKind, boolean> = {
@@ -32,7 +34,8 @@ function inside(r: Rect, x: number, y: number) {
  * The areas you can see all of from where you stand: the whole room you're in,
  * or every hallway if you're in the halls (they're one connected space).
  */
-export function litAreasAt(x: number, y: number): Rect[] {
+export function litAreasAt(x: number, y: number, fog = false): Rect[] {
+  if (fog) return [];
   const room = ROOMS.find((r) => inside(r, x, y));
   if (room) return [room];
   if (HALLS.some((h) => inside(h, x, y))) return HALLS;
@@ -58,8 +61,8 @@ function castRay(x: number, y: number, ex: number, ey: number, walls: Wall[]) {
  * in world space. Walls cut it off, so you only see through doors what a person
  * standing there would.
  */
-export function sightPolygon(x: number, y: number): [number, number][] {
-  const walls = OCCLUDERS.filter((w) => near(w, x, y, FAR_SIGHT));
+export function sightPolygon(x: number, y: number, range = FAR_SIGHT): [number, number][] {
+  const walls = OCCLUDERS.filter((w) => near(w, x, y, range));
   const angles: number[] = [];
   for (let i = 0; i < SWEEP_RAYS; i++) angles.push((i / SWEEP_RAYS) * Math.PI * 2 - Math.PI);
   // Rays just either side of every wall corner give sharp shadow edges.
@@ -80,8 +83,8 @@ export function sightPolygon(x: number, y: number): [number, number][] {
   for (const a of angles) {
     const dx = Math.cos(a);
     const dy = Math.sin(a);
-    const t = castRay(x, y, x + dx * FAR_SIGHT, y + dy * FAR_SIGHT, walls);
-    const d = t < 1 ? t * FAR_SIGHT + WALL_REVEAL : FAR_SIGHT;
+    const t = castRay(x, y, x + dx * range, y + dy * range, walls);
+    const d = t < 1 ? t * range + WALL_REVEAL : range;
     points.push([x + dx * d, y + dy * d]);
   }
   return points;
@@ -91,13 +94,15 @@ export function sightPolygon(x: number, y: number): [number, number][] {
  * Whether a target at (tx, ty) with radius r is in view from (x, y) facing `aim`:
  * in the same room (or hallways) as you, or close enough around you or inside the cone in
  * front and not behind a wall.
+ * In Fog of War it's only a small circle around you, still blocked by walls.
  * Checks the target's center and both sides, so someone half out of cover still shows.
  */
-export function canSee(x: number, y: number, aim: number, tx: number, ty: number, r: number) {
-  if (litAreasAt(x, y).some((a) => inside(a, tx, ty))) return true;
+export function canSee(x: number, y: number, aim: number, tx: number, ty: number, r: number, fog = false) {
+  if (litAreasAt(x, y, fog).some((a) => inside(a, tx, ty))) return true;
   const dist = Math.hypot(tx - x, ty - y);
-  if (dist > FAR_SIGHT + r) return false;
-  if (dist > NEAR_SIGHT + r) {
+  if (dist > (fog ? FOG_SIGHT : FAR_SIGHT) + r) return false;
+  // Fog of War has no cone: just the circle around you.
+  if (!fog && dist > NEAR_SIGHT + r) {
     let d = Math.atan2(ty - y, tx - x) - aim;
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;

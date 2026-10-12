@@ -8,6 +8,8 @@ export interface InputHandlers {
   onActivity(): void;
   /** One of the Principal's ability keys, by index in ABILITIES. */
   onAbility(index: number): void;
+  /** The super key. */
+  onSuper(): void;
   /** The secret cheat code was typed. */
   onCheatCode(): void;
 }
@@ -68,7 +70,10 @@ export class InputController {
       else if (e.code === binds.weapon1) this.swapTo = 0;
       else if (e.code === binds.weapon2) this.swapTo = 1;
       else if (e.code === binds.swap) this.swapToggle = true;
-      else if (e.code === binds.loadout) {
+      else if (e.code === binds.super) {
+        this.handlers.onSuper();
+        return;
+      } else if (e.code === binds.loadout) {
         this.handlers.onLoadout();
         return;
       } else {

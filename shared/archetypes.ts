@@ -16,7 +16,13 @@ export type WeaponId =
   | "eraser"
   | "redpen"
   | "quiz"
-  | "lecture";
+  | "meatball"
+  | "pie"
+  | "tackle"
+  | "paintbomb"
+  | "lecture"
+  | "suspension"
+  | "reportcard";
 
 export type ArchetypeId = "teacher" | "lunchlady" | "jock" | "artkid" | "nerd" | "clown" | "principal";
 
@@ -40,6 +46,8 @@ export interface WeaponDef {
   color: string;
   /** Times it bounces off walls before stopping (0 = stops on the first wall). */
   bounces?: number;
+  /** Seconds a hit stuns the target for. */
+  stun?: number;
   /** How the projectile is drawn. */
   style: "streak" | "ball" | "blob";
 }
@@ -135,6 +143,38 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1600, spread: 0.06, pellets: 1, range: 700, auto: true,
     radius: 2, color: "#ef4444", style: "streak",
   },
+  // Thrown by class supers, not held.
+  meatball: {
+    id: "meatball", name: "Mystery Meat", damage: 35, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1100, spread: 0, pellets: 1, range: 800, auto: false,
+    radius: 9, color: "#7c2d12", style: "blob",
+  },
+  pie: {
+    id: "pie", name: "Cream Pie", damage: 45, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1400, spread: 0, pellets: 1, range: 1000, auto: false,
+    radius: 10, color: "#fef9c3", style: "ball",
+  },
+  tackle: {
+    id: "tackle", name: "Touchdown Dash", damage: 50, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "#dc2626", style: "ball",
+  },
+  paintbomb: {
+    id: "paintbomb", name: "Paint Bomb", damage: 45, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "rainbow", style: "blob",
+  },
+  // Thrown by the duel Principals' abilities.
+  suspension: {
+    id: "suspension", name: "Suspension Slip", damage: 20, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1700, spread: 0, pellets: 1, range: 1000, auto: false,
+    radius: 6, color: "#f472b6", style: "streak", stun: 2,
+  },
+  reportcard: {
+    id: "reportcard", name: "Report Card", damage: 90, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 750, spread: 0, pellets: 1, range: 1100, auto: false,
+    radius: 16, color: "#fef2f2", style: "ball",
+  },
   // Thrown by the Principal's abilities, not held.
   quiz: {
     id: "quiz", name: "Pop Quiz", damage: 18, fireRate: 1, magSize: 1, reloadTime: 1,
@@ -190,7 +230,7 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     id: "principal", name: "Principal", emoji: "👔",
     tagline: "Runs the school. Huge health, four special powers.",
     defense: 0.25, speed: 0.95, primary: "eraser", secondary: "redpen",
-    maxHp: 8000, radius: 26,
+    maxHp: 10000, radius: 26,
     ratings: { attack: 5, defense: 5, speed: 2, range: 4 },
   },
 };
@@ -232,7 +272,15 @@ export function radiusFor(archetype: ArchetypeId): number {
 
 // ---------------------------------------------------------------- Principal abilities
 
-export type AbilityId = "detention" | "lecture" | "quiz" | "intercom";
+export type AbilityId =
+  | "detention"
+  | "lecture"
+  | "quiz"
+  | "intercom"
+  | "hallpass"
+  | "suspension"
+  | "staffmeeting"
+  | "reportcard";
 
 export interface AbilityDef {
   id: AbilityId;
@@ -245,24 +293,60 @@ export interface AbilityDef {
 
 export const ABILITIES: AbilityDef[] = [
   {
-    id: "detention", name: "Detention", emoji: "🔒", cooldown: 25,
+    id: "detention", name: "Detention", emoji: "🔒", cooldown: 20,
     description: "Pick a student in sight and lock them in the Detention room for 20–30 seconds. Nail the skill check for the full 30.",
   },
   {
-    id: "lecture", name: "Stern Lecture", emoji: "📣", cooldown: 12,
+    id: "lecture", name: "Stern Lecture", emoji: "📣", cooldown: 10,
     description: "Shout at every nearby student you can see: 20 damage and stunned for 1.5 seconds.",
   },
   {
-    id: "quiz", name: "Pop Quiz", emoji: "📝", cooldown: 8,
+    id: "quiz", name: "Pop Quiz", emoji: "📝", cooldown: 6,
     description: "Throw a ring of 16 quiz papers in every direction.",
   },
   {
-    id: "intercom", name: "Intercom", emoji: "📢", cooldown: 25,
+    id: "intercom", name: "Intercom", emoji: "📢", cooldown: 20,
     description: "See every student through walls for 6 seconds. They'll hear the announcement.",
   },
 ];
 
-export const ABILITY_IDS = ABILITIES.map((a) => a.id);
+/** The 1v1 Principal Duel's powers: built for fighting another Principal, not a crowd. */
+export const DUEL_ABILITIES: AbilityDef[] = [
+  {
+    id: "hallpass", name: "Hall Pass", emoji: "📋", cooldown: 7,
+    description: "Teleport-dash 350 units where you're aiming. Great for dodging.",
+  },
+  {
+    id: "suspension", name: "Suspension Slip", emoji: "⏸️", cooldown: 11,
+    description: "A fast slip that stuns whoever it hits for 2 seconds.",
+  },
+  {
+    id: "staffmeeting", name: "Staff Meeting", emoji: "🛡️", cooldown: 16,
+    description: "Nothing can hurt you for 2.5 seconds.",
+  },
+  {
+    id: "reportcard", name: "Report Card", emoji: "📉", cooldown: 9,
+    description: "Throw a huge, slow report card for 90 damage.",
+  },
+];
+
+/** The Principal's four abilities in a given mode (the duel has its own set). */
+export function abilitiesFor(mode: string): AbilityDef[] {
+  return mode === "duel" ? DUEL_ABILITIES : ABILITIES;
+}
+
+export const ABILITY_IDS = [...ABILITIES, ...DUEL_ABILITIES].map((a) => a.id);
+
+export const HALL_PASS_DISTANCE = 350;
+export const STAFF_MEETING_TIME = 2.5;
+/** In the duel, each Principal has far less health than the 7v1 boss. */
+export const DUEL_PRINCIPAL_HP = 1500;
+/** 7v1 boss buff: moves this much faster than a duel Principal. */
+export const BOSS_SPEED_BONUS = 1.12;
+/** 7v1 buff: everything the boss Principal throws hits this much harder. */
+export const BOSS_DAMAGE_BONUS = 1.2;
+/** 7v1: each student can be knocked out this many times, then they're out. */
+export const STUDENT_LIVES = 3;
 
 export const DETENTION_RANGE = 800;
 export const DETENTION_MIN = 20;
@@ -277,3 +361,59 @@ export function detentionSeconds(score: number) {
   const s = Math.max(0, Math.min(1, Number(score) || 0));
   return Math.round(DETENTION_MIN + (DETENTION_MAX - DETENTION_MIN) * s);
 }
+
+// ---------------------------------------------------------------- class supers
+
+export type SuperId = "extracredit" | "meatball" | "dash" | "paintbomb" | "overclock" | "pies";
+
+export interface SuperDef {
+  id: SuperId;
+  name: string;
+  emoji: string;
+  description: string;
+}
+
+/** Each student class's super. The Principal has abilities instead. */
+export const SUPERS: Partial<Record<ArchetypeId, SuperDef>> = {
+  teacher: {
+    id: "extracredit", name: "Extra Credit", emoji: "📚",
+    description: "Heal yourself and every teammate nearby for 60.",
+  },
+  lunchlady: {
+    id: "meatball", name: "Mystery Meat", emoji: "🍖",
+    description: "Hurl a fan of 7 big meatballs.",
+  },
+  jock: {
+    id: "dash", name: "Touchdown Dash", emoji: "🏈",
+    description: "Charge forward, flattening anyone in your path: 50 damage and a 1-second stun.",
+  },
+  artkid: {
+    id: "paintbomb", name: "Paint Bomb", emoji: "💥",
+    description: "Splash everyone nearby you can see: 45 damage and slowed for 3 seconds.",
+  },
+  nerd: {
+    id: "overclock", name: "Overclock", emoji: "⚡",
+    description: "Double fire rate and move 35% faster for 6 seconds.",
+  },
+  clown: {
+    id: "pies", name: "Pie Barrage", emoji: "🥧",
+    description: "Throw five heavy cream pies in a fan.",
+  },
+};
+
+/** Damage you need to deal to fill your super from empty. */
+export const SUPER_CHARGE_DAMAGE = 450;
+/** It also fills on its own, from empty to full in this many seconds. */
+export const SUPER_PASSIVE_SECONDS = 75;
+
+export const EXTRA_CREDIT_HEAL = 60;
+export const EXTRA_CREDIT_RADIUS = 320;
+export const DASH_DISTANCE = 420;
+export const DASH_STUN = 1;
+export const PAINT_BOMB_RADIUS = 220;
+export const PAINT_BOMB_SLOW = 3;
+export const OVERCLOCK_TIME = 6;
+export const OVERCLOCK_SPEED = 1.35;
+
+/** Weapons that only come from supers and abilities; they don't charge your super. */
+export const SPECIAL_WEAPONS: WeaponId[] = ["meatball", "pie", "tackle", "paintbomb", "quiz", "lecture", "suspension", "reportcard"];

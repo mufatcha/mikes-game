@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GAME_MODES, teamNamesFor, teamSizeFor, type GameMode, type Team } from "@/shared/constants";
+import { GAME_MODES, isPrincipalSeat, teamNamesFor, teamSizeFor, type GameMode, type Team } from "@/shared/constants";
 import type { RoomState } from "@/shared/protocol";
 import { ARCHETYPES, type ArchetypeId, type Loadout } from "@/shared/archetypes";
 import { keyLabel, useKeybinds } from "@/lib/settings";
@@ -63,7 +63,7 @@ export default function Lobby({
   const mode = room.mode;
   const names = teamNamesFor(mode);
   const bots = teamSizeFor(mode, 0) + teamSizeFor(mode, 1) - humans;
-  const amPrincipal = mode === "boss" && me?.team === 1;
+  const amPrincipal = !!me && isPrincipalSeat(mode, me.team);
   const binds = useKeybinds();
 
   return (
@@ -101,7 +101,7 @@ export default function Lobby({
                 } disabled:cursor-default`}
               >
                 <p className={`font-bold ${selected ? "text-amber-300" : "text-white"}`}>
-                  {m.id === "boss" ? "👔 " : "⚔️ "}
+                  {m.emoji}{" "}
                   {m.name}
                 </p>
                 <p className="mt-1 text-sm text-zinc-400">{m.blurb}</p>
@@ -142,7 +142,7 @@ export default function Lobby({
                         key={`empty-${i}`}
                         className="rounded-lg border border-dashed border-white/10 px-3 py-2.5 text-sm text-zinc-500"
                       >
-                        {mode === "boss" && team === 1 ? "Open: a bot Principal will play" : "Open slot (a bot will play)"}
+                        {isPrincipalSeat(mode, team) ? "Open: a bot Principal will play" : "Open slot (a bot will play)"}
                       </li>
                     );
                   }
@@ -161,6 +161,7 @@ export default function Lobby({
                         </p>
                         <p className="text-xs text-zinc-400">
                           {ARCHETYPES[m.loadout.archetype].emoji} {ARCHETYPES[m.loadout.archetype].name}
+                          {m.loadout.archetype !== "principal" && <span className="ml-1.5 font-semibold text-amber-300">Lv {m.level}</span>}
                         </p>
                       </div>
                     </li>
@@ -194,7 +195,7 @@ export default function Lobby({
 
       <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
         {amPrincipal ? (
-          <PrincipalCard />
+          <PrincipalCard mode={mode} />
         ) : (
           <>
             <h2 className="mb-4 text-lg font-bold text-white">Pick your class</h2>

@@ -24,6 +24,12 @@ const PREFERRED_RANGE: Record<WeaponId, number> = {
   redpen: 350,
   quiz: 400,
   lecture: 200,
+  meatball: 400,
+  pie: 450,
+  tackle: 200,
+  paintbomb: 200,
+  suspension: 500,
+  reportcard: 500,
 };
 
 function wrapAngle(a: number) {
