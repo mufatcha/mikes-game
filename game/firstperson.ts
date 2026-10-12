@@ -375,6 +375,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
             stunned: p.stunned,
             lift: p.z ?? 0,
             crouch: !!p.crouch,
+            form: p.form ?? null,
           },
           fogAmount,
           FOG,
@@ -470,6 +471,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
         team: myTeam ?? 0,
         ballColor: wpn.color === "rainbow" ? PAINT_COLORS[Math.floor(now / 400) % PAINT_COLORS.length] : wpn.color,
         instrument: instrumentOf(me.weapon),
+        form: me.form ?? null,
         now,
       },
     );
@@ -526,6 +528,7 @@ function drawPlayerOverlay(
     ctx.strokeRect(cx - bw / 2 - 3, top - 3, bw + 6, bottom - top + 6);
   }
   if (p.stunned) ctx.fillText("⭐", cx, top - 4);
+  if (p.burning) ctx.fillText("🔥", cx + bw * 0.6, top + 6 + Math.sin(now / 90) * 2);
   if (p.jailed > 0) {
     ctx.strokeStyle = "#cbd5e1";
     ctx.lineWidth = Math.max(1, 2 * k);

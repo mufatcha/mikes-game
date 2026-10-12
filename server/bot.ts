@@ -56,6 +56,15 @@ const PREFERRED_RANGE: Record<WeaponId, number> = {
   doublebass: 400,
   slap: 380,
   note: 450,
+  pixel: 420,
+  controller: 450,
+  fingergun: 400,
+  spreadshot: 250,
+  tankshell: 500,
+  flamethrower: 170,
+  flare: 450,
+  afterburn: 200,
+  airblast: 180,
 };
 
 function wrapAngle(a: number) {

@@ -1,6 +1,6 @@
 import type { GameMode, Team } from "./constants";
 import type { PrankAction } from "./pranks";
-import type { AbilityId, ArchetypeId, Loadout, SectionId, SuperId, WeaponId } from "./archetypes";
+import type { AbilityId, ArchetypeId, CompanionKind, Loadout, SectionId, SuperId, WeaponId } from "./archetypes";
 import type { ClassLevels, ClassXp } from "./progress";
 
 export type Phase = "lobby" | "match" | "results";
@@ -82,6 +82,11 @@ export interface PlayerSnap {
   /** Feet off the floor (jumping, or standing on a desk) and rising speed; sent when not zero. */
   z?: number;
   vz?: number;
+  /** Gamer super: playing as Cuphead, Mugman or Captain Churchill, with this many seconds left. */
+  form?: CompanionKind;
+  formLeft?: number;
+  /** On fire from the Pyro: taking afterburn damage. */
+  burning?: boolean;
   /** Crouching: shorter and slower. */
   crouch?: boolean;
   /** Band and Orchestra Kids: the section they play in (sets their weapons). */
@@ -159,6 +164,8 @@ export type GameEvent =
   | { k: "super"; by: string; super: SuperId; x: number; y: number }
   /** Someone went through the TARDIS doors at (x, y) and came out at (tx, ty): inside, or back out. */
   | { k: "tardis"; who: string; x: number; y: number; tx: number; ty: number; inside: boolean }
+  /** A Gamer rolled their super and turned into one of the characters, at (x, y). */
+  | { k: "summon"; by: string; who: CompanionKind; x: number; y: number }
   /** The TARDIS dematerialized at (x, y) and landed at (tx, ty). */
   | { k: "tardisfly"; by: string; x: number; y: number; tx: number; ty: number; spot: number };
 

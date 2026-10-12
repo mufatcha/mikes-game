@@ -1,7 +1,8 @@
 import type { WeaponId } from "@/shared/archetypes";
 
 /**
- * The instruments the Band and Orchestra Kids play: which one each weapon
+ * The instruments the Band and Orchestra Kids play (and the Gamer's controller
+ * and the Pyro's flamethrower, held the same way): which one each weapon
  * is, and how it looks held in the top-down view. (The 3D models are in
  * avatar3d.ts.)
  */
@@ -16,7 +17,11 @@ export type Instrument =
   | "violin"
   | "viola"
   | "cello"
-  | "bass";
+  | "bass"
+  // Not instruments, but held the same way.
+  | "gamepad"
+  | "flamethrower"
+  | "flaregun";
 
 const INSTRUMENT_OF: Partial<Record<WeaponId, Instrument>> = {
   tuba: "tuba",
@@ -35,6 +40,10 @@ const INSTRUMENT_OF: Partial<Record<WeaponId, Instrument>> = {
   spiccato: "cello",
   doublebass: "bass",
   slap: "bass",
+  pixel: "gamepad",
+  controller: "gamepad",
+  flamethrower: "flamethrower",
+  flare: "flaregun",
 };
 
 /** The instrument a weapon is played on, or null for things you just throw. */
@@ -162,6 +171,36 @@ export function drawInstrument2D(ctx: CanvasRenderingContext2D, kind: Instrument
       end = 22 + 22 * s;
       break;
     }
+    case "gamepad": {
+      // A game controller held in both hands: two grips, a d-pad and four buttons.
+      ctx.fillStyle = "#1f2937";
+      ctx.beginPath();
+      ctx.roundRect(14, -9, 12, 18, 5);
+      ctx.fill();
+      disc(ctx, 16, -9, 4, 4, "#1f2937");
+      disc(ctx, 16, 9, 4, 4, "#1f2937");
+      ctx.fillStyle = "#9ca3af";
+      ctx.fillRect(18, -5.5, 4, 1.2);
+      ctx.fillRect(19.4, -7, 1.2, 4);
+      const buttons = ["#22c55e", "#ef4444", "#3b82f6", "#eab308"];
+      buttons.forEach((c, i) => disc(ctx, 20 + (i % 2 ? 2 : -0.5), 3.5 + (i > 1 ? 2 : 0), 1.1, 1.1, c));
+      end = 26;
+      break;
+    }
+    case "flamethrower":
+      // A long nozzle with a red tip and a little pilot flame.
+      bar(ctx, 10, 3, 40, 3, 5, "#6b7280");
+      bar(ctx, 40, 3, 44, 3, 6, "#b91c1c");
+      disc(ctx, 47, 3, 3, 2, "#fb923c");
+      bar(ctx, 6, 8, 18, 4, 2, "#374151");
+      end = 48;
+      break;
+    case "flaregun":
+      // A stubby orange flare pistol.
+      bar(ctx, 14, 0, 28, 0, 4, "#f97316");
+      bar(ctx, 16, 2, 14, 7, 3, "#1f2937");
+      end = 29;
+      break;
   }
   ctx.restore();
   return end * k;

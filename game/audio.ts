@@ -58,6 +58,17 @@ const SHOT_SOUNDS: Record<WeaponId, ShotSound> = {
   doublebass: { freq: 110, q: 4, duration: 0.4, gain: 0.85, thump: 45 },
   slap: { freq: 160, q: 2, duration: 0.12, gain: 0.6, thump: 70 },
   note: { freq: 990, q: 8, duration: 0.3, gain: 0.55, thump: 130 },
+  // The Gamer and their helpers: chiptune blips and a tank cannon.
+  pixel: { freq: 2200, q: 9, duration: 0.05, gain: 0.3, thump: 440 },
+  controller: { freq: 600, q: 0.8, duration: 0.14, gain: 0.55, thump: 90 },
+  fingergun: { freq: 2600, q: 6, duration: 0.04, gain: 0.25, thump: 350 },
+  spreadshot: { freq: 1500, q: 3, duration: 0.08, gain: 0.35, thump: 220 },
+  tankshell: { freq: 140, q: 0.6, duration: 0.5, gain: 0.9, thump: 40 },
+  // The Pyro: a roaring whoosh, a flare pop.
+  flamethrower: { freq: 500, q: 0.3, duration: 0.09, gain: 0.25, thump: 60 },
+  flare: { freq: 1800, q: 2, duration: 0.12, gain: 0.45, thump: 160 },
+  afterburn: { freq: 400, q: 0.4, duration: 0.15, gain: 0.3, thump: 60 },
+  airblast: { freq: 250, q: 0.3, duration: 0.45, gain: 0.85, thump: 50 },
 };
 
 /** Tiny synthesized sound effects, so the game needs no audio files. */

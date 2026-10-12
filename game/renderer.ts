@@ -30,6 +30,9 @@ import {
 } from "@/shared/map";
 import type { BulletSnap, GameEvent, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
 import {
+  AIRBLAST_RANGE,
+  COMPANIONS,
+  type CompanionKind,
   abilitiesOf,
   hasAbilities,
   EXTRA_CREDIT_RADIUS,
@@ -729,6 +732,10 @@ export class Renderer {
           } else if (e.super === "overclock") {
             this.burst(e.x, e.y, "#22d3ee", 24, 260);
             this.sfx.shot("redpen", vol);
+          } else if (e.super === "airblast") {
+            this.shockwaves.push({ x: e.x, y: e.y, born: now, color: "224,242,254", radius: AIRBLAST_RANGE });
+            this.burst(e.x, e.y, "#e0f2fe", 26, 320);
+            this.sfx.shot("airblast", vol);
           }
           if (mine) {
             this.shake = Math.max(this.shake, 6);
@@ -753,6 +760,20 @@ export class Renderer {
             if (mine) this.showBanner("🚪 Back out in the Library", "#bfdbfe", 2000);
           }
           this.burst(e.tx, e.ty, "#60a5fa", 16, 120);
+          break;
+        }
+        case "summon": {
+          // Character select: the Gamer turns into Cuphead, Mugman or Captain Churchill.
+          const c = COMPANIONS[e.who];
+          const mine = e.by === myId;
+          this.burst(e.x, e.y, e.who === "mugman" ? "#60a5fa" : e.who === "cuphead" ? "#f87171" : "#84cc16", 30, 220);
+          this.sfx.kill();
+          const name = roster.get(e.by)?.name ?? "A Gamer";
+          this.showBanner(
+            mine ? `🎮 You're playing as ${c.emoji} ${c.name}!` : `🎮 ${name} is playing as ${c.emoji} ${c.name}!`,
+            mine ? "#fde68a" : "#e5e7eb",
+            3000,
+          );
           break;
         }
         case "tardisfly": {
@@ -1316,6 +1337,7 @@ export class Renderer {
     const scale = (1 + lift / 90) * (crouch ? 0.82 : 1);
     if (scale === 1) {
       this.drawPlayerBody(p, x, y, aim, info, isMe, now);
+      if (p.burning) this.drawBurning(x, y, radiusFor(p.archetype), now);
       return;
     }
     const { ctx } = this;
@@ -1332,6 +1354,114 @@ export class Renderer {
     ctx.translate(-x, -y);
     this.drawPlayerBody(p, x, y, aim, info, isMe, now);
     ctx.restore();
+    if (p.burning) this.drawBurning(x, y, radiusFor(p.archetype) * scale, now);
+  }
+
+  /**
+   * Cuphead and Mugman from above: a cup (or mug) for a head, brown drink on
+   * top and a striped straw, over their shorts, with a finger gun pointing.
+   * Captain Churchill: his tank, turret and barrel, with him in the hatch.
+   */
+  private drawCharacterTopDown(form: CompanionKind, x: number, y: number, aim: number, team: Team, isMe: boolean) {
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.arc(4, 6, 20, 0, Math.PI * 2);
+    ctx.fill();
+    if (form === "churchill") {
+      ctx.rotate(aim);
+      // Treads, hull (with a stripe in team color), turret and the long barrel.
+      ctx.fillStyle = "#27272a";
+      ctx.fillRect(-24, -20, 48, 9);
+      ctx.fillRect(-24, 11, 48, 9);
+      ctx.fillStyle = "#4d5b2a";
+      ctx.fillRect(-22, -13, 44, 26);
+      ctx.fillStyle = TEAM_COLORS[team];
+      ctx.fillRect(-22, -2, 44, 4);
+      ctx.fillStyle = "#3f4a22";
+      ctx.fillRect(8, -2.5, 30, 5);
+      ctx.beginPath();
+      ctx.arc(-2, 0, 11, 0, Math.PI * 2);
+      ctx.fill();
+      // Churchill in the hatch, in his beret.
+      ctx.fillStyle = "#e0ac69";
+      ctx.beginPath();
+      ctx.arc(-4, 0, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#14532d";
+      ctx.beginPath();
+      ctx.ellipse(-6, -1, 5, 4.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const shorts = form === "cuphead" ? "#dc2626" : "#2563eb";
+      ctx.fillStyle = shorts;
+      ctx.beginPath();
+      ctx.arc(0, 0, 17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = TEAM_COLORS[team];
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      // White-gloved finger gun pointing where they aim.
+      ctx.save();
+      ctx.rotate(aim);
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.arc(19, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(19, -1.5, 9, 3);
+      ctx.restore();
+      // The cup (or mug, with its handle) seen from above, full of drink.
+      if (form === "mugman") {
+        ctx.strokeStyle = "#f8fafc";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(-13, 0, 5, Math.PI * 0.5, Math.PI * 1.5);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#7c2d12";
+      ctx.beginPath();
+      ctx.arc(0, 0, 9, 0, Math.PI * 2);
+      ctx.fill();
+      // The striped straw sticking up and out.
+      ctx.lineCap = "round";
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#f8fafc";
+      ctx.beginPath();
+      ctx.moveTo(2, -2);
+      ctx.lineTo(10, -14);
+      ctx.stroke();
+      ctx.strokeStyle = form === "cuphead" ? "#dc2626" : "#2563eb";
+      ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+    if (isMe) {
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 24, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  /** Flickering flames around someone who's on fire. */
+  private drawBurning(x: number, y: number, r: number, now: number) {
+    const { ctx } = this;
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + now / 300;
+      const flick = 0.6 + 0.4 * Math.sin(now / 60 + i * 2.3);
+      ctx.fillStyle = i % 2 ? `rgba(251,146,60,${0.75 * flick})` : `rgba(250,204,21,${0.7 * flick})`;
+      ctx.beginPath();
+      ctx.ellipse(x + Math.cos(a) * r, y + Math.sin(a) * r - 4, 5 * flick, 9 * flick, a, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   private drawPlayerBody(
@@ -1345,6 +1475,11 @@ export class Renderer {
   ) {
     const { ctx } = this;
     const team: Team = info?.team ?? 0;
+    if (p.form) {
+      // The Gamer playing as Cuphead, Mugman or Captain Churchill.
+      this.drawCharacterTopDown(p.form, x, y, aim, team, isMe);
+      return;
+    }
     const weapon = WEAPONS[p.weapon];
     const archetype = ARCHETYPES[p.archetype];
     const r = radiusFor(p.archetype);
@@ -1630,6 +1765,23 @@ export class Renderer {
     // Weapon
     this.panel(cw - 276, ch - 76, 260, 60);
     this.text(weapon.name.toUpperCase(), cw - 262, ch - 60, 11, "#9ca3af");
+    if (me.form) {
+      // Playing as Cuphead, Mugman or Churchill: unlimited shots, and a countdown.
+      const c = COMPANIONS[me.form];
+      this.text("∞", cw - 262, ch - 36, 26, "#f9fafb", "left", 800);
+      this.text(`${c.emoji} ${c.name}`, cw - 30, ch - 58, 12, "#fde68a", "right", 800);
+      this.text(`${Math.ceil(me.formLeft ?? 0)}s left`, cw - 30, ch - 40, 11, "#9ca3af", "right", 600);
+    } else {
+      this.drawAmmo(me, weapon);
+    }
+
+    // Center messages
+    this.drawCenterMessages(me, touch, binds);
+  }
+
+  /** Ammo, your two weapons, and the reload bar. */
+  private drawAmmo(me: PlayerSnap, weapon: (typeof WEAPONS)[keyof typeof WEAPONS]) {
+    const { ctx, cw, ch } = this;
     const low = me.ammo <= Math.ceil(weapon.magSize * 0.25);
     this.text(`${me.ammo}`, cw - 262, ch - 36, 26, low ? "#f87171" : "#f9fafb", "left", 800);
     ctx.font = "800 26px ui-sans-serif, system-ui, sans-serif";
@@ -1654,8 +1806,11 @@ export class Renderer {
       ctx.fillStyle = "#fbbf24";
       ctx.fillRect(cw - 262, ch - 22, 232 * Math.min(1, me.reload), 4);
     }
+  }
 
-    // Center messages
+  /** Respawn countdown, the Nurse's Office timer, detention and other messages in the middle. */
+  private drawCenterMessages(me: PlayerSnap, touch: boolean, binds: ReturnType<typeof getKeybinds>) {
+    const { cw, ch } = this;
     if (!me.alive) {
       this.panel(cw / 2 - 190, ch / 2 - 60, 380, 96);
       this.text(this.deathMessage ?? "Eliminated", cw / 2, ch / 2 - 32, 16, "#f87171", "center", 700);

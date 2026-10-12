@@ -51,6 +51,13 @@ import {
 import type { BulletSnap, GameEvent, InputFrame, PlayerSnap, ZoneSnap } from "../shared/protocol";
 import {
   ABILITY_IDS,
+  AFTERBURN_DAMAGE,
+  AIRBLAST_CONE,
+  AIRBLAST_PUSH,
+  AIRBLAST_RANGE,
+  COMPANIONS,
+  rollCompanion,
+  type CompanionKind,
   ANTIOXIDANT_HEAL,
   ANTIOXIDANT_SPEED,
   ANTIOXIDANT_TIME,
@@ -179,6 +186,14 @@ export interface PlayerState extends MatchEntry {
   vz: number;
   /** Holding crouch: shorter and slower. */
   crouching: boolean;
+  /** Gamer super: playing as one of these characters until formUntil. */
+  form: CompanionKind | null;
+  formUntil: number;
+  /** On fire (Pyro) until this match time: afterburn every half second, credited to burnBy. */
+  burnUntil: number;
+  nextBurn: number;
+  burnBy: string;
+  burnTeam: Team;
   /** 3D view: how far up (positive) or down they're aiming. */
   pitch: number;
   /** Principal and mascots: match time each ability is ready again. */
@@ -344,6 +359,8 @@ export class Match {
   }
 
   currentWeapon(p: PlayerState): WeaponId {
+    // Playing as Cuphead, Mugman or Churchill, you shoot what they shoot.
+    if (p.form) return COMPANIONS[p.form].weapon;
     return weaponsOf(p.loadout.archetype, p.loadout.section)[p.slot];
   }
 
@@ -397,6 +414,7 @@ export class Match {
       p.vy = (p.y - py) / DT;
       if (p.alive) this.updateSafeZone(p);
       if (p.alive) this.rideTardis(p);
+      if (p.alive) this.updateFormAndBurn(p);
       if (p.isBot && p.alive && this.isBoss(p)) this.botAbilities(p);
       if (p.alive && !this.isBoss(p)) {
         p.superCharge = Math.min(1, p.superCharge + DT / SUPER_PASSIVE_SECONDS);
@@ -431,6 +449,8 @@ export class Match {
         ...(p.alive && p.z > 0 && { z: p.z }),
         ...(p.alive && p.vz !== 0 && { vz: p.vz }),
         ...(p.alive && p.crouching && { crouch: true }),
+        ...(p.alive && p.form && { form: p.form, formLeft: r1(Math.max(0, p.formUntil - this.time)) }),
+        ...(p.alive && this.time < p.burnUntil && { burning: true }),
         slot: p.slot,
         ammo: p.ammo[p.slot],
         reload:
@@ -536,6 +556,12 @@ export class Match {
       z: 0,
       vz: 0,
       crouching: false,
+      form: null,
+      formUntil: 0,
+      burnUntil: 0,
+      nextBurn: 0,
+      burnBy: "",
+      burnTeam: 0,
       reversedUntil: 0,
       slowUntil: 0,
       turbo: false,
@@ -594,7 +620,7 @@ export class Match {
       p.ammo[p.slot] = weapon.magSize;
       p.reloadEnd = -1;
     }
-    if (input.reload && p.reloadEnd < 0 && p.ammo[p.slot] < weapon.magSize) {
+    if (input.reload && !p.form && p.reloadEnd < 0 && p.ammo[p.slot] < weapon.magSize) {
       this.startReload(p);
     }
 
@@ -609,7 +635,7 @@ export class Match {
       this.time >= p.swapReadyAt &&
       (this.isBoss(p) || !inSafeZone(p.x, p.y));
     if (wantsFire && ready) {
-      if (p.ammo[p.slot] > 0) {
+      if (p.form || p.ammo[p.slot] > 0) {
         this.fire(p, weapon.id);
         p.triggerQueued = false;
       } else {
@@ -627,7 +653,8 @@ export class Match {
 
   private fire(p: PlayerState, weaponId: WeaponId) {
     const weapon = WEAPONS[weaponId];
-    if (!p.infAmmo) p.ammo[p.slot]--;
+    // Playing as Cuphead, Mugman or Churchill: shots never run out.
+    if (!p.infAmmo && !p.form) p.ammo[p.slot]--;
     p.nextFire = this.time + 1 / (weapon.fireRate * (this.time < p.overclockUntil ? 2 : 1));
     p.protectedUntil = 0;
     const pitch = this.pitchOf(p, weaponId);
@@ -639,7 +666,7 @@ export class Match {
       this.launch(p, weaponId, p.x, p.y, this.handHeight(p), angle, tilt, speed, weapon.damage * this.damageMult(p));
     }
     this.events.push({ k: "shot", by: p.id, weapon: weaponId });
-    if (p.ammo[p.slot] === 0) this.startReload(p);
+    if (p.ammo[p.slot] === 0 && !p.form) this.startReload(p);
   }
 
   /**
@@ -773,7 +800,7 @@ export class Match {
     const w = WEAPONS[b.weapon];
     const r = w.radius;
     const isBall = w.style === "ball" && !w.burst;
-    const vz = b.vz - GRAVITY * GRAVITY_SCALE[w.style] * DT;
+    const vz = b.vz - GRAVITY * (w.gravity ?? GRAVITY_SCALE[w.style]) * DT;
     const nx = b.x + b.vx * DT;
     const ny = b.y + b.vy * DT;
     const nz = b.z + ((b.vz + vz) / 2) * DT;
@@ -887,7 +914,9 @@ export class Match {
       this.events.push({ k: "impact", x: r1(x), y: r1(y) });
       return;
     }
-    const dmg = Math.min(target.hp, b.damage * (1 - ARCHETYPES[target.loadout.archetype].defense));
+    // Captain Churchill's tank shrugs off most of a hit.
+    const defense = target.form ? COMPANIONS[target.form].defense : ARCHETYPES[target.loadout.archetype].defense;
+    const dmg = Math.min(target.hp, b.damage * (1 - defense));
     target.hp -= dmg;
     target.brain?.onDamaged(b.owner, this.time);
     this.events.push({ k: "hit", by: b.owner, target: target.id, x: r1(x), y: r1(y), dmg: Math.round(dmg) });
@@ -895,6 +924,14 @@ export class Match {
     if (stun) target.stunnedUntil = Math.max(target.stunnedUntil, this.time + stun);
     const slow = WEAPONS[b.weapon].slow;
     if (slow) target.slowUntil = Math.max(target.slowUntil, this.time + slow);
+    // Pyro fire: keeps burning for a few seconds (afterburn), credited to whoever lit it.
+    const burn = WEAPONS[b.weapon].burn;
+    if (burn && target.hp > dmg) {
+      if (this.time >= target.burnUntil) target.nextBurn = this.time + 0.5;
+      target.burnUntil = Math.max(target.burnUntil, this.time + burn);
+      target.burnBy = b.owner;
+      target.burnTeam = b.team;
+    }
     const attacker = this.players.get(b.owner);
     if (attacker) {
       // Dealing damage fills your super (but not damage from supers themselves) and earns class XP.
@@ -935,6 +972,8 @@ export class Match {
     p.z = 0;
     p.vz = 0;
     p.crouching = false;
+    p.form = null;
+    p.burnUntil = 0;
     p.vy = 0;
     p.aim = p.team === 0 ? 0 : Math.PI;
     p.hp = Math.round(p.maxHp * p.spawnHpFrac);
@@ -968,6 +1007,57 @@ export class Match {
    * from inside and you're out in the Library again. Bots stay out, since
    * they can't find their way around in there.
    */
+  /** Turn back into the Gamer when your character's time is up, and burn while you're on fire. */
+  private updateFormAndBurn(p: PlayerState) {
+    if (p.form && this.time >= p.formUntil) {
+      p.form = null;
+      p.reloadEnd = -1;
+    }
+    if (this.time >= p.burnUntil) return;
+    // The Nurse's Office puts you out.
+    if (inSafeZone(p.x, p.y)) {
+      p.burnUntil = 0;
+      return;
+    }
+    if (this.time >= p.nextBurn) {
+      p.nextBurn = this.time + 0.5;
+      this.damage(p, { owner: p.burnBy, team: p.burnTeam, weapon: "afterburn", damage: AFTERBURN_DAMAGE }, p.x, p.y);
+    }
+  }
+
+  /**
+   * The Pyro's Airblast: everyone in a cone in front is knocked back (and
+   * stung a little), and enemy throws in it turn around and fly back the way
+   * the Pyro is facing, now on the Pyro's team.
+   */
+  private airblast(p: PlayerState) {
+    const inCone = (x: number, y: number, reach: number) => {
+      const d = Math.hypot(x - p.x, y - p.y);
+      if (d > reach) return false;
+      let diff = Math.atan2(y - p.y, x - p.x) - p.aim;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      return d < 30 || Math.abs(diff) < AIRBLAST_CONE;
+    };
+    for (const t of this.players.values()) {
+      if (!t.alive || t.team === p.team || this.isJailed(t)) continue;
+      if (!inCone(t.x, t.y, AIRBLAST_RANGE + t.radius) || !hasLineOfSight(p.x, p.y, t.x, t.y)) continue;
+      const a = Math.atan2(t.y - p.y, t.x - p.x);
+      for (let d = 0; d < AIRBLAST_PUSH; d += 25) movePlayer(t, Math.cos(a), Math.sin(a), 25 / DT, DT, t.radius);
+      t.inputs = [];
+      this.damage(t, this.superShot(p, "airblast"), t.x, t.y);
+    }
+    for (const b of this.bullets) {
+      if (b.team === p.team || !inCone(b.x, b.y, AIRBLAST_RANGE + 40)) continue;
+      const speed = Math.hypot(b.vx, b.vy) * 1.1;
+      b.vx = Math.cos(p.aim) * speed;
+      b.vy = Math.sin(p.aim) * speed;
+      b.team = p.team;
+      b.owner = p.id;
+      b.travelled = 0;
+    }
+  }
+
   private rideTardis(p: PlayerState) {
     if (p.isBot || this.time < p.tardisReadyAt || this.isJailed(p)) return;
     const goingIn = atTardisDoor(p.x, p.y);
@@ -1248,6 +1338,18 @@ export class Match {
       case "crescendo":
         this.fan(p, "note", 9, 0.6);
         break;
+      case "summon": {
+        // Character select: roll who you'll play as for a while.
+        const who = rollCompanion();
+        p.form = who;
+        p.formUntil = this.time + COMPANIONS[who].secs;
+        p.reloadEnd = -1;
+        this.events.push({ k: "summon", by: p.id, who, x: r1(p.x), y: r1(p.y) });
+        break;
+      }
+      case "airblast":
+        this.airblast(p);
+        break;
     }
     this.events.push({ k: "super", by: p.id, super: def.id, x: r1(p.x), y: r1(p.y) });
   }
@@ -1337,7 +1439,7 @@ export class Match {
       return;
     }
     let nearest: PlayerState | null = null;
-    let best = def.id === "paintbomb" || def.id === "dash" ? 300 : 600;
+    let best = def.id === "paintbomb" || def.id === "dash" ? 300 : def.id === "airblast" ? AIRBLAST_RANGE : 600;
     for (const t of this.players.values()) {
       if (!t.alive || t.team === p.team || this.isJailed(t)) continue;
       const d = Math.hypot(t.x - p.x, t.y - p.y);
@@ -1358,7 +1460,8 @@ export class Match {
     const boost =
       (p.superSpeed ? SUPER_MULT : p.turbo ? TURBO_MULT : 1) *
       (this.time < p.overclockUntil ? OVERCLOCK_SPEED : 1) *
-      (this.time < p.hasteUntil ? ANTIOXIDANT_SPEED : 1);
+      (this.time < p.hasteUntil ? ANTIOXIDANT_SPEED : 1) *
+      (p.form ? COMPANIONS[p.form].speed : 1);
     // 7v1 buff: the boss Principal is a bit quicker.
     const boss = this.mode === "boss" && this.isBoss(p) ? BOSS_SPEED_BONUS : 1;
     return boost * boss * (this.time < p.slowUntil ? SLOW_MULT : 1);

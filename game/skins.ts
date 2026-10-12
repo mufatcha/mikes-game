@@ -15,6 +15,9 @@ export const SKIN: Record<ArchetypeId, string> = {
   clown: "#fafafa",
   bandkid: "#8d5524",
   orchestra: "#ffe0bd",
+  gamer: "#e0ac69",
+  // The Pyro's face is all gas mask.
+  pyro: "#3f3f46",
   principal: "#d6a57c",
   // The mascots' "skin" is the fruit itself.
   blueberry: "#4338ca",
@@ -108,6 +111,16 @@ export function drawFace(
     ctx.beginPath();
     ctx.ellipse(cx, cy - r * 0.8, r, r * 0.42, 0, 0, Math.PI * 2);
     ctx.fill();
+  } else if (a === "gamer") {
+    // Messy, spiky hair.
+    ctx.fillStyle = "#1c1917";
+    ctx.beginPath();
+    ctx.moveTo(cx - r, cy - r * 0.4);
+    for (let i = 0; i <= 8; i++) ctx.lineTo(cx - r + (i * r) / 4, cy - r * (i % 2 ? 1.05 : 0.6));
+    ctx.lineTo(cx + r, cy - r * 0.4);
+    ctx.lineTo(cx + r, cy - r);
+    ctx.lineTo(cx - r, cy - r);
+    ctx.fill();
   } else if (a === "orchestra") {
     // Neatly combed hair with a side part, ready for the concert.
     ctx.fillStyle = "#3f2a1d";
@@ -182,6 +195,27 @@ export function drawFace(
     ctx.beginPath();
     ctx.ellipse(cx + r * 0.32, cy - r * 1.12, r * 0.34, r * 0.14, -0.4, 0, Math.PI * 2);
     ctx.fill();
+  } else if (a === "gamer") {
+    // A gaming headset: band over the top, glowing ear cups, and a mic.
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = r * 0.18;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.02, Math.PI * 1.08, Math.PI * 1.92);
+    ctx.stroke();
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.roundRect(cx + s * r * 0.98 - r * 0.2, cy - r * 0.3, r * 0.4, r * 0.62, r * 0.12);
+      ctx.fill();
+      ctx.fillStyle = "#4ade80";
+      ctx.fillRect(cx + s * r * 0.98 - r * 0.06, cy - r * 0.12, r * 0.12, r * 0.26);
+    }
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = r * 0.08;
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.95, cy + r * 0.2);
+    ctx.quadraticCurveTo(cx - r * 0.85, cy + r * 0.6, cx - r * 0.35, cy + r * 0.5);
+    ctx.stroke();
   } else if (a === "bandkid") {
     // A tall marching-band shako: navy with a gold band, a black visor and a white plume.
     ctx.fillStyle = "#1e3a8a";
@@ -224,7 +258,14 @@ export function drawFace(
         ctx.fill();
       }
     }
-    if (isMascot(a)) {
+    if (a === "pyro") {
+      // The gas mask's two big round lenses, dark with a glint.
+      for (const s of [-1, 1]) {
+        circle(ctx, cx + s * ex, ey - r * 0.05, r * 0.3, "#9ca3af");
+        circle(ctx, cx + s * ex, ey - r * 0.05, r * 0.23, "#18181b");
+        circle(ctx, cx + s * ex - r * 0.08, ey - r * 0.13, r * 0.06, "rgba(255,255,255,0.7)");
+      }
+    } else if (isMascot(a)) {
       // Mascots have big friendly cartoon eyes.
       for (const s of [-1, 1]) {
         circle(ctx, cx + s * ex, ey - r * 0.05, r * 0.22, "#fff");
@@ -281,6 +322,10 @@ export function drawFace(
       ctx.ellipse(cx - r * 0.2, cy + r * 0.38, r * 0.24, r * 0.1, 0.2, 0, Math.PI * 2);
       ctx.ellipse(cx + r * 0.2, cy + r * 0.38, r * 0.24, r * 0.1, -0.2, 0, Math.PI * 2);
       ctx.fill();
+    } else if (a === "pyro") {
+      // No mouth showing: just the gas mask's round filter.
+      circle(ctx, cx, cy + r * 0.42, r * 0.26, "#6b7280");
+      circle(ctx, cx, cy + r * 0.42, r * 0.14, "#27272a");
     } else if (isMascot(a)) {
       // A big open grin.
       ctx.fillStyle = "#450a0a";
@@ -419,6 +464,41 @@ export function drawOutfit(
       ctx.lineTo(x + w, y);
       ctx.fill();
       break;
+    case "pyro":
+      // A fireproof suit: leather belt and a strap across the chest, a pocket.
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(x, y + h * 0.75, w, h * 0.08);
+      ctx.strokeStyle = "#78350f";
+      ctx.lineWidth = Math.max(1, w * 0.07);
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.1, y);
+      ctx.lineTo(x + w * 0.9, y + h * 0.7);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(0,0,0,0.25)";
+      ctx.fillRect(x + w * 0.62, y + h * 0.3, w * 0.22, h * 0.18);
+      break;
+    case "gamer":
+      // A dark hoodie with a green controller on the chest and the drawstrings hanging down.
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "#4ade80";
+      ctx.beginPath();
+      ctx.roundRect(cx - w * 0.22, y + h * 0.42, w * 0.44, h * 0.18, h * 0.08);
+      ctx.fill();
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(cx - w * 0.15, y + h * 0.49, w * 0.08, h * 0.04);
+      ctx.fillRect(cx - w * 0.13, y + h * 0.46, w * 0.04, h * 0.1);
+      circle(ctx, cx + w * 0.1, y + h * 0.48, w * 0.025, "#1f2937");
+      circle(ctx, cx + w * 0.15, y + h * 0.53, w * 0.025, "#1f2937");
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = Math.max(1, w * 0.025);
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.08, y);
+      ctx.lineTo(cx - w * 0.08, y + h * 0.3);
+      ctx.moveTo(cx + w * 0.08, y);
+      ctx.lineTo(cx + w * 0.08, y + h * 0.3);
+      ctx.stroke();
+      break;
     case "bandkid":
       // Marching-band uniform: white cross-belts, a row of gold buttons, gold collar.
       ctx.strokeStyle = "#f8fafc";
@@ -511,6 +591,8 @@ function drawBackOfHead(ctx: CanvasRenderingContext2D, cx: number, cy: number, r
     artkid: "#7c4a1e",
     nerd: "#78350f",
     orchestra: "#3f2a1d",
+    gamer: "#1c1917",
+    pyro: "#3f3f46",
     bandkid: "#1c1917",
   };
   if (a === "clown") {
@@ -557,6 +639,27 @@ function drawOutfitBack(ctx: CanvasRenderingContext2D, a: ArchetypeId, x: number
     case "orchestra":
       ctx.fillStyle = "#111827"; // the back of the concert jacket
       ctx.fillRect(x, y, w, h);
+      break;
+    case "pyro": {
+      // The air tank for the flamethrower, strapped on the back.
+      ctx.fillStyle = "#6b7280";
+      ctx.beginPath();
+      ctx.roundRect(x + w * 0.3, y + h * 0.1, w * 0.4, h * 0.7, w * 0.15);
+      ctx.fill();
+      ctx.fillStyle = "#9ca3af";
+      ctx.fillRect(x + w * 0.45, y + h * 0.02, w * 0.1, h * 0.1);
+      ctx.fillStyle = "#78350f";
+      ctx.fillRect(x, y + h * 0.75, w, h * 0.08);
+      break;
+    }
+    case "gamer":
+      // The back of the hoodie, with the hood hanging down.
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, y + h * 0.12, w * 0.32, h * 0.2, 0, 0, Math.PI);
+      ctx.fill();
       break;
     case "bandkid":
       // Cross-belts meet in the middle of the back too, and a gold-trimmed collar.

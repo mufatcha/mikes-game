@@ -383,6 +383,24 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 820, y: 1720 },
     { x: 438, y: 1720 },
   ],
+  // The Gamer camps at the Library computers.
+  gamer: [
+    { x: 1175, y: 300 },
+    { x: 1625, y: 300 },
+    { x: 1310, y: 600 },
+    { x: 1440, y: 600 },
+    { x: 1175, y: 450 },
+    { x: 1625, y: 450 },
+  ],
+  // The Pyro lurks around the Cafeteria kitchen.
+  pyro: [
+    { x: 60, y: 1100 },
+    { x: 820, y: 1100 },
+    { x: 60, y: 1700 },
+    { x: 820, y: 1700 },
+    { x: 300, y: 1500 },
+    { x: 600, y: 1260 },
+  ],
   // The pep band warms up in the gym.
   bandkid: [
     { x: 200, y: 150 },

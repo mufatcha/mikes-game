@@ -51,6 +51,15 @@ export type WeaponId =
   | "spiccato"
   | "doublebass"
   | "slap"
+  | "pixel"
+  | "controller"
+  | "fingergun"
+  | "spreadshot"
+  | "tankshell"
+  | "flamethrower"
+  | "flare"
+  | "afterburn"
+  | "airblast"
   | "note";
 
 export type ArchetypeId =
@@ -62,6 +71,8 @@ export type ArchetypeId =
   | "clown"
   | "bandkid"
   | "orchestra"
+  | "gamer"
+  | "pyro"
   | "principal"
   | "blueberry"
   | "orangepeel";
@@ -88,6 +99,10 @@ export interface WeaponDef {
   bounces?: number;
   /** Seconds a hit stuns the target for. */
   stun?: number;
+  /** Seconds a hit sets the target on fire for (afterburn). */
+  burn?: number;
+  /** Overrides how much gravity pulls it in 3D (negative floats up, like flames). */
+  gravity?: number;
   /** Seconds a hit slows the target for. */
   slow?: number;
   /** Bursts into this many of another projectile when it lands or hits something. */
@@ -353,6 +368,54 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1300, spread: 0.04, pellets: 1, range: 600, auto: false,
     radius: 5, color: "#a16207", style: "blob",
   },
+  // The Gamer.
+  pixel: {
+    id: "pixel", name: "Pixel Blaster", damage: 12, fireRate: 8, magSize: 32, reloadTime: 1.6,
+    projectileSpeed: 1550, spread: 0.05, pellets: 1, range: 750, auto: true,
+    radius: 3, color: "#4ade80", style: "blob",
+  },
+  controller: {
+    id: "controller", name: "Controller Toss", damage: 40, fireRate: 1.5, magSize: 4, reloadTime: 1.9,
+    projectileSpeed: 1200, spread: 0.02, pellets: 1, range: 850, auto: false,
+    radius: 7, color: "#1f2937", style: "ball",
+  },
+  // What the Gamer shoots while playing as Cuphead, Mugman or Captain Churchill (never runs out).
+  fingergun: {
+    id: "fingergun", name: "Cuphead's Peashooter", damage: 11, fireRate: 8, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1700, spread: 0.03, pellets: 1, range: 700, auto: true,
+    radius: 3, color: "#93c5fd", style: "streak",
+  },
+  spreadshot: {
+    id: "spreadshot", name: "Mugman's Spread", damage: 9, fireRate: 2.6, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1400, spread: 0.2, pellets: 3, range: 450, auto: true,
+    radius: 4, color: "#c4b5fd", style: "blob",
+  },
+  tankshell: {
+    id: "tankshell", name: "Churchill's Tank Shell", damage: 45, fireRate: 1.1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1100, spread: 0.01, pellets: 1, range: 900, auto: true,
+    radius: 8, color: "#3f3f46", style: "ball",
+  },
+  // The Pyro.
+  flamethrower: {
+    id: "flamethrower", name: "Flamethrower", damage: 4, fireRate: 20, magSize: 200, reloadTime: 3,
+    projectileSpeed: 700, spread: 0.18, pellets: 1, range: 270, auto: true,
+    radius: 9, color: "#f97316", style: "blob", burn: 3, gravity: -0.15,
+  },
+  flare: {
+    id: "flare", name: "Flare Gun", damage: 25, fireRate: 1.4, magSize: 16, reloadTime: 1.6,
+    projectileSpeed: 1500, spread: 0.01, pellets: 1, range: 950, auto: false,
+    radius: 4, color: "#fb7185", style: "streak", burn: 4,
+  },
+  afterburn: {
+    id: "afterburn", name: "Afterburn", damage: 4, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "#f97316", style: "blob",
+  },
+  airblast: {
+    id: "airblast", name: "Airblast", damage: 15, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "#e0f2fe", style: "blob",
+  },
   // Orchestra Kid super.
   note: {
     id: "note", name: "Crescendo", damage: 32, fireRate: 1, magSize: 1, reloadTime: 1,
@@ -421,6 +484,18 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     tagline: "First chair, first strike. Strings only; two can play on a team.",
     defense: 0.1, speed: 1.0, primary: "violin", secondary: "pizzicato",
     ratings: { attack: 3, defense: 2, speed: 3, range: 4 },
+  },
+  gamer: {
+    id: "gamer", name: "Gamer", emoji: "🎮",
+    tagline: "Pixel-perfect aim, and a super that turns you into Cuphead, Mugman or Captain Churchill.",
+    defense: 0.05, speed: 1.05, primary: "pixel", secondary: "controller",
+    ratings: { attack: 3, defense: 1, speed: 4, range: 3 },
+  },
+  pyro: {
+    id: "pyro", name: "Pyro", emoji: "🔥",
+    tagline: "Mmph mmph! Sets everything up close on fire, and blasts your throws right back at you.",
+    defense: 0.2, speed: 1.0, primary: "flamethrower", secondary: "flare",
+    ratings: { attack: 5, defense: 3, speed: 3, range: 1 },
   },
   // Boss of the 7v1 mode; never in the class picker.
   principal: {
@@ -676,7 +751,17 @@ export function detentionSeconds(score: number) {
 
 // ---------------------------------------------------------------- class supers
 
-export type SuperId = "extracredit" | "meatball" | "dash" | "paintbomb" | "overclock" | "pies" | "fightsong" | "crescendo";
+export type SuperId =
+  | "extracredit"
+  | "meatball"
+  | "dash"
+  | "paintbomb"
+  | "overclock"
+  | "pies"
+  | "fightsong"
+  | "crescendo"
+  | "summon"
+  | "airblast";
 
 export interface SuperDef {
   id: SuperId;
@@ -719,7 +804,50 @@ export const SUPERS: Partial<Record<ArchetypeId, SuperDef>> = {
     id: "crescendo", name: "Crescendo", emoji: "🎼",
     description: "Swell to a fortissimo: a wide fan of 9 big music notes.",
   },
+  gamer: {
+    id: "summon", name: "Character Select", emoji: "🎮",
+    description: "Roll a character and play as them: Cuphead or Mugman for 12 seconds, or (rarer) Captain Churchill in his tank for 10.",
+  },
+  pyro: {
+    id: "airblast", name: "Airblast", emoji: "💨",
+    description: "A blast of compressed air: knocks back everyone in front of you and sends their throws flying back at them.",
+  },
 };
+
+/** Who the Gamer's super can turn you into, and how likely each is. */
+export type CompanionKind = "cuphead" | "mugman" | "churchill";
+export const COMPANIONS: Record<
+  CompanionKind,
+  {
+    name: string;
+    emoji: string;
+    chance: number;
+    secs: number;
+    /** What you shoot while you're them (no reloading). */
+    weapon: WeaponId;
+    /** Movement speed multiplier. */
+    speed: number;
+    /** Fraction of incoming damage ignored. */
+    defense: number;
+  }
+> = {
+  cuphead: { name: "Cuphead", emoji: "☕", chance: 0.4, secs: 12, weapon: "fingergun", speed: 1.15, defense: 0.1 },
+  mugman: { name: "Mugman", emoji: "🍺", chance: 0.4, secs: 12, weapon: "spreadshot", speed: 1.15, defense: 0.1 },
+  churchill: { name: "Captain Churchill", emoji: "🪖", chance: 0.2, secs: 10, weapon: "tankshell", speed: 0.8, defense: 0.55 },
+};
+
+/** Roll the Gamer's super. */
+export function rollCompanion(r = Math.random()): CompanionKind {
+  if (r < COMPANIONS.cuphead.chance) return "cuphead";
+  if (r < COMPANIONS.cuphead.chance + COMPANIONS.mugman.chance) return "mugman";
+  return "churchill";
+}
+
+export const AIRBLAST_RANGE = 230;
+export const AIRBLAST_CONE = (40 * Math.PI) / 180;
+export const AIRBLAST_PUSH = 200;
+/** Afterburn: this much damage every half second while you're on fire. */
+export const AFTERBURN_DAMAGE = 4;
 
 /** Damage you need to deal to fill your super from empty. */
 export const SUPER_CHARGE_DAMAGE = 450;
@@ -754,4 +882,9 @@ export const SPECIAL_WEAPONS: WeaponId[] = [
   "bigorange",
   "segment",
   "note",
+  "fingergun",
+  "spreadshot",
+  "tankshell",
+  "afterburn",
+  "airblast",
 ];

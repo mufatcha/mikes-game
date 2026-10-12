@@ -2,6 +2,7 @@ import { PLAYER_HEIGHT, TEAM_COLORS, type Team } from "@/shared/constants";
 import type { ArchetypeId } from "@/shared/archetypes";
 import { SKIN, drawFace, drawOutfit } from "./skins";
 import type { Instrument } from "./instruments";
+import type { CompanionKind } from "@/shared/archetypes";
 import { CROUCH_SCALE } from "@/shared/physics";
 
 /**
@@ -69,6 +70,7 @@ const SLEEVES: Partial<Record<ArchetypeId, string>> = {
   jock: "#f8fafc",
   principal: "#1f2937",
   orchestra: "#111827",
+  gamer: "#1f2937",
 };
 
 // ---------------------------------------------------------------- textures
@@ -337,6 +339,100 @@ function flush(out: Drawable[]) {
 export const FIGURE_HEIGHT = PLAYER_HEIGHT;
 
 /** The parts of a figure, standing at the origin and facing +f. */
+/** Cuphead's (or Mugman's) face on the front of the cup: pie-cut eyes, a nose and a grin, and a band round the cup. */
+function cupFaceTex(form: "cuphead" | "mugman") {
+  return makeTex(`cup:${form}`, (g) => {
+    g.fillStyle = "#f8fafc";
+    g.fillRect(0, 0, TEX, TEX);
+    for (const s of [-1, 1]) {
+      const ex = TEX / 2 + s * TEX * 0.17;
+      g.fillStyle = "#111827";
+      g.beginPath();
+      g.ellipse(ex, TEX * 0.42, TEX * 0.08, TEX * 0.13, 0, 0, Math.PI * 2);
+      g.fill();
+      // The pie-cut wedge in each eye.
+      g.fillStyle = "#f8fafc";
+      g.beginPath();
+      g.moveTo(ex, TEX * 0.42);
+      g.arc(ex, TEX * 0.42, TEX * 0.09, -Math.PI * 0.45, -Math.PI * 0.15);
+      g.closePath();
+      g.fill();
+    }
+    g.fillStyle = form === "cuphead" ? "#ef4444" : "#fb923c";
+    g.beginPath();
+    g.ellipse(TEX / 2, TEX * 0.58, TEX * (form === "mugman" ? 0.11 : 0.08), TEX * 0.07, 0, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = "#111827";
+    g.lineWidth = TEX * 0.035;
+    g.beginPath();
+    g.arc(TEX / 2, TEX * 0.62, TEX * 0.16, Math.PI * 0.15, Math.PI * 0.85);
+    g.stroke();
+    g.fillStyle = form === "cuphead" ? "#dc2626" : "#2563eb";
+    g.fillRect(0, TEX * 0.86, TEX, TEX * 0.08);
+  });
+}
+
+/**
+ * The characters the Gamer can play as. Cuphead and Mugman: a cup (or mug)
+ * for a head with a striped straw, black body, coloured shorts, white gloves
+ * and brown shoes. Captain Churchill: his tank, with him in the hatch.
+ */
+function characterParts(form: CompanionKind, team: Team, walk: number, throwArm: number): Part[] {
+  if (form === "churchill") {
+    const olive = "#4d5b2a";
+    const dark = "#3f4a22";
+    return [
+      { c: [-11, 0, 4], h: [3.5, 15, 4], color: "#27272a" },
+      { c: [11, 0, 4], h: [3.5, 15, 4], color: "#27272a" },
+      { c: [0, 0, 10], h: [9, 14, 4], color: olive },
+      { c: [0, 0, 14.2], h: [9.2, 14.2, 0.3], color: TEAM_COLORS[team] },
+      { c: [0, -1, 17], h: [7, 7, 3], color: dark },
+      { c: [0, 16, 17], h: [1.2, 10, 1.2], color: dark },
+      { c: [0, 26.5, 17], h: [1.8, 0.8, 1.8], color: "#27272a" },
+      // Churchill himself, up in the hatch: uniform, face and beret.
+      { c: [0, -3, 21.2], h: [3.6, 2.6, 1.6], color: olive },
+      { c: [0, -3, 25.5], h: [3, 3, 3], color: "#e0ac69", faces: { front: headTex("principal", "front") } },
+      { c: [0.6, -3, 28.9], h: [3.6, 3.6, 0.9], color: "#14532d" },
+    ];
+  }
+  const shorts = form === "cuphead" ? "#dc2626" : "#2563eb";
+  const parts: Part[] = [];
+  for (const s of [-1, 1]) {
+    const swing = walk * s;
+    parts.push(
+      { c: [s * 3.5, 0, 12], h: [1.6, 1.6, 9], color: "#111827", pivot: [0, 21], swing },
+      { c: [s * 3.5, 1.6, 2], h: [2.6, 4, 2], color: "#7c2d12", pivot: [0, 21], swing },
+    );
+  }
+  parts.push(
+    { c: [0, 0, 23.5], h: [7, 4.2, 3.5], color: shorts },
+    { c: [0, 0, 31.5], h: [6, 3.6, 4.5], color: "#111827" },
+  );
+  for (const [s, swing] of [
+    [-1, -walk * 0.8],
+    [1, throwArm],
+  ] as const) {
+    parts.push(
+      { c: [s * 8, 0, 31], h: [1.4, 1.4, 4.5], color: "#111827", pivot: [0, 35.5], swing },
+      { c: [s * 8, 0, 25.5], h: [2.2, 2.2, 2], color: "#f8fafc", pivot: [0, 35.5], swing },
+    );
+  }
+  const stripe = shorts;
+  parts.push(
+    // The cup: face on the front, a rim, and the drink on top.
+    { c: [0, 0, 44.5], h: [8, 8, 8], color: "#f8fafc", faces: { front: cupFaceTex(form), top: "#7c2d12" } },
+    { c: [0, 0, 52.8], h: [8.5, 8.5, 0.5], color: "#e5e7eb", faces: { top: "#7c2d12" } },
+    // The striped straw, bent at the top.
+    { c: [2.5, -2.5, 55], h: [0.6, 0.6, 1.8], color: stripe },
+    { c: [2.5, -2.5, 58.2], h: [0.6, 0.6, 1.4], color: "#f8fafc" },
+    { c: [2.5, -2.5, 61], h: [0.6, 0.6, 1.4], color: stripe },
+    { c: [3.9, -2.5, 62.6], h: [2, 0.6, 0.6], color: "#f8fafc" },
+  );
+  // Mugman's mug has a handle.
+  if (form === "mugman") parts.push({ c: [-9.3, 0, 45], h: [1.2, 1.6, 4.5], color: "#f8fafc" });
+  return parts;
+}
+
 function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number): Part[] {
   const shirt = TEAM_COLORS[team];
   const sleeve = SLEEVES[a] ?? shirt;
@@ -387,6 +483,22 @@ function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number)
   if (a === "teacher") parts.push({ c: [0, -6.5, 54], h: [3, 2.5, 3], color: "#6b4423" });
   if (a === "artkid") parts.push({ c: [1, 0.5, 56.2], h: [8, 8, 1.3], color: "#b91c1c" });
   if (a === "jock") parts.push({ c: [0, 0, 51.5], h: [7.3, 7.3, 1], color: "#dc2626" });
+  if (a === "pyro") {
+    // The gas mask's filter, and the fuel tank on the back.
+    parts.push(
+      { c: [0, 7.8, 45], h: [2, 1.2, 2], color: "#6b7280" },
+      { c: [0, -7.5, 33], h: [3.5, 2, 7], color: "#6b7280" },
+    );
+  }
+  if (a === "gamer") {
+    // The headset: a band over the top, an ear cup on each side with a green light, and a mic.
+    parts.push(
+      { c: [0, 0, 56.2], h: [7.6, 1.2, 0.8], color: "#111827" },
+      { c: [-7.8, 0, 49], h: [1, 2.4, 3], color: "#111827", faces: { left: "#4ade80" } },
+      { c: [7.8, 0, 49], h: [1, 2.4, 3], color: "#111827", faces: { right: "#4ade80" } },
+      { c: [-6, 5, 45.5], h: [0.5, 3.5, 0.5], color: "#111827" },
+    );
+  }
   if (a === "bandkid") {
     // The marching shako: navy, a gold band, a black visor and a tall white plume.
     parts.push(
@@ -541,6 +653,26 @@ function instrumentParts(kind: Instrument): Part[] {
       const size = kind === "bass" ? 1.45 : 1;
       return [...stringParts([0, 10, 13 * size], size * 1.6, true), { c: [0, 13, 18 * size], h: [9 * size, 0.35, 0.35], color: BOW }];
     }
+    case "gamepad":
+      // A controller held in both hands in front of the chest.
+      return [
+        { c: [0, 11, 33], h: [5, 1.6, 1.4], color: "#1f2937" },
+        { c: [-4.5, 10, 31.6], h: [1.4, 1.4, 1.6], color: "#1f2937" },
+        { c: [4.5, 10, 31.6], h: [1.4, 1.4, 1.6], color: "#1f2937" },
+        { c: [3, 11, 34.6], h: [0.5, 0.5, 0.3], color: "#22c55e" },
+      ];
+    case "flamethrower":
+      // A long nozzle with a red tip, held out in front at the hip.
+      return [
+        { c: [4, 16, 33], h: [1.4, 11, 1.4], color: "#6b7280" },
+        { c: [4, 27.5, 33], h: [2, 1, 2], color: "#b91c1c" },
+        { c: [4, 29, 33], h: [0.8, 0.6, 0.8], color: "#fb923c" },
+      ];
+    case "flaregun":
+      return [
+        { c: [10, 15, 36], h: [1, 4, 1.4], color: "#f97316" },
+        { c: [10, 12.5, 34], h: [0.8, 1, 2], color: "#1f2937" },
+      ];
   }
 }
 
@@ -615,6 +747,29 @@ function heldInstrumentParts(kind: Instrument, bobS: number, bobZ: number): Part
       ];
       break;
     }
+    case "gamepad":
+      parts = [
+        { c: [0, 18, -9], h: [5, 1.5, 1.6], color: "#1f2937" },
+        { c: [-4.5, 17, -10.4], h: [1.6, 1.6, 1.8], color: "#1f2937" },
+        { c: [4.5, 17, -10.4], h: [1.6, 1.6, 1.8], color: "#1f2937" },
+        { c: [2.6, 18, -7.3], h: [0.5, 0.5, 0.2], color: "#22c55e" },
+        { c: [3.6, 18.5, -7.3], h: [0.5, 0.5, 0.2], color: "#ef4444" },
+        { c: [-2.6, 18, -7.3], h: [1.2, 0.4, 0.2], color: "#9ca3af" },
+      ];
+      break;
+    case "flamethrower":
+      parts = [
+        { c: [5, 26, -8], h: [1.2, 14, 1.2], color: "#6b7280" },
+        { c: [5, 40.5, -8], h: [1.8, 0.8, 1.8], color: "#b91c1c" },
+        { c: [5, 42.2, -8], h: [0.8, 0.8, 0.8], color: "#fb923c" },
+      ];
+      break;
+    case "flaregun":
+      parts = [
+        { c: [6, 24, -8], h: [0.9, 4, 1.2], color: "#f97316" },
+        { c: [6, 21, -10], h: [0.7, 1, 2], color: "#1f2937" },
+      ];
+      break;
   }
   return parts.map(at);
 }
@@ -668,6 +823,8 @@ export function drawAvatar(
     ballRadius: number;
     /** The instrument they're playing, held in place of a ball. */
     instrument: Instrument | null;
+    /** Playing as Cuphead, Mugman or Captain Churchill (the Gamer's super). */
+    form: CompanionKind | null;
     now: number;
     stunned: boolean;
     /** Feet off the floor (jumping, or up on a desk). */
@@ -703,8 +860,11 @@ export function drawAvatar(
   ctx.fill();
 
   const out: Drawable[] = [];
-  addParts(out, ctx, cam, figureParts(o.archetype, o.team, walk, throwArm), at, fog, fogColor);
-  if (o.instrument) {
+  const parts = o.form ? characterParts(o.form, o.team, walk, throwArm) : figureParts(o.archetype, o.team, walk, throwArm);
+  addParts(out, ctx, cam, parts, at, fog, fogColor);
+  if (o.form) {
+    // Cuphead and Mugman shoot from their fingers, Churchill from his barrel: nothing in hand.
+  } else if (o.instrument) {
     // Band and orchestra kids hold their instrument instead of a ball.
     addParts(out, ctx, cam, instrumentParts(o.instrument), at, fog, fogColor);
   } else {
@@ -730,7 +890,8 @@ export function drawAvatar(
   flush(out);
 
   // Mascots have a big fruit head on top.
-  const tall = o.archetype === "blueberry" || o.archetype === "orangepeel" ? 64 : FIGURE_HEIGHT;
+  const tall =
+    o.form === "churchill" ? 31 : o.form ? 64 : o.archetype === "blueberry" || o.archetype === "orangepeel" ? 64 : FIGURE_HEIGHT;
   const top = project(cam, o.x, o.y, at.z + tall * kz);
   return { cx: top.sx, top: top.sy, bottom: center.sy, k: cam.proj / center.depth };
 }
@@ -835,6 +996,8 @@ export function drawViewModel(
     ballColor: string;
     /** Playing an instrument: shown in your hands instead of the ball. */
     instrument: Instrument | null;
+    /** Playing as Cuphead, Mugman or Captain Churchill. */
+    form: CompanionKind | null;
     now: number;
   },
 ) {
@@ -855,7 +1018,29 @@ export function drawViewModel(
   const out: Drawable[] = [];
   const none = () => 0;
   const here: Placement = { x: cam.x, y: cam.y, z: cam.eye, angle: cam.yaw, k: 1 };
-  if (o.instrument) {
+  if (o.form === "churchill") {
+    // Driving the tank: its long barrel out in front of you.
+    addParts(
+      out,
+      ctx,
+      cam,
+      [
+        { c: [bobS * 0.3, 30, -10 + bobZ * 0.3], h: [1.3, 16, 1.3], color: "#3f4a22" },
+        { c: [bobS * 0.3, 46.5, -10 + bobZ * 0.3], h: [2, 1, 2], color: "#27272a" },
+      ],
+      here,
+      none,
+      [0, 0, 0],
+    );
+  } else if (o.form) {
+    // Cuphead and Mugman: a black arm and a white glove making a finger gun.
+    const glove: Part[] = [
+      { ...parts[0], color: "#111827" },
+      { ...parts[1], color: "#f8fafc" },
+      { c: [10.6 + bobS, 32.6, -10.8 + bobZ], h: [0.5, 1.6, 0.5], color: "#f8fafc" },
+    ];
+    addParts(out, ctx, cam, glove, here, none, [0, 0, 0]);
+  } else if (o.instrument) {
     // Your instrument, held up to play.
     addParts(out, ctx, cam, [...parts, ...heldInstrumentParts(o.instrument, bobS, bobZ)], here, none, [0, 0, 0]);
   } else {
