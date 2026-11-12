@@ -73,6 +73,8 @@ Line of sight: inside a room you can see the whole room, and in the hallways you
 
 Phones and tablets: touch the left half of the screen to move and the right half to aim. Push the right stick further to throw. On-screen buttons handle reload (↻), switch weapon (⇄), the scoreboard (🏆), the menu (☰) and fullscreen (⛶). Play with the phone sideways. To turn the touch controls on (for a touchscreen laptop) or off, use Mobile controls in Settings (the gear icon).
 
+**Install it as an app.** School Wars is still a website, and it can also be installed like an app with its own icon that opens full screen. Click **📲 Install app** at the top left of the title screen (Chrome, Edge, Android, Samsung Internet), or use the install icon in the address bar. On iPhone or iPad in Safari, the button explains how: Share, then **Add to Home Screen**. The app updates itself whenever the site does, and it still needs the internet to play. (`app/manifest.ts` describes the app, `public/sw.js` keeps its files on the device, and the icons are in `public/icons/`.)
+
 ## Project layout
 
 | Path | What's there |

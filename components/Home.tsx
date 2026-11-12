@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { GAME_TITLE, gameServerUrl, saveName, useSavedName, wakeGameServer } from "@/lib/settings";
 import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import Modal from "./Modal";
+import { InstallButton } from "./AppInstall";
 import { LemonFighter, OrangeFighter, VsClash } from "./TitleArt";
 
 export default function Home() {
@@ -68,6 +69,7 @@ export default function Home() {
         <OrangeFighter className="absolute bottom-0 right-0 h-[92vh] max-w-[62vw] sm:max-w-[44vw]" />
       </div>
 
+      <InstallButton className="absolute left-4 top-4 z-10 bg-black/40 text-white" />
       <SettingsButton
         onClick={() => setShowSettings(true)}
         className="absolute right-4 top-4 z-10 bg-black/40 text-white"

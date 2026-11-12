@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- School Wars app icon: Lemons vs Orange Peels, split corner to corner. Full-bleed so it also works as a maskable icon. -->
+  <defs>
+    <linearGradient id="lemon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde047"/>
+      <stop offset="1" stop-color="#ca8a04"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fb923c"/>
+      <stop offset="1" stop-color="#c2410c"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#0b0d12"/>
+  <path d="M0 0 H512 L0 512 Z" fill="url(#lemon)"/>
+  <path d="M512 0 V512 H0 Z" fill="url(#orange)"/>
+  <!-- the clash down the middle -->
+  <path d="M512 0 L0 512" stroke="#0b0d12" stroke-width="22"/>
+  <path d="M300 150 L330 205 L390 190 L345 240 L395 290 L330 280 L305 340 L280 280 L215 300 L255 250 L200 200 L265 210 Z"
+        fill="#fff7d6" stroke="#0b0d12" stroke-width="10" stroke-linejoin="round" transform="translate(-40 6)"/>
+  <!-- a thrown ball -->
+  <circle cx="370" cy="140" r="34" fill="#ef4444" stroke="#0b0d12" stroke-width="9"/>
+  <path d="M342 126 Q370 140 398 126 M342 154 Q370 140 398 154" stroke="#0b0d12" stroke-width="6" fill="none"/>
+  <text x="256" y="402" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900"
+        font-size="132" fill="#fff" stroke="#0b0d12" stroke-width="14" paint-order="stroke" letter-spacing="-4">SW</text>
+</svg>
