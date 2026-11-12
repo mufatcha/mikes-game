@@ -138,7 +138,8 @@ export default function GameView({
     let acc = 0;
     const loop = (now: number) => {
       // Controllers are only reported by polling, once a frame.
-      input.pollGamepad(Math.min(0.1, (now - last) / 1000));
+      const frameDt = Math.min(0.1, (now - last) / 1000);
+      input.pollGamepad(frameDt);
       acc += Math.min(250, now - last);
       last = now;
       const touch = input.touchMode;
@@ -163,9 +164,20 @@ export default function GameView({
         wasAlive = !!me?.alive;
         input.mouseX = canvas.clientWidth / 2;
         input.mouseY = canvas.clientHeight / 2;
-      } else if (touch || pad) {
-        // No mouse: look ahead the way the thumbstick (on screen, or on a controller) aims.
-        const a = pad ? input.padAimAngle() : input.touchAimAngle();
+      } else if (pad) {
+        // Controller: the crosshair goes out as far as the right stick is pushed (close in when
+        // it's let go, still pointing the same way), gliding there rather than jumping.
+        const a = input.padAimAngle();
+        const push = Math.min(1, Math.hypot(input.padStick.x, input.padStick.y));
+        const reach = 0.06 + 0.24 * push;
+        const tx = canvas.clientWidth / 2 + Math.cos(a) * canvas.clientWidth * reach;
+        const ty = canvas.clientHeight / 2 + Math.sin(a) * canvas.clientHeight * reach;
+        const glide = 1 - Math.exp(-frameDt * 14);
+        input.mouseX += (tx - input.mouseX) * glide;
+        input.mouseY += (ty - input.mouseY) * glide;
+      } else if (touch) {
+        // No mouse: look ahead the way the thumbstick aims.
+        const a = input.touchAimAngle();
         input.mouseX = canvas.clientWidth / 2 + Math.cos(a) * canvas.clientWidth * 0.3;
         input.mouseY = canvas.clientHeight / 2 + Math.sin(a) * canvas.clientHeight * 0.3;
       }

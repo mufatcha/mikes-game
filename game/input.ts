@@ -239,6 +239,8 @@ export class InputController {
   /** First-person right-stick turn speed, radians per second at full tilt. */
   padTurnSpeed = 3.2;
   private padMove = { x: 0, y: 0 };
+  /** The right stick, each axis -1 to 1 (after the dead zone): how far it's pushed sets how far out you aim. */
+  padStick = { x: 0, y: 0 };
   private padAim: number | null = null;
   private lastPadAim = 0;
   private padFiring = false;
@@ -297,6 +299,7 @@ export class InputController {
 
     if (this.enabled) {
       this.padMove = { x: lx, y: ly };
+      this.padStick = { x: rx, y: ry };
       if (Math.hypot(rx, ry) > 0.25) {
         this.padAim = Math.atan2(ry, rx);
         this.lastPadAim = this.padAim;
@@ -329,6 +332,7 @@ export class InputController {
 
   private releasePad() {
     this.padMove = { x: 0, y: 0 };
+    this.padStick = { x: 0, y: 0 };
     this.padAim = null;
     this.padFiring = false;
     this.padJump = false;
