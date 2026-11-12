@@ -165,6 +165,8 @@ export class Renderer {
   private muzzle = new Map<string, number>();
   private hitMarkerUntil = 0;
   private hurtFlash = 0;
+  /** Called when you take damage (the game view rumbles the controller). */
+  onHurt: ((damage: number) => void) | null = null;
   private shake = 0;
   /** Shown while we wait to respawn. */
   private deathMessage: string | null = null;
@@ -698,6 +700,7 @@ export class Renderer {
           }
           if (e.target === myId) {
             this.hurtFlash = Math.min(1, this.hurtFlash + e.dmg / 50);
+            this.onHurt?.(e.dmg);
             this.shake = Math.max(this.shake, 5);
             this.sfx.hurt();
           }

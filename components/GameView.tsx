@@ -59,6 +59,8 @@ export default function GameView({
   const [notice, setNotice] = useState<string | null>(null);
   const isFps = !!conn.room?.view3d;
   const [locked, setLocked] = useState(false);
+  // Playing with a game controller: no need to grab the mouse.
+  const [padOn, setPadOn] = useState(false);
   const lastUnlockRef = useRef(0);
 
   useEffect(() => {
@@ -90,7 +92,7 @@ export default function GameView({
         return;
       }
       if ((me.cds?.[index] ?? 0) > 0) return;
-      const target = renderer.pickDetentionTarget(input.mouseX, input.mouseY, aimNow, input.touchMode);
+      const target = renderer.pickDetentionTarget(input.mouseX, input.mouseY, aimNow, input.touchMode || input.padActive);
       if (!target) {
         setNotice("No student in sight to send to detention.");
         return;
@@ -120,9 +122,12 @@ export default function GameView({
       onActivity: () => sfx.unlock(),
       onAbility: useAbility,
       onCheatCode: () => conn.send({ t: "prank", action: "unlock", code: CHEAT_CODE }),
+      onPad: setPadOn,
       onSuper: () => conn.send({ t: "super" }),
     });
     inputRef.current = input;
+    // Getting hit rumbles the controller, harder for bigger hits.
+    renderer.onHurt = (dmg) => input.rumble(Math.min(1, 0.3 + dmg / 60), 120 + Math.min(200, dmg * 3));
     input.attach();
 
     const onResize = () => renderer.resize();
@@ -132,9 +137,12 @@ export default function GameView({
     let last = performance.now();
     let acc = 0;
     const loop = (now: number) => {
+      // Controllers are only reported by polling, once a frame.
+      input.pollGamepad(Math.min(0.1, (now - last) / 1000));
       acc += Math.min(250, now - last);
       last = now;
       const touch = input.touchMode;
+      const pad = input.padActive;
       const fps = !!conn.room?.view3d;
       input.fpsMode = fps;
       const me = conn.me;
@@ -155,15 +163,21 @@ export default function GameView({
         wasAlive = !!me?.alive;
         input.mouseX = canvas.clientWidth / 2;
         input.mouseY = canvas.clientHeight / 2;
-      } else if (touch) {
-        // No mouse: look ahead the way the thumbstick aims.
-        const a = input.touchAimAngle();
+      } else if (touch || pad) {
+        // No mouse: look ahead the way the thumbstick (on screen, or on a controller) aims.
+        const a = pad ? input.padAimAngle() : input.touchAimAngle();
         input.mouseX = canvas.clientWidth / 2 + Math.cos(a) * canvas.clientWidth * 0.3;
         input.mouseY = canvas.clientHeight / 2 + Math.sin(a) * canvas.clientHeight * 0.3;
       }
       const dt = renderer.updateCamera(now, input.mouseX, input.mouseY);
       if (fps) input.updateFps(dt);
-      const aim = fps ? input.yaw : touch ? input.touchAimAngle() : renderer.aimFrom(input.mouseX, input.mouseY);
+      const aim = fps
+        ? input.yaw
+        : pad
+          ? input.padAimAngle()
+          : touch
+            ? input.touchAimAngle()
+            : renderer.aimFrom(input.mouseX, input.mouseY);
       aimNow = aim;
       let steps = 0;
       while (acc >= TICK_MS && steps < 5) {
@@ -252,7 +266,7 @@ export default function GameView({
         />
       )}
 
-      {isFps && !locked && !isTouch && overlay === "none" && !results && (
+      {isFps && !locked && !isTouch && !padOn && overlay === "none" && !results && (
         <div className="pointer-events-none absolute inset-x-0 top-1/3 flex justify-center">
           <p className="rounded-lg bg-black/75 px-5 py-3 text-center font-semibold text-white">
             🎯 Click to look around

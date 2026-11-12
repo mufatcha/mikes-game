@@ -255,6 +255,15 @@ export default function Lobby({
           <li><Key>{keyLabel(binds.loadout)}</Key> change class (applies on respawn)</li>
           <li><Key>Esc</Key> menu</li>
         </ul>
+        <h3 className="mb-2 mt-5 font-bold text-white">🎮 Controller</h3>
+        <ul className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
+          <li><Key>Left stick</Key> move, <Key>Right stick</Key> aim (look around in 3D)</li>
+          <li><Key>RT</Key> throw, <Key>RB</Key> super</li>
+          <li><Key>A</Key> jump, <Key>B</Key> crouch, <Key>LT</Key> sprint</li>
+          <li><Key>X</Key> reload, <Key>Y</Key> switch weapon</li>
+          <li><Key>D-pad</Key> Principal and mascot powers</li>
+          <li><Key>Start</Key> menu, <Key>Back</Key> scoreboard (hold)</li>
+        </ul>
       </section>
     </div>
   );

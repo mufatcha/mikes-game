@@ -11,6 +11,8 @@ export interface InputHandlers {
   onAbility(index: number): void;
   /** The super key. */
   onSuper(): void;
+  /** A controller started (true) or stopped (false) being the way you play. */
+  onPad?(active: boolean): void;
   /** The secret cheat code was typed. */
   onCheatCode(): void;
 }
@@ -98,6 +100,8 @@ export class InputController {
         }
         return;
       }
+      // Moving the mouse (more than a nudge) hands aiming back from a controller.
+      if (this.padActive && Math.hypot(e.movementX, e.movementY) > 3) this.setPadActive(false);
       const r = this.canvas.getBoundingClientRect();
       this.mouseX = e.clientX - r.left;
       this.mouseY = e.clientY - r.top;
@@ -225,6 +229,132 @@ export class InputController {
     if (this.enabled) this.swapToggle = true;
   }
 
+  // ------------------------------------------------------------ game controller
+
+  /**
+   * A game controller (Xbox, PlayStation, Switch Pro…) was used last: aim with
+   * its right stick. Moving the mouse switches back.
+   */
+  padActive = false;
+  /** First-person right-stick turn speed, radians per second at full tilt. */
+  padTurnSpeed = 3.2;
+  private padMove = { x: 0, y: 0 };
+  private padAim: number | null = null;
+  private lastPadAim = 0;
+  private padFiring = false;
+  private padJump = false;
+  private padSprint = false;
+  private padCrouch = false;
+  private padScoreboard = false;
+  private padPrev: boolean[] = [];
+
+  /** The first connected controller, if any. */
+  private get pad(): Gamepad | null {
+    if (typeof navigator === "undefined" || !navigator.getGamepads) return null;
+    return [...navigator.getGamepads()].find((p): p is Gamepad => !!p && p.connected) ?? null;
+  }
+
+  /**
+   * Read the controller once per frame (browsers only report controllers by
+   * polling). Standard layout: left stick moves, right stick aims (or looks
+   * around in first person), RT throws, A jumps, B crouches, LT or clicking
+   * the left stick sprints, X reloads, Y switches weapon, RB fires your super,
+   * the D-pad is the Principal's or mascot's four powers, Start is the menu
+   * and Back holds the scoreboard.
+   */
+  pollGamepad(dt: number) {
+    const pad = this.pad;
+    if (!pad) {
+      if (this.padActive) this.setPadActive(false);
+      this.releasePad();
+      return;
+    }
+    const dead = (v: number | undefined) => {
+      const a = v ?? 0;
+      return Math.abs(a) < 0.18 ? 0 : (a - Math.sign(a) * 0.18) / 0.82;
+    };
+    const lx = dead(pad.axes[0]);
+    const ly = dead(pad.axes[1]);
+    const rx = dead(pad.axes[2]);
+    const ry = dead(pad.axes[3]);
+    const down = (i: number) => {
+      const b = pad.buttons[i];
+      return !!b && (b.pressed || b.value > 0.4);
+    };
+    const pressed = (i: number) => down(i) && !this.padPrev[i];
+    const used = lx || ly || rx || ry || pad.buttons.some((b) => b.pressed);
+    if (used && !this.padActive) {
+      this.setPadActive(true);
+      this.handlers.onActivity();
+    }
+
+    // Start opens and closes the menu, even while a menu is open.
+    if (pressed(9)) this.handlers.onMenu();
+    if (down(8) !== this.padScoreboard) {
+      this.padScoreboard = down(8);
+      this.scoreboard = this.padScoreboard;
+    }
+
+    if (this.enabled) {
+      this.padMove = { x: lx, y: ly };
+      if (Math.hypot(rx, ry) > 0.25) {
+        this.padAim = Math.atan2(ry, rx);
+        this.lastPadAim = this.padAim;
+      } else {
+        this.padAim = null;
+      }
+      this.padFiring = down(7);
+      this.padJump = down(0);
+      this.padCrouch = down(1);
+      this.padSprint = down(6) || down(10);
+      if (pressed(2)) this.reloadQueued = true;
+      if (pressed(3)) this.swapToggle = true;
+      if (pressed(5)) this.handlers.onSuper();
+      [12, 15, 13, 14].forEach((b, i) => pressed(b) && this.handlers.onAbility(i));
+      // First person: the right stick turns you and tilts your view.
+      if (this.fpsMode) {
+        this.yaw += rx * this.padTurnSpeed * dt;
+        this.lookUp(-ry * this.padTurnSpeed * 0.6 * dt);
+      }
+    } else {
+      this.releasePad();
+    }
+    this.padPrev = pad.buttons.map((_, i) => down(i));
+  }
+
+  private setPadActive(active: boolean) {
+    this.padActive = active;
+    this.handlers.onPad?.(active);
+  }
+
+  private releasePad() {
+    this.padMove = { x: 0, y: 0 };
+    this.padAim = null;
+    this.padFiring = false;
+    this.padJump = false;
+    this.padSprint = false;
+    this.padCrouch = false;
+  }
+
+  /** Aim with a controller: the right stick if it's pushed, otherwise the way you're walking. */
+  padAimAngle() {
+    if (this.padAim !== null) return this.padAim;
+    const { x, y } = this.padMove;
+    if (Math.hypot(x, y) > 0.3) this.lastPadAim = Math.atan2(y, x);
+    return this.lastPadAim;
+  }
+
+  /** Shake the controller (if it can), e.g. when you get hit. */
+  rumble(strength: number, ms: number) {
+    const actuator = this.pad?.vibrationActuator as
+      | { playEffect?: (type: string, params: Record<string, number>) => Promise<unknown> }
+      | null
+      | undefined;
+    actuator
+      ?.playEffect?.("dual-rumble", { duration: ms, strongMagnitude: strength, weakMagnitude: strength * 0.6 })
+      ?.catch(() => {});
+  }
+
   /**
    * Aim on a touch screen: the right stick if it's held, otherwise the way
    * you're walking, otherwise wherever you last aimed.
@@ -249,8 +379,8 @@ export class InputController {
     if (held(b.left, "ArrowLeft")) mx -= 1;
     if (held(b.right, "ArrowRight")) mx += 1;
     if (this.enabled) {
-      mx = Math.max(-1, Math.min(1, mx + Math.round(this.touchMove.x * 100) / 100));
-      my = Math.max(-1, Math.min(1, my + Math.round(this.touchMove.y * 100) / 100));
+      mx = Math.max(-1, Math.min(1, mx + Math.round((this.touchMove.x + this.padMove.x) * 100) / 100));
+      my = Math.max(-1, Math.min(1, my + Math.round((this.touchMove.y + this.padMove.y) * 100) / 100));
       // First person: up/down are forward/back and left/right strafe, relative to where you face.
       if (this.fpsMode) [mx, my] = this.toWorld(mx, -my).map((v) => Math.round(v * 100) / 100) as [number, number];
     }
@@ -258,14 +388,14 @@ export class InputController {
     // Holding the aim stick keeps throwing. Semi-auto throws need a fresh
     // press for each shot, so pulse the trigger for those.
     this.pulse = !this.pulse;
-    const touchFire = this.touchFiring && (autoWeapon || this.pulse);
+    const touchFire = (this.touchFiring || this.padFiring) && (autoWeapon || this.pulse);
 
     let swap = this.swapTo;
     if (this.swapToggle) swap = currentSlot === 0 ? 1 : 0;
-    // Held moves, from the keyboard or the touch buttons; only sent while held.
-    const jump = this.enabled && (k.has(b.jump) || this.touchJump);
-    const sprint = this.enabled && (k.has(b.sprint) || this.touchSprint);
-    const crouch = this.enabled && (k.has(b.crouch) || this.touchCrouch);
+    // Held moves, from the keyboard, the touch buttons or a controller; only sent while held.
+    const jump = this.enabled && (k.has(b.jump) || this.touchJump || this.padJump);
+    const sprint = this.enabled && (k.has(b.sprint) || this.touchSprint || this.padSprint);
+    const crouch = this.enabled && (k.has(b.crouch) || this.touchCrouch || this.padCrouch);
     const frame = {
       mx,
       my,
@@ -289,5 +419,6 @@ export class InputController {
     this.firing = false;
     this.scoreboard = false;
     this.releaseTouch();
+    this.releasePad();
   }
 }
