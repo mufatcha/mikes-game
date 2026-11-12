@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# desktop app (Steam)
+/desktop/node_modules
+/desktop/dist
+
+/desktop/steam/output

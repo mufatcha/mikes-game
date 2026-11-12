@@ -42,7 +42,7 @@ function isIos() {
 type InstallState = "app" | "prompt" | "ios" | "none";
 
 function snapshot(): InstallState {
-  if (installed || runningAsApp()) return "app";
+  if (installed || runningAsApp() || desktopBridge()) return "app";
   if (offer) return "prompt";
   if (isIos()) return "ios";
   return "none";
@@ -127,5 +127,33 @@ export function InstallButton({ className = "" }: { className?: string }) {
         </div>
       )}
     </>
+  );
+}
+
+interface DesktopBridge {
+  quit(): void;
+  toggleFullscreen(): void;
+}
+
+/** The Steam / desktop version adds this; the website doesn't have it. */
+function desktopBridge(): DesktopBridge | null {
+  if (typeof window === "undefined") return null;
+  return (window as Window & { schoolWarsDesktop?: DesktopBridge }).schoolWarsDesktop ?? null;
+}
+
+const noSubscribe = () => () => {};
+
+/** "Quit game" on the title screen, only in the desktop (Steam) version. */
+export function QuitButton({ className = "" }: { className?: string }) {
+  const desktop = useSyncExternalStore(noSubscribe, () => desktopBridge() !== null, () => false);
+  if (!desktop) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => desktopBridge()?.quit()}
+      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold hover:bg-black/60 ${className}`}
+    >
+      ✕ Quit game
+    </button>
   );
 }

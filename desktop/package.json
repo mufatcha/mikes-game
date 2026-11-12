@@ -1,0 +1,42 @@
+{
+  "name": "school-wars-desktop",
+  "productName": "School Wars",
+  "version": "1.0.0",
+  "description": "School Wars desktop app (for Steam). It opens the live game in its own window.",
+  "author": "Mike",
+  "private": true,
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win dir",
+    "build:mac": "electron-builder --mac dir",
+    "build:linux": "electron-builder --linux dir"
+  },
+  "devDependencies": {
+    "electron": "^45.3.1",
+    "electron-builder": "^26.18.0"
+  },
+  "trustedDependencies": ["electron"],
+  "build": {
+    "appId": "com.mikesgame.schoolwars",
+    "productName": "School Wars",
+    "directories": {
+      "output": "dist"
+    },
+    "files": ["main.js", "preload.js", "offline.html", "icon.png"],
+    "icon": "icon.png",
+    "asar": true,
+    "win": {
+      "executableName": "SchoolWars",
+      "icon": "icon.ico"
+    },
+    "linux": {
+      "executableName": "schoolwars",
+      "category": "Game"
+    },
+    "mac": {
+      "category": "public.app-category.games"
+    }
+  }
+}

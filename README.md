@@ -75,6 +75,30 @@ Phones and tablets: touch the left half of the screen to move and the right half
 
 **Install it as an app.** School Wars is still a website, and it can also be installed like an app with its own icon that opens full screen. Click **📲 Install app** at the top left of the title screen (Chrome, Edge, Android, Samsung Internet), or use the install icon in the address bar. On iPhone or iPad in Safari, the button explains how: Share, then **Add to Home Screen**. The app updates itself whenever the site does, and it still needs the internet to play. (`app/manifest.ts` describes the app, `public/sw.js` keeps its files on the device, and the icons are in `public/icons/`.)
 
+
+## Steam (desktop app)
+
+The `desktop/` folder turns School Wars into a desktop game that Steam can sell or give away. It's an Electron app: a window that opens the live site (`https://mikes-game.vercel.app`) full screen, so it always has the newest version and Steam players play with website players. Controllers, mouse look and sound all work in it, F11 or Alt+Enter switches between full screen and a window, the Steam overlay (Shift+Tab) works, and the title screen gets a **✕ Quit game** button. If there's no internet it shows a "Try again" screen.
+
+**Build it (Windows).**
+```bash
+cd desktop
+bun install
+bun run start   # try it in a window
+bun run build   # makes desktop/dist/win-unpacked/SchoolWars.exe
+```
+Mac and Linux builds (`bun run build:mac`, `bun run build:linux`) have to be made on a Mac or Linux computer.
+
+**Put it on Steam.** These steps need a grown-up: Steam asks for legal name, bank and tax details.
+1. Sign up at [partner.steamgames.com](https://partner.steamgames.com) (Steamworks) and pay the Steam Direct fee for the game (US $100, paid back after the game earns $1,000).
+2. Steam gives the game an **App ID** and a **Depot ID**. Put them in `desktop/steam/app_build.vdf` in place of `YOUR_APP_ID` and `YOUR_DEPOT_ID`.
+3. In Steamworks, under **Installation → General**, add a launch option: executable `SchoolWars.exe`, OS Windows.
+4. Download the Steamworks SDK, then upload the build with its `steamcmd`: `steamcmd +login <your steam login> +run_app_build <full path to>\desktop\steam\app_build.vdf +quit`
+5. In Steamworks under **SteamPipe → Builds**, set the new build live on the `default` branch.
+6. Fill in the store page (description, screenshots, capsule art, a trailer), send the store page and build for Valve's review, and wait for **Coming Soon** (at least 2 weeks) before release.
+
+Each time you change the game, pushing to GitHub updates the Steam version too, because it loads the live site. You only upload a new Steam build when something in `desktop/` changes.
+
 ## Project layout
 
 | Path | What's there |
