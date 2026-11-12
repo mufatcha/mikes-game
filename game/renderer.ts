@@ -381,6 +381,26 @@ export class Renderer {
   private banner: { text: string; color: string; until: number } | null = null;
 
   /**
+   * Controller aim assist: how far (in radians, signed) `aim` is from the
+   * nearest enemy on screen that's within `cone` of it, or null if none is.
+   * Close enemies count a little wider, since they cover more of your view.
+   */
+  assistAngle(aim: number, cone: number): number | null {
+    let best: number | null = null;
+    for (const p of this.targetable) {
+      if (!p.alive || p.jailed > 0) continue;
+      const d = Math.hypot(p.x - this.myX, p.y - this.myY);
+      if (d < 1 || d > 900) continue;
+      let diff = Math.atan2(p.y - this.myY, p.x - this.myX) - aim;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const allow = cone + Math.atan2(radiusFor(p.archetype), d);
+      if (Math.abs(diff) <= allow && (best === null || Math.abs(diff) < Math.abs(best))) best = diff;
+    }
+    return best;
+  }
+
+  /**
    * The student to send to detention: the one you can see closest to the
    * cursor (or, on a touch screen, closest to where you're aiming), within range.
    */

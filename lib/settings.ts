@@ -236,6 +236,128 @@ export function saveTouchControlsMode(mode: TouchControlsMode) {
   write(TOUCH_KEY, mode);
 }
 
+// ---------------------------------------------------------------- game controller
+
+/** Controller actions you can move to another button. (Start is always the menu; the D-pad is the four powers.) */
+export const PAD_ACTIONS = [
+  { id: "fire", label: "Throw" },
+  { id: "jump", label: "Jump" },
+  { id: "crouch", label: "Crouch (hold)" },
+  { id: "sprint", label: "Sprint (hold)" },
+  { id: "reload", label: "Reload" },
+  { id: "swap", label: "Switch weapon" },
+  { id: "super", label: "Super" },
+  { id: "scoreboard", label: "Scoreboard (hold)" },
+] as const;
+export type PadAction = (typeof PAD_ACTIONS)[number]["id"];
+
+/** Standard controller button numbers, as the browser reports them. */
+export const PAD_START = 9;
+export const PAD_DPAD = [12, 15, 13, 14] as const; // up, right, down, left: powers 1-4
+/** Buttons that can't be given to an action (the menu, the D-pad, the home button). */
+export const PAD_RESERVED = [PAD_START, 12, 13, 14, 15, 16];
+const PAD_BUTTON_NAMES = ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "Back", "Start", "L3", "R3", "D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →", "Home"];
+
+export function padButtonLabel(index: number) {
+  return PAD_BUTTON_NAMES[index] ?? `Button ${index}`;
+}
+
+export type AimAssist = "off" | "low" | "high";
+
+export interface PadSettings {
+  /** First-person turning speed, as a multiple of normal (0.3 to 3). */
+  lookSpeed: number;
+  /** How far out the top-down crosshair goes, as a multiple of normal (0.5 to 1.5). */
+  aimReach: number;
+  /** How far a stick must move before it counts (0.05 to 0.4), to stop drift. */
+  deadZone: number;
+  /** Push the right stick up to look down in first person. */
+  invertY: boolean;
+  /** Gently pull your aim toward an enemy you're already aiming near. */
+  aimAssist: AimAssist;
+  vibration: boolean;
+  /** Aim with the left stick and move with the right. */
+  swapSticks: boolean;
+  buttons: Record<PadAction, number>;
+}
+
+export const DEFAULT_PAD_SETTINGS: PadSettings = {
+  lookSpeed: 1,
+  aimReach: 1,
+  deadZone: 0.18,
+  invertY: false,
+  aimAssist: "low",
+  vibration: true,
+  swapSticks: false,
+  buttons: { fire: 7, jump: 0, crouch: 1, sprint: 6, reload: 2, swap: 3, super: 5, scoreboard: 8 },
+};
+
+const PAD_KEY = "mg.pad";
+let cachedPadRaw: string | null | undefined;
+let cachedPad: PadSettings = DEFAULT_PAD_SETTINGS;
+
+const clampNum = (v: unknown, lo: number, hi: number, fallback: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback;
+};
+
+function readPadSettings(): PadSettings {
+  const raw = read(PAD_KEY);
+  if (raw !== cachedPadRaw) {
+    cachedPadRaw = raw;
+    cachedPad = DEFAULT_PAD_SETTINGS;
+    try {
+      const p = raw ? (JSON.parse(raw) as Partial<PadSettings>) : {};
+      const d = DEFAULT_PAD_SETTINGS;
+      const buttons = { ...d.buttons };
+      for (const { id } of PAD_ACTIONS) {
+        const b = Number(p.buttons?.[id]);
+        if (Number.isInteger(b) && b >= 0 && b < 32 && !PAD_RESERVED.includes(b)) buttons[id] = b;
+      }
+      cachedPad = {
+        lookSpeed: clampNum(p.lookSpeed, 0.3, 3, d.lookSpeed),
+        aimReach: clampNum(p.aimReach, 0.5, 1.5, d.aimReach),
+        deadZone: clampNum(p.deadZone, 0.05, 0.4, d.deadZone),
+        invertY: typeof p.invertY === "boolean" ? p.invertY : d.invertY,
+        aimAssist: p.aimAssist === "off" || p.aimAssist === "high" || p.aimAssist === "low" ? p.aimAssist : d.aimAssist,
+        vibration: typeof p.vibration === "boolean" ? p.vibration : d.vibration,
+        swapSticks: typeof p.swapSticks === "boolean" ? p.swapSticks : d.swapSticks,
+        buttons,
+      };
+    } catch {
+      cachedPad = DEFAULT_PAD_SETTINGS;
+    }
+  }
+  return cachedPad;
+}
+
+export function usePadSettings() {
+  return useSyncExternalStore(subscribe, readPadSettings, () => DEFAULT_PAD_SETTINGS);
+}
+
+export function getPadSettings() {
+  return readPadSettings();
+}
+
+export function savePadSettings(patch: Partial<Omit<PadSettings, "buttons">>) {
+  write(PAD_KEY, JSON.stringify({ ...readPadSettings(), ...patch }));
+}
+
+/** Put an action on a controller button. If another action already uses it, the two swap. */
+export function setPadButton(action: PadAction, button: number) {
+  if (PAD_RESERVED.includes(button)) return;
+  const current = readPadSettings();
+  const buttons = { ...current.buttons, [action]: button };
+  for (const { id } of PAD_ACTIONS) {
+    if (id !== action && current.buttons[id] === button) buttons[id] = current.buttons[action];
+  }
+  write(PAD_KEY, JSON.stringify({ ...current, buttons }));
+}
+
+export function resetPadSettings() {
+  write(PAD_KEY, JSON.stringify(DEFAULT_PAD_SETTINGS));
+}
+
 const KEY_NAMES: Record<string, string> = {
   ArrowUp: "↑",
   ArrowDown: "↓",

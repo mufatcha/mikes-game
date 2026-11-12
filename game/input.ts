@@ -1,4 +1,5 @@
-import { ABILITY_ACTIONS, getKeybinds } from "@/lib/settings";
+import { ABILITY_ACTIONS, PAD_DPAD, PAD_START, getKeybinds, getPadSettings } from "@/lib/settings";
+import { connectedPad, padCapturing, padDown } from "@/lib/gamepad";
 import type { InputFrame } from "@/shared/protocol";
 import { CHEAT_CODE } from "@/shared/pranks";
 import { MAX_PITCH } from "@/shared/constants";
@@ -236,10 +237,10 @@ export class InputController {
    * its right stick. Moving the mouse switches back.
    */
   padActive = false;
-  /** First-person right-stick turn speed, radians per second at full tilt. */
+  /** First-person right-stick turn speed at normal sensitivity, radians per second at full tilt. */
   padTurnSpeed = 3.2;
   private padMove = { x: 0, y: 0 };
-  /** The right stick, each axis -1 to 1 (after the dead zone): how far it's pushed sets how far out you aim. */
+  /** The aiming stick, each axis -1 to 1 (after the dead zone): how far it's pushed sets how far out you aim. */
   padStick = { x: 0, y: 0 };
   private padAim: number | null = null;
   private lastPadAim = 0;
@@ -249,40 +250,34 @@ export class InputController {
   private padCrouch = false;
   private padScoreboard = false;
   private padPrev: boolean[] = [];
-
-  /** The first connected controller, if any. */
-  private get pad(): Gamepad | null {
-    if (typeof navigator === "undefined" || !navigator.getGamepads) return null;
-    return [...navigator.getGamepads()].find((p): p is Gamepad => !!p && p.connected) ?? null;
-  }
+  /** Buttons still held from a menu: ignored until they're let go, so pressing A on "Resume" doesn't jump. */
+  private padHeld = new Set<number>();
 
   /**
    * Read the controller once per frame (browsers only report controllers by
-   * polling). Standard layout: left stick moves, right stick aims (or looks
-   * around in first person), RT throws, A jumps, B crouches, LT or clicking
-   * the left stick sprints, X reloads, Y switches weapon, RB fires your super,
-   * the D-pad is the Principal's or mascot's four powers, Start is the menu
-   * and Back holds the scoreboard.
+   * polling), using the controller settings: dead zone, swapped sticks,
+   * inverted look, look speed and which button does what. Start is always
+   * the menu and the D-pad is always the Principal's or mascot's four powers.
    */
   pollGamepad(dt: number) {
-    const pad = this.pad;
-    if (!pad) {
-      if (this.padActive) this.setPadActive(false);
+    const pad = connectedPad();
+    if (!pad || padCapturing()) {
+      if (!pad && this.padActive) this.setPadActive(false);
       this.releasePad();
+      if (pad) this.padPrev = pad.buttons.map((_, i) => padDown(pad, i));
       return;
     }
+    const s = getPadSettings();
+    const dz = s.deadZone;
     const dead = (v: number | undefined) => {
       const a = v ?? 0;
-      return Math.abs(a) < 0.18 ? 0 : (a - Math.sign(a) * 0.18) / 0.82;
+      return Math.abs(a) < dz ? 0 : (a - Math.sign(a) * dz) / (1 - dz);
     };
-    const lx = dead(pad.axes[0]);
-    const ly = dead(pad.axes[1]);
-    const rx = dead(pad.axes[2]);
-    const ry = dead(pad.axes[3]);
-    const down = (i: number) => {
-      const b = pad.buttons[i];
-      return !!b && (b.pressed || b.value > 0.4);
-    };
+    let [lx, ly, rx, ry] = [0, 1, 2, 3].map((i) => dead(pad.axes[i]));
+    if (s.swapSticks) [lx, ly, rx, ry] = [rx, ry, lx, ly];
+    // Anything held over from a menu stays ignored until it's released.
+    for (const i of this.padHeld) if (!padDown(pad, i)) this.padHeld.delete(i);
+    const down = (i: number) => padDown(pad, i) && !this.padHeld.has(i);
     const pressed = (i: number) => down(i) && !this.padPrev[i];
     const used = lx || ly || rx || ry || pad.buttons.some((b) => b.pressed);
     if (used && !this.padActive) {
@@ -291,9 +286,10 @@ export class InputController {
     }
 
     // Start opens and closes the menu, even while a menu is open.
-    if (pressed(9)) this.handlers.onMenu();
-    if (down(8) !== this.padScoreboard) {
-      this.padScoreboard = down(8);
+    if (pressed(PAD_START)) this.handlers.onMenu();
+    const b = s.buttons;
+    if (down(b.scoreboard) !== this.padScoreboard) {
+      this.padScoreboard = down(b.scoreboard);
       this.scoreboard = this.padScoreboard;
     }
 
@@ -306,21 +302,24 @@ export class InputController {
       } else {
         this.padAim = null;
       }
-      this.padFiring = down(7);
-      this.padJump = down(0);
-      this.padCrouch = down(1);
-      this.padSprint = down(6) || down(10);
-      if (pressed(2)) this.reloadQueued = true;
-      if (pressed(3)) this.swapToggle = true;
-      if (pressed(5)) this.handlers.onSuper();
-      [12, 15, 13, 14].forEach((b, i) => pressed(b) && this.handlers.onAbility(i));
-      // First person: the right stick turns you and tilts your view.
+      this.padFiring = down(b.fire);
+      this.padJump = down(b.jump);
+      this.padCrouch = down(b.crouch);
+      this.padSprint = down(b.sprint);
+      if (pressed(b.reload)) this.reloadQueued = true;
+      if (pressed(b.swap)) this.swapToggle = true;
+      if (pressed(b.super)) this.handlers.onSuper();
+      PAD_DPAD.forEach((d, i) => pressed(d) && this.handlers.onAbility(i));
+      // First person: the aiming stick turns you and tilts your view.
       if (this.fpsMode) {
-        this.yaw += rx * this.padTurnSpeed * dt;
-        this.lookUp(-ry * this.padTurnSpeed * 0.6 * dt);
+        const speed = this.padTurnSpeed * s.lookSpeed;
+        this.yaw += rx * speed * dt;
+        this.lookUp((s.invertY ? ry : -ry) * speed * 0.6 * dt);
       }
     } else {
       this.releasePad();
+      // Whatever is held while a menu is open belongs to the menu.
+      pad.buttons.forEach((_, i) => padDown(pad, i) && this.padHeld.add(i));
     }
     this.padPrev = pad.buttons.map((_, i) => down(i));
   }
@@ -340,6 +339,11 @@ export class InputController {
     this.padCrouch = false;
   }
 
+  /** The throw button is held (for 3D aim assist). */
+  get padTriggerHeld() {
+    return this.padFiring;
+  }
+
   /** Aim with a controller: the right stick if it's pushed, otherwise the way you're walking. */
   padAimAngle() {
     if (this.padAim !== null) return this.padAim;
@@ -350,7 +354,8 @@ export class InputController {
 
   /** Shake the controller (if it can), e.g. when you get hit. */
   rumble(strength: number, ms: number) {
-    const actuator = this.pad?.vibrationActuator as
+    if (!getPadSettings().vibration) return;
+    const actuator = connectedPad()?.vibrationActuator as
       | { playEffect?: (type: string, params: Record<string, number>) => Promise<unknown> }
       | null
       | undefined;

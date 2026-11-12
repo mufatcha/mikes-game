@@ -63,3 +63,10 @@ body {
   background-size: 14px 14px;
   mask-image: linear-gradient(to bottom, black, transparent 85%);
 }
+
+/* The highlight a game controller moves around the menus. */
+[data-pad-focus] {
+  outline: 3px solid #fbbf24;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.25);
+}

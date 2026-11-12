@@ -12,7 +12,8 @@ import { Renderer } from "@/game/renderer";
 import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import LoadoutPicker, { LevelBar } from "./LoadoutPicker";
 import { CopyButton, inviteLink } from "./Lobby";
-import { keyLabel, useClassXp, useKeybinds, useTouchControlsMode } from "@/lib/settings";
+import { getPadSettings, keyLabel, useClassXp, useKeybinds, useTouchControlsMode } from "@/lib/settings";
+import { setPadGameplay } from "@/lib/gamepad";
 import Modal from "./Modal";
 import PrankMenu from "./PrankMenu";
 import { CHEAT_CODE } from "@/shared/pranks";
@@ -22,6 +23,13 @@ import SkillCheck, { type SkillCheckHandle } from "./SkillCheck";
 import TouchControls, { useMediaQuery } from "./TouchControls";
 
 type Overlay = "none" | "menu" | "loadout" | "settings" | "pranks" | "tardis";
+
+/** Controller aim assist: how wide to look for an enemy, how much to pull (top-down) and how fast to turn (3D). */
+const ASSIST = {
+  off: null,
+  low: { cone: 0.17, pull: 0.45, turn: 3 },
+  high: { cone: 0.28, pull: 0.8, turn: 7 },
+} as const;
 
 export default function GameView({
   conn,
@@ -144,6 +152,12 @@ export default function GameView({
       last = now;
       const touch = input.touchMode;
       const pad = input.padActive;
+      // Aim assist (top-down): pull a controller's aim part of the way onto an enemy near it.
+      const padAssist = (a: number) => {
+        const assist = ASSIST[getPadSettings().aimAssist];
+        const diff = assist ? renderer.assistAngle(a, assist.cone) : null;
+        return diff === null || !assist ? a : a + diff * assist.pull;
+      };
       const fps = !!conn.room?.view3d;
       input.fpsMode = fps;
       const me = conn.me;
@@ -169,7 +183,7 @@ export default function GameView({
         // it's let go, still pointing the same way), gliding there rather than jumping.
         const a = input.padAimAngle();
         const push = Math.min(1, Math.hypot(input.padStick.x, input.padStick.y));
-        const reach = 0.06 + 0.24 * push;
+        const reach = (0.06 + 0.24 * push) * getPadSettings().aimReach;
         const tx = canvas.clientWidth / 2 + Math.cos(a) * canvas.clientWidth * reach;
         const ty = canvas.clientHeight / 2 + Math.sin(a) * canvas.clientHeight * reach;
         const glide = 1 - Math.exp(-frameDt * 14);
@@ -183,10 +197,17 @@ export default function GameView({
       }
       const dt = renderer.updateCamera(now, input.mouseX, input.mouseY);
       if (fps) input.updateFps(dt);
+      // Aim assist in first person: a gentle turn toward an enemy you're already looking near.
+      if (fps && pad) {
+        const assist = ASSIST[getPadSettings().aimAssist];
+        const aiming = Math.hypot(input.padStick.x, input.padStick.y) > 0.1 || input.padTriggerHeld;
+        const diff = assist && aiming ? renderer.assistAngle(input.yaw, assist.cone) : null;
+        if (diff !== null && assist) input.yaw += diff * Math.min(1, frameDt * assist.turn);
+      }
       const aim = fps
         ? input.yaw
         : pad
-          ? input.padAimAngle()
+          ? padAssist(input.padAimAngle())
           : touch
             ? input.touchAimAngle()
             : renderer.aimFrom(input.mouseX, input.mouseY);
@@ -224,9 +245,14 @@ export default function GameView({
 
   useEffect(() => {
     inputRef.current?.setEnabled(overlay === "none" && !results);
+    // The controller plays the game when no menu is up; otherwise it steers the menus.
+    setPadGameplay(overlay === "none" && !results);
     // First person: give the mouse back whenever a menu or the results are up.
     if ((overlay !== "none" || results) && document.pointerLockElement) document.exitPointerLock();
   }, [overlay, results]);
+
+  // Leaving the match hands the controller back to the menus.
+  useEffect(() => () => setPadGameplay(false), []);
 
   // First person: track the mouse lock; losing it mid-game (Esc, alt-tab) opens the menu.
   useEffect(() => {
