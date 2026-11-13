@@ -1,6 +1,16 @@
 import { EYE_HEIGHT, MAX_PITCH } from "@/shared/constants";
 import type { Renderer, VrArms } from "./renderer";
-import { VR_QUALITY_SCALE, getVrQuality } from "@/lib/settings";
+import {
+  VR_HUD_ITEMS,
+  VR_QUALITIES,
+  VR_QUALITY_SCALE,
+  VR_SPOTS,
+  getVrHud,
+  getVrQuality,
+  resetVrHud,
+  saveVrQuality,
+  setVrSpot,
+} from "@/lib/settings";
 import { VrWorld } from "./vrworld";
 
 /**
@@ -126,6 +136,12 @@ const WRIST_BACK = 0.08;
 const WRIST_RAISE = 0.1;
 /** Headset resolutions Auto steps down through if frames are being missed. */
 const AUTO_SCALES = [1, 0.8, 0.65];
+/** The settings menu: canvas width, title space, row height, width in meters and how far in front of you. */
+const MENU_W = 900;
+const MENU_TOP = 130;
+const MENU_ROW = 62;
+const MENU_SIZE = 0.9;
+const MENU_DIST = 1.1;
 const SNAP_TURN = Math.PI / 6;
 const DEAD = 0.15;
 
@@ -293,6 +309,18 @@ export class VrPlayer {
   private aimRay: XRRigidTransform | null = null;
   private lastM: Float32Array | null = null;
   private reticle = { tex: null as WebGLTexture | null, buf: null as WebGLBuffer | null, laser: null as WebGLBuffer | null };
+  /** The settings menu (☰): open or not, its panel, where it hangs, and which row the laser is on. */
+  private menu = {
+    open: false,
+    placed: false,
+    hover: -1,
+    canvas: null as HTMLCanvasElement | null,
+    tex: null as WebGLTexture | null,
+    buf: null as WebGLBuffer | null,
+    center: [0, 0, 0] as V3,
+    right: [1, 0, 0] as V3,
+  };
+  private sticksWere = false;
 
   private constructor(
     private session: XRSession,
@@ -427,7 +455,8 @@ export class VrPlayer {
     const locUv = gl.getAttribLocation(this.prog, "uv");
     for (const side of ["left", "right"] as const) this.drawArm(side, views, locP, locV, locPos, locUv, t);
     this.drawView(views, head, locP, locV, locPos, locUv, t);
-    if (this.aimRay && scene && this.lastM) this.drawReticle(views, head, aimYaw, aimPitch, locP, locV, locPos, locUv);
+    if (this.menu.open) this.drawMenu(views, head, locP, locV, locPos, locUv, t);
+    else if (this.aimRay && scene && this.lastM) this.drawReticle(views, head, aimYaw, aimPitch, locP, locV, locPos, locUv);
   };
 
   /**
@@ -857,6 +886,44 @@ export class VrPlayer {
   private readControls(): VrControls {
     const c: VrControls = { moveX: 0, moveY: 0, fire: false, jump: false, sprint: false, crouch: false, scoreboard: false, pressed: [] };
     const seen = new Map<string, boolean>();
+    // The menu: the ☰ button on the left controller (where the headset passes it on), or both sticks clicked together.
+    let menuPress = false;
+    let sticksBoth = true;
+    let select = false;
+    let back = false;
+    for (const src of this.session.inputSources) {
+      const pad = src.gamepad;
+      if (!pad || src.handedness === "none") continue;
+      const hand = src.handedness;
+      const was = (i: number) => this.prevButtons.get(`${hand}${i}`) ?? false;
+      const now = (i: number) => {
+        const b = pad.buttons[i];
+        return !!b && (b.pressed || b.value > 0.5);
+      };
+      sticksBoth &&= now(3);
+      if (hand === "left") {
+        for (let i = 6; i < pad.buttons.length; i++) if (pad.buttons[i]?.pressed && !was(i)) menuPress = true;
+      } else {
+        select = now(0) && !was(0);
+        back = now(5) && !was(5);
+      }
+    }
+    const bothNow = sticksBoth && [...this.session.inputSources].filter((s) => s.gamepad && s.handedness !== "none").length === 2;
+    if (bothNow && !this.sticksWere) menuPress = true;
+    this.sticksWere = bothNow;
+    if (menuPress) this.setMenu(!this.menu.open);
+    if (this.menu.open) {
+      // While the menu is up the controllers work it, not the game: point and pull the trigger, B to close.
+      if (select) this.menuSelect();
+      if (back) this.setMenu(false);
+      for (const src of this.session.inputSources) {
+        const pad = src.gamepad;
+        if (!pad || src.handedness === "none") continue;
+        pad.buttons.forEach((b, i) => seen.set(`${src.handedness}${i}`, b.pressed || b.value > 0.5));
+      }
+      this.prevButtons = seen;
+      return c;
+    }
     for (const src of this.session.inputSources) {
       const pad = src.gamepad;
       if (!pad || src.handedness === "none") continue;
@@ -901,9 +968,205 @@ export class VrPlayer {
           this.abilityArmed = true;
         }
       }
+      // Remember every button (the menu ones too) for next frame.
+      pad.buttons.forEach((b, i) => {
+        if (!seen.has(`${hand}${i}`)) seen.set(`${hand}${i}`, b.pressed || b.value > 0.5);
+      });
     }
     this.prevButtons = seen;
     return c;
+  }
+
+  // ------------------------------------------------------------ the VR menu
+
+  private setMenu(open: boolean) {
+    this.menu.open = open;
+    this.menu.placed = false;
+    this.menu.hover = -1;
+  }
+
+  /** The menu's rows: what each says, and what pulling the trigger on it does. */
+  private menuRows(): { label: string; value?: string; act: () => void }[] {
+    const quality = getVrQuality();
+    const hud = getVrHud();
+    const spotName = (s: string) => VR_SPOTS.find(([id]) => id === s)?.[1] ?? s;
+    return [
+      { label: "▶ Resume", act: () => this.setMenu(false) },
+      {
+        label: "VR resolution",
+        value: VR_QUALITIES.find(([q]) => q === quality)?.[1] ?? "Auto",
+        act: () => {
+          const i = VR_QUALITIES.findIndex(([q]) => q === quality);
+          saveVrQuality(VR_QUALITIES[(i + 1) % VR_QUALITIES.length][0]);
+        },
+      },
+      ...VR_HUD_ITEMS.map(({ id, label }) => ({
+        label: label.split(" (")[0],
+        value: spotName(hud[id]),
+        act: () => {
+          const i = VR_SPOTS.findIndex(([s]) => s === hud[id]);
+          setVrSpot(id, VR_SPOTS[(i + 1) % VR_SPOTS.length][0]);
+        },
+      })),
+      { label: "Reset VR layout", act: () => resetVrHud() },
+      { label: "🚪 Leave VR", act: () => this.end() },
+    ];
+  }
+
+  private menuSelect() {
+    const rows = this.menuRows();
+    rows[this.menu.hover]?.act();
+  }
+
+  /** The menu panel, hung in front of where you were looking when you opened it; the laser picks a row. */
+  private drawMenu(
+    views: readonly XRView[],
+    head: XRRigidTransform,
+    locP: WebGLUniformLocation | null,
+    locV: WebGLUniformLocation | null,
+    locPos: number,
+    locUv: number,
+    t: number,
+  ) {
+    const gl = this.gl;
+    const m = this.menu;
+    const rows = this.menuRows();
+    const H = MENU_TOP + rows.length * MENU_ROW + 30;
+    if (!m.tex) {
+      m.canvas = document.createElement("canvas");
+      m.tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, m.tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      m.buf = gl.createBuffer()!;
+    }
+    const halfW = MENU_SIZE / 2;
+    const halfH = (MENU_SIZE * H) / MENU_W / 2;
+    if (!m.placed) {
+      // Level, straight ahead of your face, turned to face you.
+      const f = forwardOf(head.orientation);
+      const l = Math.hypot(f.x, f.z) || 1;
+      const fx = f.x / l;
+      const fz = f.z / l;
+      const p = head.position;
+      m.center = [p.x + fx * MENU_DIST, p.y - 0.05, p.z + fz * MENU_DIST];
+      m.right = [-fz, 0, fx];
+      m.placed = true;
+    }
+    const C = m.center;
+    const R = m.right;
+    const U: V3 = [0, 1, 0];
+    const N: V3 = [-R[2], 0, R[0]]; // toward you (right x up)
+    // Which row the laser points at.
+    m.hover = -1;
+    let dot: [number, number] | null = null;
+    const ray = this.aimRay;
+    if (ray) {
+      const o = ray.position;
+      const d = forwardOf(ray.orientation);
+      const den = d.x * N[0] + d.y * N[1] + d.z * N[2];
+      if (den < -1e-4) {
+        const tHit = ((C[0] - o.x) * N[0] + (C[1] - o.y) * N[1] + (C[2] - o.z) * N[2]) / den;
+        if (tHit > 0) {
+          const px = o.x + d.x * tHit - C[0];
+          const py = o.y + d.y * tHit - C[1];
+          const pz = o.z + d.z * tHit - C[2];
+          const sx = (px * R[0] + pz * R[2]) / halfW;
+          const sy = py / halfH;
+          if (Math.abs(sx) <= 1 && Math.abs(sy) <= 1) {
+            dot = [((sx + 1) / 2) * MENU_W, ((1 - sy) / 2) * H];
+            const row = Math.floor((dot[1] - MENU_TOP) / MENU_ROW);
+            if (row >= 0 && row < rows.length) m.hover = row;
+          }
+        }
+      }
+    }
+    // The panel's picture.
+    const c = m.canvas!;
+    if (c.width !== MENU_W || c.height !== H) {
+      c.width = MENU_W;
+      c.height = H;
+    }
+    const g = c.getContext("2d")!;
+    g.clearRect(0, 0, MENU_W, H);
+    g.fillStyle = "rgba(9,9,11,0.94)";
+    g.strokeStyle = "rgba(251,191,36,0.9)";
+    g.lineWidth = 6;
+    g.beginPath();
+    g.roundRect(3, 3, MENU_W - 6, H - 6, 30);
+    g.fill();
+    g.stroke();
+    g.fillStyle = "#fff";
+    g.font = "bold 46px ui-sans-serif, system-ui, sans-serif";
+    g.textBaseline = "middle";
+    g.fillText("Settings", 40, 52);
+    g.font = "22px ui-sans-serif, system-ui, sans-serif";
+    g.fillStyle = "#a1a1aa";
+    g.fillText("Point and pull the trigger · B or ☰ to close", 40, 96);
+    rows.forEach((row, i) => {
+      const y = MENU_TOP + i * MENU_ROW;
+      if (i === m.hover) {
+        g.fillStyle = "rgba(251,191,36,0.9)";
+        g.beginPath();
+        g.roundRect(24, y + 4, MENU_W - 48, MENU_ROW - 8, 14);
+        g.fill();
+      }
+      g.fillStyle = i === m.hover ? "#000" : "#e4e4e7";
+      g.font = "bold 30px ui-sans-serif, system-ui, sans-serif";
+      g.textAlign = "left";
+      g.fillText(row.label, 44, y + MENU_ROW / 2);
+      if (row.value) {
+        g.textAlign = "right";
+        g.fillStyle = i === m.hover ? "#000" : "#fbbf24";
+        g.fillText(`◀ ${row.value} ▶`, MENU_W - 44, y + MENU_ROW / 2);
+      }
+      g.textAlign = "left";
+    });
+    if (dot) {
+      g.fillStyle = "#fff";
+      g.strokeStyle = "#000";
+      g.lineWidth = 3;
+      g.beginPath();
+      g.arc(dot[0], dot[1], 9, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+    }
+    gl.bindTexture(gl.TEXTURE_2D, m.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+    void t;
+
+    const pt = (sx: number, sy: number, u: number, v: number) => [
+      C[0] + R[0] * sx + U[0] * sy,
+      C[1] + R[1] * sx + U[1] * sy,
+      C[2] + R[2] * sx + U[2] * sy,
+      u,
+      v,
+    ];
+    gl.bindBuffer(gl.ARRAY_BUFFER, m.buf);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([...pt(-halfW, halfH, 0, 0), ...pt(-halfW, -halfH, 0, 1), ...pt(halfW, halfH, 1, 0), ...pt(halfW, -halfH, 1, 1)]),
+      gl.DYNAMIC_DRAW,
+    );
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.disable(gl.DEPTH_TEST);
+    for (const view of views) {
+      const vp = this.layer.getViewport(view);
+      if (!vp) continue;
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+      gl.uniformMatrix4fv(locP, false, view.projectionMatrix);
+      gl.uniformMatrix4fv(locV, false, view.transform.inverse.matrix);
+      gl.enableVertexAttribArray(locPos);
+      gl.enableVertexAttribArray(locUv);
+      gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 20, 0);
+      gl.vertexAttribPointer(locUv, 2, gl.FLOAT, false, 20, 12);
+      gl.bindTexture(gl.TEXTURE_2D, m.tex);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    gl.disable(gl.BLEND);
   }
 
   // ------------------------------------------------------------ WebGL setup
