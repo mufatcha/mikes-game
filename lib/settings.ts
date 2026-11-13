@@ -358,6 +358,77 @@ export function resetPadSettings() {
   write(PAD_KEY, JSON.stringify(DEFAULT_PAD_SETTINGS));
 }
 
+
+// ---------------------------------------------------------------- VR HUD
+
+/** The pieces of the HUD you can place in VR. */
+export const VR_HUD_ITEMS = [
+  { id: "status", label: "Health & ammo" },
+  { id: "powers", label: "Powers & super" },
+  { id: "score", label: "Team score / boss bar" },
+  { id: "minimap", label: "Minimap" },
+  { id: "feed", label: "Kill feed" },
+  { id: "messages", label: "Messages (knocked out, respawning…)" },
+  { id: "scoreboard", label: "Scoreboard" },
+] as const;
+export type VrHudItem = (typeof VR_HUD_ITEMS)[number]["id"];
+/** Where a HUD piece goes in VR: on an arm, floating in front of you, or not shown. */
+export type VrSpot = "left" | "right" | "view" | "off";
+export const VR_SPOTS: [VrSpot, string][] = [
+  ["left", "Left arm"],
+  ["right", "Right arm"],
+  ["view", "In front"],
+  ["off", "Hidden"],
+];
+
+export const DEFAULT_VR_HUD: Record<VrHudItem, VrSpot> = {
+  status: "left",
+  powers: "left",
+  score: "left",
+  minimap: "left",
+  feed: "left",
+  messages: "left",
+  scoreboard: "right",
+};
+
+const VR_KEY = "mg.vrhud";
+let cachedVrRaw: string | null | undefined;
+let cachedVr: Record<VrHudItem, VrSpot> = DEFAULT_VR_HUD;
+
+function readVrHud(): Record<VrHudItem, VrSpot> {
+  const raw = read(VR_KEY);
+  if (raw !== cachedVrRaw) {
+    cachedVrRaw = raw;
+    const out = { ...DEFAULT_VR_HUD };
+    try {
+      const p = raw ? (JSON.parse(raw) as Partial<Record<VrHudItem, string>>) : {};
+      for (const { id } of VR_HUD_ITEMS) {
+        const spot = p[id];
+        if (VR_SPOTS.some(([s]) => s === spot)) out[id] = spot as VrSpot;
+      }
+    } catch {
+      // Bad saved data: use the defaults.
+    }
+    cachedVr = out;
+  }
+  return cachedVr;
+}
+
+export function useVrHud() {
+  return useSyncExternalStore(subscribe, readVrHud, () => DEFAULT_VR_HUD);
+}
+
+export function getVrHud() {
+  return readVrHud();
+}
+
+export function setVrSpot(item: VrHudItem, spot: VrSpot) {
+  write(VR_KEY, JSON.stringify({ ...readVrHud(), [item]: spot }));
+}
+
+export function resetVrHud() {
+  write(VR_KEY, JSON.stringify(DEFAULT_VR_HUD));
+}
 const KEY_NAMES: Record<string, string> = {
   ArrowUp: "↑",
   ArrowDown: "↓",

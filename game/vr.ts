@@ -1,5 +1,5 @@
 import { EYE_HEIGHT, MAX_PITCH } from "@/shared/constants";
-import type { Renderer } from "./renderer";
+import type { Renderer, VrArms } from "./renderer";
 
 /**
  * Playing the 3D view in a VR headset (WebXR: Meta Quest's browser, or a PC
@@ -119,7 +119,7 @@ const SHEET_REACH = 60;
 const HUD_W = 520;
 const HUD_H = 380;
 const HUD_DIST = 1.5;
-/** The wrist screen: canvas size, width in meters, how far back from the controller toward your elbow, and how high above it. */
+/** The arm screens: canvas size, width in meters, how far back from the controller toward your elbow, and how high above it. */
 const WRIST_W = 560;
 const WRIST_H = 400;
 const WRIST_SIZE = 0.22;
@@ -150,6 +150,21 @@ function forwardOf(q: DOMPointReadOnly) {
 const clampPitch = (p: number) => Math.max(-MAX_PITCH, Math.min(MAX_PITCH, p));
 const dead = (v: number | undefined) => (Math.abs(v ?? 0) < DEAD ? 0 : (v ?? 0));
 
+
+type Side = "left" | "right";
+
+/** A screen strapped to one arm. */
+interface ArmScreen {
+  grip: XRRigidTransform | null;
+  canvas: HTMLCanvasElement | null;
+  tex: WebGLTexture | null;
+  buf: WebGLBuffer | null;
+  drawnAt: number;
+  /** Something is set to go on this arm. */
+  showing: boolean;
+}
+
+const newArm = (): ArmScreen => ({ grip: null, canvas: null, tex: null, buf: null, drawnAt: 0, showing: false });
 interface Eye {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
@@ -186,13 +201,9 @@ export class VrPlayer {
   private lastT = 0;
   /** How big the eye pictures are drawn, from SCALES. */
   private scale = 1;
-  /** Left controller and head this frame, and the wrist screen's canvas. */
-  private wrist: XRRigidTransform | null = null;
+  /** Each arm's controller this frame and its screen, and where your head is. */
+  private arms: Record<Side, ArmScreen> = { left: newArm(), right: newArm() };
   private headPos: DOMPointReadOnly | null = null;
-  private wristCanvas: HTMLCanvasElement | null = null;
-  private wristTex: WebGLTexture | null = null;
-  private wristBuf: WebGLBuffer | null = null;
-  private wristDrawn = 0;
 
   private constructor(
     private session: XRSession,
@@ -284,11 +295,14 @@ export class VrPlayer {
       this.eyes.forEach((e) => (e.drawn = false));
     }
     const controls = this.readControls();
-    // Your left controller's grip, for the wrist screen.
+    // Each controller's grip, for the arm screens.
     this.headPos = head.position;
-    this.wrist = null;
+    this.arms.left.grip = null;
+    this.arms.right.grip = null;
     for (const src of this.session.inputSources) {
-      if (src.handedness === "left" && src.gripSpace && this.space) this.wrist = frame.getPose(src.gripSpace, this.space)?.transform ?? null;
+      if (src.handedness !== "none" && src.gripSpace && this.space) {
+        this.arms[src.handedness].grip = frame.getPose(src.gripSpace, this.space)?.transform ?? null;
+      }
     }
     this.step(t, this.baseYaw + this.headYaw, clampPitch(Math.asin(Math.max(-1, Math.min(1, hf.y)))), controls);
 
@@ -339,14 +353,15 @@ export class VrPlayer {
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.grid);
       gl.drawElements(gl.TRIANGLES, 66, gl.UNSIGNED_SHORT, 0);
     });
-    // Your wrist screen, on top of everything, in both eyes.
-    if (this.wrist) this.drawWrist(views, locP, locV, locPos, locUv, t);
+    // Your arm screens, on top of everything, in both eyes.
+    for (const side of ["left", "right"] as const) this.drawArm(side, views, locP, locV, locPos, locUv, t);
   };
 
-  // ------------------------------------------------------------ the wrist screen
+  // ------------------------------------------------------------ the arm screens
 
-  /** The screen strapped to your left arm: health, ammo, score, minimap and the rest. */
-  private drawWrist(
+  /** The screen strapped to one arm, showing whatever Settings puts on that arm. */
+  private drawArm(
+    side: Side,
     views: readonly XRView[],
     locP: WebGLUniformLocation | null,
     locV: WebGLUniformLocation | null,
@@ -354,29 +369,33 @@ export class VrPlayer {
     locUv: number,
     t: number,
   ) {
-    const grip = this.wrist;
+    const arm = this.arms[side];
+    const grip = arm.grip;
     const head = this.headPos;
     if (!grip || !head) return;
     const gl = this.gl;
-    if (!this.wristTex) {
-      this.wristCanvas = document.createElement("canvas");
-      this.wristCanvas.width = WRIST_W;
-      this.wristCanvas.height = WRIST_H;
-      this.wristTex = gl.createTexture()!;
-      gl.bindTexture(gl.TEXTURE_2D, this.wristTex);
+    if (!arm.tex) {
+      arm.canvas = document.createElement("canvas");
+      arm.canvas.width = WRIST_W;
+      arm.canvas.height = WRIST_H;
+      arm.tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, arm.tex);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      this.wristBuf = gl.createBuffer()!;
+      arm.buf = gl.createBuffer()!;
     }
     // Redraw the screen's contents about 30 times a second (it's small, and that's plenty).
-    if (t - this.wristDrawn > 30) {
-      this.wristDrawn = t;
-      this.renderer.drawVrWrist(this.wristCanvas!.getContext("2d")!, WRIST_W, WRIST_H, this.baseYaw + this.headYaw);
-      gl.bindTexture(gl.TEXTURE_2D, this.wristTex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.wristCanvas!);
+    if (t - arm.drawnAt > 30) {
+      arm.drawnAt = t;
+      arm.showing = this.renderer.drawVrArm(arm.canvas!.getContext("2d")!, WRIST_W, WRIST_H, this.baseYaw + this.headYaw, side, this.armsPresent());
+      if (arm.showing) {
+        gl.bindTexture(gl.TEXTURE_2D, arm.tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, arm.canvas!);
+      }
     }
+    if (!arm.showing) return;
 
     // Just above your wrist (back from the controller toward your elbow), turned to face your eyes.
     const q = grip.orientation;
@@ -404,15 +423,9 @@ export class VrPlayer {
     const uz = -ny * rx;
     const hw = WRIST_SIZE / 2;
     const hh = (WRIST_SIZE * WRIST_H) / WRIST_W / 2;
-    const pt = (sx: number, sy: number, u: number, v: number) => [
-      c.x + rx * sx + ux * sy,
-      c.y + uy * sy,
-      c.z + rz * sx + uz * sy,
-      u,
-      v,
-    ];
+    const pt = (sx: number, sy: number, u: number, v: number) => [c.x + rx * sx + ux * sy, c.y + uy * sy, c.z + rz * sx + uz * sy, u, v];
     const verts = new Float32Array([...pt(-hw, hh, 0, 0), ...pt(-hw, -hh, 0, 1), ...pt(hw, hh, 1, 0), ...pt(hw, -hh, 1, 1)]);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.wristBuf);
+    gl.bindBuffer(gl.ARRAY_BUFFER, arm.buf);
     gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -424,10 +437,15 @@ export class VrPlayer {
       gl.uniformMatrix4fv(locV, false, view.transform.inverse.matrix);
       gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 20, 0);
       gl.vertexAttribPointer(locUv, 2, gl.FLOAT, false, 20, 12);
-      gl.bindTexture(gl.TEXTURE_2D, this.wristTex);
+      gl.bindTexture(gl.TEXTURE_2D, arm.tex);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     gl.disable(gl.BLEND);
+  }
+
+  /** Which hands have a controller this frame. */
+  private armsPresent(): VrArms {
+    return { left: !!this.arms.left.grip, right: !!this.arms.right.grip };
   }
 
 
@@ -474,7 +492,7 @@ export class VrPlayer {
       hudShift,
       hudScale: s,
       primary: i === 0,
-      wrist: !!this.wrist,
+      arms: this.armsPresent(),
     });
 
     const gl = this.gl;

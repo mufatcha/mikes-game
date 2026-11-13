@@ -11,6 +11,11 @@ import {
   savePadSettings,
   setPadButton,
   usePadSettings,
+  useVrHud,
+  VR_HUD_ITEMS,
+  VR_SPOTS,
+  setVrSpot,
+  resetVrHud,
   type AimAssist,
   type PadAction,
   RESERVED_KEY,
@@ -140,6 +145,7 @@ export default function KeybindSettings({ onDone }: { onDone: () => void }) {
         </button>
       </div>
       <ControllerSettings />
+      <VrHudSettings />
     </>
   );
 }
@@ -214,6 +220,52 @@ function Toggle({ label, hint, on, onChange }: { label: string; hint: string; on
 }
 
 /** Game controller settings: sensitivity, dead zone, aim assist, vibration, and which button does what. */
+/** VR: which arm (or in front of you, or nowhere) each piece of the HUD goes on. */
+function VrHudSettings() {
+  const hud = useVrHud();
+  return (
+    <>
+      <div className="mt-2 border-t border-white/10 pt-4">
+        <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">🥽 VR: what&apos;s on each arm</h3>
+        <p className="mt-1 text-sm text-zinc-500">
+          In VR, your health and the rest are on screens on your arms; raise an arm to look. &quot;In front&quot; floats it
+          in your view instead (the scoreboard there only shows while you hold the left grip).
+        </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {VR_HUD_ITEMS.map(({ id, label }) => (
+          <div key={id} className="flex flex-col gap-1.5 rounded-lg bg-white/5 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-zinc-200">{label}</span>
+            <div className="grid grid-cols-4 gap-1 rounded-lg bg-black/30 p-1">
+              {VR_SPOTS.map(([spot, name]) => (
+                <button
+                  key={spot}
+                  type="button"
+                  onClick={() => setVrSpot(id, spot)}
+                  className={`rounded-md px-2 py-1 text-xs font-semibold transition ${
+                    hud[id] === spot ? "bg-amber-400 text-black" : "text-zinc-300 hover:bg-white/10"
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={resetVrHud}
+          className="rounded-md border border-white/20 px-3 py-1 text-sm text-zinc-200 hover:border-white/50"
+        >
+          Reset VR layout
+        </button>
+      </div>
+    </>
+  );
+}
+
 function ControllerSettings() {
   const pad = usePadSettings();
   const [listening, setListening] = useState<PadAction | null>(null);

@@ -50,7 +50,7 @@ import {
   weaponsOf,
 } from "@/shared/archetypes";
 import { abilitySlots } from "./layout";
-import { ABILITY_ACTIONS, getKeybinds, keyLabel } from "@/lib/settings";
+import { ABILITY_ACTIONS, VR_HUD_ITEMS, getKeybinds, getVrHud, keyLabel, type VrHudItem, type VrSpot } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
 import { drawFirstPerson } from "./firstperson";
@@ -147,12 +147,25 @@ export interface VrEye {
   hudShift: number;
   /** Drawn smaller when the eye pictures are made smaller to keep up. */
   hudScale: number;
-  /** Your health and the rest are on your wrist, so leave them out of the view. */
-  wrist: boolean;
+  /** Which arms have a controller (HUD pieces set for a missing arm show in front of you instead). */
+  arms: VrArms;
   /** The eye whose view decides who's on screen (for Detention) and fades the hurt flash. */
   primary: boolean;
 }
 
+
+/** Which arms have a controller to put a screen on. */
+export interface VrArms {
+  left: boolean;
+  right: boolean;
+}
+
+/** Where a HUD piece goes in VR: its setting, or in front of you if that arm has no controller. */
+function vrSpot(item: VrHudItem, arms: VrArms): VrSpot {
+  const spot = getVrHud()[item];
+  if ((spot === "left" && !arms.left) || (spot === "right" && !arms.right)) return "view";
+  return spot;
+}
 function lerp(a: number, b: number, f: number) {
   return a + (b - a) * f;
 }
@@ -454,26 +467,28 @@ export class Renderer {
     });
     if (eye.primary) this.targetable = seen;
 
-    // In view: the crosshair, the red flash when you're hit, and the scoreboard while you hold it.
-    // Everything else is on your wrist (drawVrWrist), unless there's no controller to put it on.
+    // In view: the crosshair, the red flash when you're hit, and whatever Settings puts "In front"
+    // (the scoreboard only while you hold the left grip). The rest is on your arms (drawVrArm).
     const k = eye.hudScale;
     const ox = (w - eye.hudW * k) / 2 + eye.hudShift;
     const oy = (h - eye.hudH * k) / 2; // the middle of the picture is straight where you look
     this.withHudCanvas(ctx, eye.hudW, eye.hudH, k, ox, oy, () => {
       this.drawHurtVignette(eye.primary ? f.dt : 0);
-      if (!eye.wrist) this.drawHudItems(f, eye.yaw);
-      if (f.scoreboard) this.drawScoreboard(f.roster);
+      this.drawHudItems(f, eye.yaw, (item) => vrSpot(item, eye.arms) === "view" && (item !== "scoreboard" || f.scoreboard));
       this.drawCrosshair(eye.hudW / 2, eye.hudH / 2, f.now, me);
     });
   }
 
   /**
-   * VR: the screen on your wrist, with your health, ammo, score, minimap,
-   * powers and the kill feed. Drawn onto its own canvas, once a frame.
+   * VR: the screen on one arm, with whatever Settings puts there (by default
+   * health, ammo, score, minimap, powers and the kill feed on the left, and
+   * the scoreboard on the right). Returns false if nothing goes on that arm.
    */
-  drawVrWrist(ctx: CanvasRenderingContext2D, w: number, h: number, yaw: number) {
+  drawVrArm(ctx: CanvasRenderingContext2D, w: number, h: number, yaw: number, side: "left" | "right", arms: VrArms): boolean {
     const f = this.vrFrame;
-    if (!f) return;
+    if (!f) return false;
+    const here = (item: VrHudItem) => vrSpot(item, arms) === side;
+    if (!VR_HUD_ITEMS.some(({ id }) => here(id))) return false;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     // A dark screen with a rim, so it reads as a device strapped to your arm.
@@ -484,20 +499,26 @@ export class Renderer {
     ctx.roundRect(3, 3, w - 6, h - 6, 28);
     ctx.fill();
     ctx.stroke();
-    this.withHudCanvas(ctx, w, h, 1, 0, 0, () => this.drawHudItems(f, yaw));
+    this.withHudCanvas(ctx, w, h, 1, 0, 0, () => this.drawHudItems(f, yaw, here));
+    return true;
   }
 
-  /** The usual HUD pieces (everything but the crosshair, hurt flash and scoreboard). */
-  private drawHudItems(f: NonNullable<Renderer["vrFrame"]>, yaw: number) {
+  /** The HUD pieces that `show` picks (not the crosshair or hurt flash). */
+  private drawHudItems(f: NonNullable<Renderer["vrFrame"]>, yaw: number, show: (item: VrHudItem) => boolean) {
     const me = this.conn.me;
-    this.drawMinimap(f.players, f.roster, f.revealed, yaw);
-    if (this.mode === "boss") this.drawBossBar(f.players, f.roster);
-    else this.drawScore();
-    this.drawFeed(f.now);
-    if (me) this.drawStatus(me, false);
-    if (me?.cds) this.drawAbilityBar(me, false);
-    else if (me && SUPERS[me.archetype]) this.drawSuperMeter(me, false);
-    this.drawBanner(f.now);
+    if (show("minimap")) this.drawMinimap(f.players, f.roster, f.revealed, yaw);
+    if (show("score")) {
+      if (this.mode === "boss") this.drawBossBar(f.players, f.roster);
+      else this.drawScore();
+    }
+    if (show("feed")) this.drawFeed(f.now);
+    if (me && show("status")) this.drawStatus(me, false);
+    if (show("powers")) {
+      if (me?.cds) this.drawAbilityBar(me, false);
+      else if (me && SUPERS[me.archetype]) this.drawSuperMeter(me, false);
+    }
+    if (show("messages")) this.drawBanner(f.now);
+    if (show("scoreboard")) this.drawScoreboard(f.roster);
   }
 
   /** Run HUD drawing as if the screen were a w x h box on this canvas (scaled by k, at ox, oy). */
