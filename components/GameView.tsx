@@ -9,6 +9,7 @@ import { Sfx } from "@/game/audio";
 import type { GameConnection } from "@/game/connection";
 import { InputController } from "@/game/input";
 import { Renderer } from "@/game/renderer";
+import { VrPlayer, vrSupported, type VrControls } from "@/game/vr";
 import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import LoadoutPicker, { LevelBar } from "./LoadoutPicker";
 import { CopyButton, inviteLink } from "./Lobby";
@@ -70,6 +71,15 @@ export default function GameView({
   // Playing with a game controller: no need to grab the mouse.
   const [padOn, setPadOn] = useState(false);
   const lastUnlockRef = useRef(0);
+  // VR headset: whether this browser has one, whether we're in it, and how to put it on.
+  const [vrOk, setVrOk] = useState(false);
+  const [inVr, setInVr] = useState(false);
+  const vrRef = useRef<VrPlayer | null>(null);
+  const startVrRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    vrSupported().then(setVrOk);
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -109,6 +119,8 @@ export default function GameView({
       renderer.detentionTarget = target;
       const name = conn.room?.roster.find((r) => r.id === target)?.name ?? "a student";
       setSkill({ target, name });
+      // In VR the skill check is on the page, out of sight: count it as a good stop.
+      if (vrRef.current) setTimeout(() => finishSkillRef.current?.(0.7), 0);
     };
     abilityRef.current = useAbility;
     // Typing the cheat code (again) opens the prank menu once the server accepts it.
@@ -135,7 +147,10 @@ export default function GameView({
     });
     inputRef.current = input;
     // Getting hit rumbles the controller, harder for bigger hits.
-    renderer.onHurt = (dmg) => input.rumble(Math.min(1, 0.3 + dmg / 60), 120 + Math.min(200, dmg * 3));
+    renderer.onHurt = (dmg) => {
+      input.rumble(Math.min(1, 0.3 + dmg / 60), 120 + Math.min(200, dmg * 3));
+      vrRef.current?.rumble(Math.min(1, 0.3 + dmg / 60), 120 + Math.min(200, dmg * 3));
+    };
     input.attach();
 
     const onResize = () => renderer.resize();
@@ -144,7 +159,10 @@ export default function GameView({
     let raf = 0;
     let last = performance.now();
     let acc = 0;
-    const loop = (now: number) => {
+    /** In VR, where your head is pointing this frame. */
+    let vrLook: { yaw: number; pitch: number } | null = null;
+    /** One frame of the game: read input, send it, draw. */
+    const step = (now: number) => {
       // Controllers are only reported by polling, once a frame.
       const frameDt = Math.min(0.1, (now - last) / 1000);
       input.pollGamepad(frameDt);
@@ -163,7 +181,8 @@ export default function GameView({
       const me = conn.me;
       // Stepping up to the TARDIS console opens the destination picker (once per visit).
       const atConsole = !!me?.alive && atTardisConsole(me.x, me.y);
-      if (atConsole && consoleReady) {
+      // (Not in VR: the destination picker is on the screen, not in the headset.)
+      if (atConsole && consoleReady && !vrLook) {
         consoleReady = false;
         setOverlay((o) => (o === "none" ? "tardis" : o));
       } else if (!atConsole) {
@@ -174,8 +193,14 @@ export default function GameView({
         if (me?.alive && !wasAlive) {
           input.yaw = me.aim;
           input.pitch = 0;
+          vrRef.current?.face(me.aim);
         }
         wasAlive = !!me?.alive;
+        // In VR your head does the looking.
+        if (vrLook) {
+          input.yaw = vrLook.yaw;
+          input.pitch = vrLook.pitch;
+        }
         input.mouseX = canvas.clientWidth / 2;
         input.mouseY = canvas.clientHeight / 2;
       } else if (pad) {
@@ -226,13 +251,63 @@ export default function GameView({
         pitch: input.pitch,
         scoreboard: input.scoreboard,
         crosshair: !touch || fps,
+        vr: !!vrLook,
       });
+    };
+    const loop = (now: number) => {
+      if (vrRef.current) return; // the headset is running the frames
+      step(now);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
 
+    // VR: the headset runs the frames instead of the page, and steers you with your head.
+    const NO_VR = { x: 0, y: 0, fire: false, jump: false, sprint: false, crouch: false };
+    let disposed = false;
+    startVrRef.current = () => {
+      const onStep = (now: number, yaw: number, pitch: number, c: VrControls) => {
+        vrLook = { yaw, pitch };
+        input.vr = { x: c.moveX, y: c.moveY, fire: c.fire, jump: c.jump, sprint: c.sprint, crouch: c.crouch };
+        input.scoreboard = c.scoreboard;
+        const me = conn.me;
+        const principal = !!me && hasAbilities(me.archetype);
+        for (const a of c.pressed) {
+          if (a === "reload" || a === "swap") input.vrPress(a);
+          else if (a === "super" && !principal) conn.send({ t: "super" });
+          else if (a.startsWith("ability") && principal) abilityRef.current?.(Number(a.slice(7)));
+        }
+        step(now);
+      };
+      const onEnd = () => {
+        if (disposed) return;
+        vrRef.current = null;
+        vrLook = null;
+        input.vr = { ...NO_VR };
+        input.scoreboard = false;
+        setInVr(false);
+        cancelAnimationFrame(raf);
+        last = performance.now();
+        raf = requestAnimationFrame(loop);
+      };
+      VrPlayer.start(renderer, input.yaw, onStep, onEnd)
+        .then((vr) => {
+          if (disposed) {
+            vr.end();
+            return;
+          }
+          vrRef.current = vr;
+          cancelAnimationFrame(raf);
+          setInVr(true);
+        })
+        .catch((err: unknown) => setNotice(`Couldn't start VR: ${err instanceof Error ? err.message : "unknown problem"}`));
+    };
+
     return () => {
       cancelAnimationFrame(raf);
+      disposed = true;
+      vrRef.current?.end();
+      vrRef.current = null;
+      startVrRef.current = null;
       window.removeEventListener("resize", onResize);
       input.detach();
       sfx.dispose();
@@ -247,6 +322,8 @@ export default function GameView({
     inputRef.current?.setEnabled(overlay === "none" && !results);
     // The controller plays the game when no menu is up; otherwise it steers the menus.
     setPadGameplay(overlay === "none" && !results);
+    // The match is over: take the headset view off so the results show.
+    if (results) vrRef.current?.end();
     // First person: give the mouse back whenever a menu or the results are up.
     if ((overlay !== "none" || results) && document.pointerLockElement) document.exitPointerLock();
   }, [overlay, results]);
@@ -304,11 +381,13 @@ export default function GameView({
         />
       )}
 
-      {isFps && !locked && !isTouch && !padOn && overlay === "none" && !results && (
+      {isFps && !locked && !isTouch && !padOn && !inVr && overlay === "none" && !results && (
         <div className="pointer-events-none absolute inset-x-0 top-1/3 flex justify-center">
           <p className="rounded-lg bg-black/75 px-5 py-3 text-center font-semibold text-white">
             🎯 Click to look around
-            <span className="block text-sm font-normal text-zinc-400">Move the mouse to look in any direction · Esc for the menu</span>
+            <span className="block text-sm font-normal text-zinc-400">
+              Move the mouse to look in any direction · Esc for the menu{vrOk && " (Play in VR is there)"}
+            </span>
           </p>
         </div>
       )}
@@ -328,6 +407,16 @@ export default function GameView({
           <div className="flex flex-col gap-2">
             <MenuButton onClick={() => setOverlay("none")}>Resume</MenuButton>
             <MenuButton onClick={() => setOverlay("loadout")}>Change class</MenuButton>
+            {vrOk && isFps && (
+              <MenuButton
+                onClick={() => {
+                  setOverlay("none");
+                  startVrRef.current?.();
+                }}
+              >
+                🥽 Play in VR
+              </MenuButton>
+            )}
             <div className="flex items-center justify-between rounded-lg bg-white/5 px-4 py-2.5">
               <span className="text-zinc-300">
                 Code <span className="font-mono font-bold tracking-widest text-white">{code}</span>

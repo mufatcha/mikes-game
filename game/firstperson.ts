@@ -241,7 +241,9 @@ export interface FirstPersonScene {
   detentionTarget: string | null;
   /** Alive, so your own arm shows. */
   alive: boolean;
-  /** How far your eyes are above (or, crouching, below) their usual height. */
+  /** Field of view across the screen, in radians (wider in VR). */
+  fov?: number;
+    /** How far your eyes are above (or, crouching, below) their usual height. */
   eyeLift: number;
 }
 
@@ -255,7 +257,8 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
   FOG_DIST = s.fogOfWar ? WAR_FOG_DIST : HALL_FOG_DIST;
   FOG_MAX = s.fogOfWar ? 1 : 0.85;
   EYE = Math.max(12, Math.min(CEILING - 6, EYE_HEIGHT + s.eyeLift));
-  const proj = w / 2 / Math.tan(FOV / 2);
+  const fov = s.fov ?? FOV;
+  const proj = w / 2 / Math.tan(fov / 2);
   const pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, s.pitch));
   const horizon = h / 2 + s.shakeY + Math.tan(pitch) * proj;
   const cam: Camera3D = { x, y, eye: EYE, yaw, w, horizon, proj, shakeX: s.shakeX };
@@ -437,7 +440,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
     let ang = Math.atan2(py - y, px - x) - yaw;
     while (ang > Math.PI) ang -= Math.PI * 2;
     while (ang < -Math.PI) ang += Math.PI * 2;
-    if (Math.abs(ang) > FOV / 2 + 0.5) continue;
+    if (Math.abs(ang) > fov / 2 + 0.5) continue;
     const perp = sp.dist * Math.cos(ang);
     if (perp < 8) continue;
     const cx = w / 2 + Math.tan(ang) * proj + s.shakeX;

@@ -129,6 +129,26 @@ export interface ViewInput {
   scoreboard: boolean;
   /** Off on touch screens, where you aim with a thumbstick instead. */
   crosshair: boolean;
+  /** VR: only keep the game moving (sounds, effects); each eye is drawn after with drawVrEye. */
+  vr?: boolean;
+}
+
+/** One eye of the VR view (see Renderer.drawVrEye). */
+export interface VrEye {
+  /** This eye's offset from the middle of your head, in map units. */
+  dx: number;
+  dy: number;
+  yaw: number;
+  pitch: number;
+  fov: number;
+  /** Size of the HUD box in the middle of the view, and how far to slide it sideways so it sits at a comfortable depth. */
+  hudW: number;
+  hudH: number;
+  hudShift: number;
+  /** Drawn smaller when the eye pictures are made smaller to keep up. */
+  hudScale: number;
+  /** The eye whose view decides who's on screen (for Detention) and fades the hurt flash. */
+  primary: boolean;
 }
 
 function lerp(a: number, b: number, f: number) {
@@ -250,6 +270,25 @@ export class Renderer {
     const bullets = this.interpolatedBullets(renderTick);
     const zones = this.conn.bracket(renderTick)?.b.zones ?? [];
 
+    if (view.vr) {
+      // The headset shows each eye (drawVrEye); the page itself just says you're in VR.
+      this.shake = 0;
+      this.updateParticles(dt, false);
+      const myTeam = roster.get(myId ?? "")?.team;
+      const revealed = me?.reveal ? players.filter((p) => p.alive && roster.get(p.id)?.team !== myTeam) : [];
+      this.vrFrame = { players, bullets, zones, roster, revealed, now, dt, scoreboard: view.scoreboard };
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, this.cw, this.ch);
+      ctx.fillStyle = "#fff";
+      ctx.font = "600 22px ui-sans-serif, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("🥽 Playing in VR. Take the headset off and press its menu button to come back.", this.cw / 2, this.ch / 2);
+      return;
+    }
+    this.vrFrame = null;
+
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = BG;
     ctx.fillRect(0, 0, this.cw, this.ch);
@@ -360,6 +399,90 @@ export class Renderer {
     this.drawBanner(now);
     if (view.scoreboard) this.drawScoreboard(roster);
     if (view.crosshair) this.drawCrosshair(view.mouseX, view.mouseY, now, me);
+  }
+
+
+  // ------------------------------------------------------------------ VR
+
+  /** What draw() saw this frame, kept for drawing each VR eye. */
+  private vrFrame: {
+    players: PlayerSnap[];
+    bullets: BulletSnap[];
+    zones: ZoneSnap[];
+    roster: Map<string, RosterEntry>;
+    revealed: PlayerSnap[];
+    now: number;
+    dt: number;
+    scoreboard: boolean;
+  } | null = null;
+
+  /**
+   * Draw one eye of the VR view onto its own canvas: the 3D view from that
+   * eye (wide angle, no screen shake), then the usual HUD squeezed into a
+   * smaller box in the middle, where you can read it in a headset.
+   */
+  drawVrEye(ctx: CanvasRenderingContext2D, w: number, h: number, eye: VrEye) {
+    const f = this.vrFrame;
+    if (!f) return;
+    const me = this.conn.me;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const seen = drawFirstPerson({
+      ctx,
+      w,
+      h,
+      x: this.myX + eye.dx,
+      y: this.myY + eye.dy,
+      yaw: eye.yaw,
+      pitch: eye.pitch,
+      fov: eye.fov,
+      shakeX: 0,
+      shakeY: 0,
+      players: f.players,
+      bullets: f.bullets,
+      zones: f.zones,
+      sparks: this.particles.map((p) => ({ x: p.x, y: p.y, color: p.color, size: p.size, alpha: p.life / p.maxLife })),
+      roster: f.roster,
+      myId: this.conn.myId,
+      now: f.now,
+      fogOfWar: this.mode === "fog",
+      reveal: !!me?.reveal,
+      detentionTarget: this.detentionTarget,
+      alive: !!me?.alive,
+      eyeLift: (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0),
+    });
+    if (eye.primary) this.targetable = seen;
+
+    // The HUD: the normal screen layout, drawn into a box around the middle of this eye's view.
+    const saved = { ctx: this.ctx, cw: this.cw, ch: this.ch, dpr: this.dpr };
+    const hudW = eye.hudW;
+    const hudH = eye.hudH;
+    const k = eye.hudScale;
+    const ox = (w - hudW * k) / 2 + eye.hudShift;
+    const oy = (h - hudH * k) / 2; // the middle of the picture is straight where you look
+    this.ctx = ctx;
+    this.cw = hudW;
+    this.ch = hudH;
+    this.dpr = 1;
+    try {
+      ctx.setTransform(k, 0, 0, k, ox, oy);
+      this.drawHurtVignette(eye.primary ? f.dt : 0);
+      this.drawMinimap(f.players, f.roster, f.revealed, eye.yaw);
+      if (this.mode === "boss") this.drawBossBar(f.players, f.roster);
+      else this.drawScore();
+      this.drawFeed(f.now);
+      if (me) this.drawStatus(me, false);
+      if (me?.cds) this.drawAbilityBar(me, false);
+      else if (me && SUPERS[me.archetype]) this.drawSuperMeter(me, false);
+      this.drawBanner(f.now);
+      if (f.scoreboard) this.drawScoreboard(f.roster);
+      this.drawCrosshair(hudW / 2, hudH / 2, f.now, me);
+    } finally {
+      this.ctx = saved.ctx;
+      this.cw = saved.cw;
+      this.ch = saved.ch;
+      this.dpr = saved.dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
   }
 
   private get mode(): GameMode {

@@ -375,6 +375,18 @@ export class InputController {
     return this.lastTouchAim;
   }
 
+
+  // ------------------------------------------------------------ VR
+
+  /** VR controllers (see vr.ts), set once per frame while in a headset. */
+  vr = { x: 0, y: 0, fire: false, jump: false, sprint: false, crouch: false };
+
+  /** A VR button asked to reload or switch weapon. */
+  vrPress(action: "reload" | "swap") {
+    if (!this.enabled) return;
+    if (action === "reload") this.reloadQueued = true;
+    else this.swapToggle = true;
+  }
   /** Build the next input frame, consuming one-shot actions like reload. */
   frame(aim: number, currentSlot: number, autoWeapon = true): Omit<InputFrame, "seq"> {
     const k = this.keys;
@@ -388,8 +400,8 @@ export class InputController {
     if (held(b.left, "ArrowLeft")) mx -= 1;
     if (held(b.right, "ArrowRight")) mx += 1;
     if (this.enabled) {
-      mx = Math.max(-1, Math.min(1, mx + Math.round((this.touchMove.x + this.padMove.x) * 100) / 100));
-      my = Math.max(-1, Math.min(1, my + Math.round((this.touchMove.y + this.padMove.y) * 100) / 100));
+      mx = Math.max(-1, Math.min(1, mx + Math.round((this.touchMove.x + this.padMove.x + this.vr.x) * 100) / 100));
+      my = Math.max(-1, Math.min(1, my + Math.round((this.touchMove.y + this.padMove.y + this.vr.y) * 100) / 100));
       // First person: up/down are forward/back and left/right strafe, relative to where you face.
       if (this.fpsMode) [mx, my] = this.toWorld(mx, -my).map((v) => Math.round(v * 100) / 100) as [number, number];
     }
@@ -397,14 +409,14 @@ export class InputController {
     // Holding the aim stick keeps throwing. Semi-auto throws need a fresh
     // press for each shot, so pulse the trigger for those.
     this.pulse = !this.pulse;
-    const touchFire = (this.touchFiring || this.padFiring) && (autoWeapon || this.pulse);
+    const touchFire = (this.touchFiring || this.padFiring || this.vr.fire) && (autoWeapon || this.pulse);
 
     let swap = this.swapTo;
     if (this.swapToggle) swap = currentSlot === 0 ? 1 : 0;
     // Held moves, from the keyboard, the touch buttons or a controller; only sent while held.
-    const jump = this.enabled && (k.has(b.jump) || this.touchJump || this.padJump);
-    const sprint = this.enabled && (k.has(b.sprint) || this.touchSprint || this.padSprint);
-    const crouch = this.enabled && (k.has(b.crouch) || this.touchCrouch || this.padCrouch);
+    const jump = this.enabled && (k.has(b.jump) || this.touchJump || this.padJump || this.vr.jump);
+    const sprint = this.enabled && (k.has(b.sprint) || this.touchSprint || this.padSprint || this.vr.sprint);
+    const crouch = this.enabled && (k.has(b.crouch) || this.touchCrouch || this.padCrouch || this.vr.crouch);
     const frame = {
       mx,
       my,
