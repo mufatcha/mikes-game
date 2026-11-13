@@ -50,13 +50,15 @@ import {
   radiusFor,
   heightFor,
   weaponsOf,
+  maxHpFor,
+  type ArchetypeId,
 } from "@/shared/archetypes";
 import { abilitySlots } from "./layout";
 import { ABILITY_ACTIONS, VR_HUD_ITEMS, getKeybinds, getVrHud, keyLabel, type VrHudItem, type VrSpot } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
 import { aimDistance, ballColorOf, drawFirstPerson, fogFor, visiblePlayers, wallBetween } from "./firstperson";
-import { CROUCH_SCALE } from "@/shared/physics";
+import { CROUCH_SCALE, firstWallHit } from "@/shared/physics";
 import { drawInstrument2D, instrumentOf } from "./instruments";
 import { armColors, avatarModel, type AvatarModel } from "./avatar3d";
 import { drawFace } from "./skins";
@@ -174,6 +176,7 @@ function vrSpot(item: VrHudItem, arms: VrArms): VrSpot {
   if ((spot === "left" && !arms.left) || (spot === "right" && !arms.right)) return "view";
   return spot;
 }
+/** How long the 3D opening ambush cutscene lasts (ms). */const INTRO_MS = 6000;
 function lerp(a: number, b: number, f: number) {
   return a + (b - a) * f;
 }
@@ -321,6 +324,8 @@ export class Renderer {
     const sx = (Math.random() - 0.5) * this.shake;
     const sy = (Math.random() - 0.5) * this.shake;
     let revealed: PlayerSnap[] = [];
+    // The opening ambush (3D): the cutscene takes the whole screen while it plays.
+    if (this.view3d && this.intro && this.drawIntro(now, players, bullets, zones, roster)) return;
     if (this.view3d) {
       // First person: the 3D view replaces the top-down world; the HUD below stays the same.
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -422,6 +427,11 @@ export class Renderer {
     this.drawBanner(now);
     if (view.scoreboard) this.drawScoreboard(roster);
     if (view.crosshair) this.drawCrosshair(view.mouseX, view.mouseY, now, me);
+    // Fading in from black after the opening cutscene.
+    if (now < this.introFadeUntil) {
+      ctx.fillStyle = `rgba(0,0,0,${Math.min(1, (this.introFadeUntil - now) / 600).toFixed(3)})`;
+      ctx.fillRect(0, 0, this.cw, this.ch);
+    }
   }
 
 
@@ -614,6 +624,182 @@ export class Renderer {
       this.dpr = saved.dpr;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
+  }
+
+  // ---------------------------------------------------------------- the opening ambush (3D)
+
+  /** The opening cutscene, while it plays: who ambushes you, from where, and where the camera sits. */
+  private intro: {
+    start: number;
+    name: string;
+    archetype: ArchetypeId;
+    team: Team;
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+    cam: { x: number; y: number };
+    camYaw: number;
+    myAim: number;
+  } | null = null;
+  /** After the cutscene, the view fades in from black until this time. */
+  private introFadeUntil = 0;
+
+  /** The cutscene is playing (your controls are off and the HUD is hidden). */
+  inIntro(now: number) {
+    return !!this.intro && now - this.intro.start < INTRO_MS;
+  }
+
+  /** Skip the rest of the cutscene. */
+  skipIntro(now: number) {
+    if (!this.intro) return;
+    this.intro = null;
+    this.introFadeUntil = now + 400;
+  }
+
+  /**
+   * Start the 3D opening: a random bot from the other team sneaks up behind
+   * you and knocks you out, seen from in front of you, before the match
+   * starts for real.
+   */
+  startIntro(now: number, aim: number) {
+    const me = this.conn.me;
+    const room = this.conn.room;
+    if (!me || !room) return;
+    const myTeam = room.roster.find((r) => r.id === me.id)?.team ?? 0;
+    const bots = room.roster.filter((r) => r.isBot && r.team !== myTeam);
+    const others = bots.length ? bots : room.roster.filter((r) => r.id !== me.id);
+    const pick = others[Math.floor(Math.random() * others.length)];
+    const x = this.myX;
+    const y = this.myY;
+    // Sneak in from behind if there's room, otherwise from a side.
+    const clear = (a: number, d: number) => {
+      const ex = x + Math.cos(a) * d;
+      const ey = y + Math.sin(a) * d;
+      return !wallBetween(x, y, ex, ey) && !firstWallHit(x, y, ex, ey, 20);
+    };
+    const back = [aim + Math.PI, aim + Math.PI - 0.6, aim + Math.PI + 0.6, aim + Math.PI / 2, aim - Math.PI / 2].find((a) => clear(a, 300)) ?? aim + Math.PI;
+    let camDist = 160;
+    while (camDist > 50 && !clear(aim, camDist + 20)) camDist -= 20;
+    this.intro = {
+      start: now,
+      name: pick?.name ?? "A bot",
+      archetype: pick?.loadout.archetype ?? "jock",
+      team: pick?.team ?? (myTeam === 0 ? 1 : 0),
+      from: { x: x + Math.cos(back) * 300, y: y + Math.sin(back) * 300 },
+      to: { x: x + Math.cos(back) * 110, y: y + Math.sin(back) * 110 },
+      cam: { x: x + Math.cos(aim) * camDist, y: y + Math.sin(aim) * camDist },
+      camYaw: aim + Math.PI,
+      myAim: aim,
+    };
+  }
+
+  /** Draw a frame of the cutscene; returns false once it's over. */
+  private drawIntro(now: number, players: PlayerSnap[], bullets: BulletSnap[], zones: ZoneSnap[], roster: Map<string, RosterEntry>) {
+    const it = this.intro;
+    const me = this.conn.me;
+    if (!it || !me) return false;
+    const t = (now - it.start) / 1000;
+    if (t * 1000 >= INTRO_MS) {
+      this.intro = null;
+      this.introFadeUntil = now + 600;
+      return false;
+    }
+    const { ctx } = this;
+    const w = this.cw;
+    const h = this.ch;
+    // The ambusher creeps up (0 to 2.6 s), winds up, and throws at 3 s; it hits at 3.35 s.
+    const walk = Math.min(1, t / 2.6);
+    const ease = walk * walk * (3 - 2 * walk);
+    const ax = it.from.x + (it.to.x - it.from.x) * ease;
+    const ay = it.from.y + (it.to.y - it.from.y) * ease;
+    const toMe = Math.atan2(this.myY - ay, this.myX - ax);
+    const ambusher = {
+      ...me,
+      id: "intro-ambusher",
+      x: ax,
+      y: ay,
+      aim: toMe,
+      archetype: it.archetype,
+      weapon: weaponsOf(it.archetype)[0],
+      hp: maxHpFor(it.archetype),
+      maxHp: maxHpFor(it.archetype),
+      alive: true,
+      stunned: false,
+      hidden: false,
+      form: undefined,
+      z: 0,
+      crouch: t < 2.2, // sneaking
+    } as PlayerSnap;
+    const hit = t >= 3.35;
+    const you = { ...me, x: this.myX, y: this.myY, aim: it.myAim, stunned: hit, crouch: hit, z: 0, form: undefined } as PlayerSnap;
+    const cast = [...players.filter((p) => p.id !== me.id), you, ...(t < 4.3 ? [ambusher] : [])];
+    const castRoster = new Map(roster);
+    castRoster.set(ambusher.id, { id: ambusher.id, name: it.name, team: it.team, loadout: { archetype: it.archetype }, isBot: true, isHost: false, level: 1 });
+    // The throw in flight.
+    const flying = [...bullets];
+    if (t >= 3 && t < 3.35) {
+      const k = (t - 3) / 0.35;
+      flying.push({ id: -1, x: ax + (this.myX - ax) * k, y: ay + (this.myY - ay) * k, vx: 0, vy: 0, team: it.team, w: ambusher.weapon, z: THROW_HEIGHT - 6 * k } as BulletSnap);
+    }
+    // The camera, in front of you looking back, easing in a little; it shakes when you're hit.
+    const shake = hit && t < 3.8 ? (3.8 - t) * 14 : 0;
+    const push = Math.min(1, t / 4) * 25;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    drawFirstPerson({
+      ctx,
+      w,
+      h,
+      x: it.cam.x - Math.cos(it.camYaw) * push,
+      y: it.cam.y - Math.sin(it.camYaw) * push,
+      yaw: it.camYaw + Math.sin(t * 0.6) * 0.05,
+      pitch: -0.08,
+      shakeX: (Math.random() - 0.5) * shake,
+      shakeY: (Math.random() - 0.5) * shake,
+      players: cast,
+      bullets: flying,
+      zones,
+      sparks: hit && t < 3.7 ? [{ x: this.myX, y: this.myY, color: "#fde047", size: 30 * (3.7 - t) * 3, alpha: 1 }] : [],
+      roster: castRoster,
+      myId: null,
+      now,
+      fogOfWar: false,
+      reveal: false,
+      detentionTarget: null,
+      alive: false,
+      eyeLift: 0,
+    });
+    // Letterbox bars, a red flash when you're hit, captions, then a fade to black.
+    const bar = Math.min(1, t / 0.5) * h * 0.1;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, bar);
+    ctx.fillRect(0, h - bar, w, bar);
+    if (hit && t < 3.9) {
+      ctx.fillStyle = `rgba(220,38,38,${(0.55 * (3.9 - t)) / 0.55})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+    const fade = t > 4.3 ? Math.min(1, (t - 4.3) / 0.6) : 0;
+    if (fade > 0) {
+      ctx.fillStyle = `rgba(0,0,0,${fade})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const caption = (text: string, y: number, size: number, color: string, alpha: number) => {
+      ctx.globalAlpha = alpha;
+      ctx.font = `900 ${size}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillText(text, w / 2 + 2, y + 2);
+      ctx.fillStyle = color;
+      ctx.fillText(text, w / 2, y);
+      ctx.globalAlpha = 1;
+    };
+    if (t < 3) caption("Somebody's behind you…", h - bar - 40, 26, "#fde68a", Math.min(1, t / 0.6));
+    if (hit && t < 4.6) caption("AMBUSH!", h * 0.3, 64, "#f87171", Math.min(1, (t - 3.35) / 0.2));
+    if (t > 4.5) caption(`Knocked out by ${it.name}!`, h / 2 - 20, 40, "#fff", Math.min(1, (t - 4.5) / 0.4));
+    if (t > 4.9) caption("Now get back out there.", h / 2 + 30, 22, "#d4d4d8", Math.min(1, (t - 4.9) / 0.4));
+    ctx.font = "600 13px ui-sans-serif, system-ui, sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fillText("Press any key or click to skip", w / 2, h - bar / 2);
+    return true;
   }
 
   private get mode(): GameMode {

@@ -174,6 +174,9 @@ export class InputController {
     this.lookUp(-Math.sin(this.touchAim) * 1.4 * dt);
   }
 
+  /** A cutscene is playing: the game ignores your controls (they still count for skipping it). */
+  blocked = false;
+
   /** VR: walk the way your head faces (while you aim with your hand); null = walk the way you aim. */
   moveYaw: number | null = null;
 
@@ -390,8 +393,11 @@ export class InputController {
     if (action === "reload") this.reloadQueued = true;
     else this.swapToggle = true;
   }
+
   /** Build the next input frame, consuming one-shot actions like reload. */
   frame(aim: number, currentSlot: number, autoWeapon = true): Omit<InputFrame, "seq"> {
+    // Off while a menu is open, or while a cutscene plays.
+    const on = this.enabled && !this.blocked;
     const k = this.keys;
     const b = getKeybinds();
     let mx = 0;
@@ -402,11 +408,15 @@ export class InputController {
     if (held(b.down, "ArrowDown")) my += 1;
     if (held(b.left, "ArrowLeft")) mx -= 1;
     if (held(b.right, "ArrowRight")) mx += 1;
-    if (this.enabled) {
+    if (on) {
       mx = Math.max(-1, Math.min(1, mx + Math.round((this.touchMove.x + this.padMove.x + this.vr.x) * 100) / 100));
       my = Math.max(-1, Math.min(1, my + Math.round((this.touchMove.y + this.padMove.y + this.vr.y) * 100) / 100));
       // First person: up/down are forward/back and left/right strafe, relative to where you face.
       if (this.fpsMode) [mx, my] = this.toWorld(mx, -my).map((v) => Math.round(v * 100) / 100) as [number, number];
+    }
+    if (this.blocked) {
+      mx = 0;
+      my = 0;
     }
 
     // Holding the aim stick keeps throwing. Semi-auto throws need a fresh
@@ -417,9 +427,9 @@ export class InputController {
     let swap = this.swapTo;
     if (this.swapToggle) swap = currentSlot === 0 ? 1 : 0;
     // Held moves, from the keyboard, the touch buttons or a controller; only sent while held.
-    const jump = this.enabled && (k.has(b.jump) || this.touchJump || this.padJump || this.vr.jump);
-    const sprint = this.enabled && (k.has(b.sprint) || this.touchSprint || this.padSprint || this.vr.sprint);
-    const crouch = this.enabled && (k.has(b.crouch) || this.touchCrouch || this.padCrouch || this.vr.crouch);
+    const jump = on && (k.has(b.jump) || this.touchJump || this.padJump || this.vr.jump);
+    const sprint = on && (k.has(b.sprint) || this.touchSprint || this.padSprint || this.vr.sprint);
+    const crouch = on && (k.has(b.crouch) || this.touchCrouch || this.padCrouch || this.vr.crouch);
     const frame = {
       mx,
       my,
@@ -428,7 +438,7 @@ export class InputController {
       ...(jump && { jump }),
       ...(sprint && { sprint }),
       ...(crouch && { crouch }),
-      fire: this.enabled && (this.firing || touchFire),
+      fire: on && (this.firing || touchFire),
       reload: this.reloadQueued,
       swap,
     };

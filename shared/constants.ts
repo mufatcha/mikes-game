@@ -26,6 +26,8 @@ export const MAX_PITCH = 1.0;
 
 export const RESPAWN_TIME = 3;
 export const SPAWN_PROTECTION = 2;
+/** 3D matches open with a short ambush cutscene; players are kept safe while it plays (seconds). */
+export const INTRO_CUTSCENE_TIME = 6.5;
 export const SWAP_TIME = 0.35;
 
 /** Nurse's Office: HP healed per second, and how long you can stay before passing out. */

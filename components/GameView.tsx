@@ -14,7 +14,7 @@ import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import LoadoutPicker, { LevelBar } from "./LoadoutPicker";
 import { CopyButton, inviteLink } from "./Lobby";
 import { getPadSettings, keyLabel, useClassXp, useKeybinds, useTouchControlsMode } from "@/lib/settings";
-import { setPadGameplay } from "@/lib/gamepad";
+import { connectedPad, setPadGameplay } from "@/lib/gamepad";
 import Modal from "./Modal";
 import PrankMenu from "./PrankMenu";
 import { CHEAT_CODE } from "@/shared/pranks";
@@ -95,6 +95,9 @@ export default function GameView({
     let skillTarget: string | null = null;
     let wasAlive = false;
     let consoleReady = true;
+    let introPlayed = false;
+    // A controller button held from before the cutscene has to be let go before it can skip.
+    let padWasDown = true;
 
     /** A Principal ability key or button. Detention opens the skill check (or stops it if it's open). */
     const useAbility = (index: number) => {
@@ -153,6 +156,13 @@ export default function GameView({
     };
     input.attach();
 
+    // Any key or click skips the opening cutscene.
+    const skipIntro = () => {
+      if (renderer.inIntro(performance.now())) renderer.skipIntro(performance.now());
+    };
+    window.addEventListener("keydown", skipIntro);
+    window.addEventListener("mousedown", skipIntro);
+    window.addEventListener("touchstart", skipIntro);
     const onResize = () => renderer.resize();
     window.addEventListener("resize", onResize);
 
@@ -177,6 +187,15 @@ export default function GameView({
         return diff === null || !assist ? a : a + diff * assist.pull;
       };
       const fps = !!conn.room?.view3d;
+      // While the opening cutscene plays your controls are off; any button skips it.
+      const intro = fps && renderer.inIntro(now);
+      input.blocked = intro;
+      if (intro) {
+        const p = connectedPad();
+        const down = !!p && p.buttons.some((b) => b.pressed);
+        if (down && !padWasDown) renderer.skipIntro(now);
+        padWasDown = down;
+      }
       input.fpsMode = fps;
       const me = conn.me;
       // Stepping up to the TARDIS console opens the destination picker (once per visit).
@@ -196,6 +215,11 @@ export default function GameView({
           vrRef.current?.face(me.aim);
         }
         wasAlive = !!me?.alive;
+        // The opening ambush cutscene, once, as the match starts (not in VR).
+        if (!introPlayed && me?.alive && !vrLook) {
+          introPlayed = true;
+          renderer.startIntro(now, me.aim);
+        }
         // In VR your head does the looking.
         if (vrLook) {
           input.yaw = vrLook.yaw;
@@ -311,6 +335,9 @@ export default function GameView({
       vrRef.current = null;
       startVrRef.current = null;
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("keydown", skipIntro);
+      window.removeEventListener("mousedown", skipIntro);
+      window.removeEventListener("touchstart", skipIntro);
       input.detach();
       sfx.dispose();
       inputRef.current = null;

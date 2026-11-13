@@ -16,6 +16,7 @@ import {
   SAFE_ZONE_REENTRY_GRACE,
   SAFE_ZONE_VISIT_WINDOW,
   SPAWN_PROTECTION,
+  INTRO_CUTSCENE_TIME,
   SWAP_TIME,
   matchDurationFor,
   winScoreFor,
@@ -1006,6 +1007,8 @@ export class Match {
     p.zoneLeftAt = -Infinity;
     p.alive = true;
     p.protectedUntil = this.time + SPAWN_PROTECTION;
+    // The opening ambush cutscene in 3D: nobody can hurt you while you watch it.
+    if (this.view3d && !p.isBot && this.time < 1) p.protectedUntil = this.time + INTRO_CUTSCENE_TIME;
     p.ammo = this.fullAmmo(p.loadout);
     p.slot = 0;
     p.reloadEnd = -1;
