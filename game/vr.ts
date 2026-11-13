@@ -113,6 +113,9 @@ export interface VrControls {
   sprint: boolean;
   crouch: boolean;
   scoreboard: boolean;
+  /** At the arcade machine (2D matches): the right stick, to aim with. */
+  aimX?: number;
+  aimY?: number;
   /** Buttons pressed this frame. */
   pressed: VrAction[];
 }
@@ -321,6 +324,9 @@ export class VrPlayer {
     right: [1, 0, 0] as V3,
   };
   private sticksWere = false;
+  /** 2D matches: the canvas the game draws on, shown on the arcade machine's screen (null in 3D). */
+  private arcade: HTMLCanvasElement | null = null;
+  private cabinet: { solid: WebGLBuffer; count: number; screen: WebGLBuffer; screenTex: WebGLTexture; marquee: WebGLBuffer; marqueeTex: WebGLTexture; floor: WebGLBuffer; floorTex: WebGLTexture } | null = null;
 
   private constructor(
     private session: XRSession,
@@ -346,12 +352,20 @@ export class VrPlayer {
   }
 
   /** Put on the headset. Call straight from a click (browsers only allow VR from one). */
-  static async start(renderer: Renderer, startYaw: number, step: VrStep, onEnd: () => void): Promise<VrPlayer> {
+  static async start(
+    renderer: Renderer,
+    startYaw: number,
+    step: VrStep,
+    onEnd: () => void,
+    /** 2D matches: play on an arcade machine whose screen shows this canvas (the 2D game). */
+    opts?: { arcade?: HTMLCanvasElement },
+  ): Promise<VrPlayer> {
     const xr = xrSystem();
     if (!xr) throw new Error("This browser doesn't support VR.");
     const session = await xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor"] });
     try {
       const vr = new VrPlayer(session, renderer, startYaw, step, onEnd);
+      vr.arcade = opts?.arcade ?? null;
       vr.space = await session.requestReferenceSpace("local");
       vr.raf = session.requestAnimationFrame(vr.onFrame);
       return vr;
@@ -431,6 +445,12 @@ export class VrPlayer {
     }
     // You walk the way you look, and throw the way your hand points.
     this.step(t, aimYaw, aimPitch, controls, lookYaw);
+    if (this.arcade) {
+      // A 2D match: you're at the arcade machine, playing it on its screen.
+      this.adjustResolution();
+      this.drawArcadeFrame(pose.views, head, t);
+      return;
+    }
 
     this.adjustResolution();
     const views = pose.views;
@@ -955,13 +975,17 @@ export class VrPlayer {
         if (press(1)) c.pressed.push("super", "ability0");
         if (press(3)) c.pressed.push("ability3");
         // Snap turn, once per push.
-        if (this.turnArmed && Math.abs(sx) > 0.7) {
+        if (this.arcade) {
+          // At the arcade machine the right stick aims (top-down), instead of turning.
+          c.aimX = sx;
+          c.aimY = sy;
+        } else if (this.turnArmed && Math.abs(sx) > 0.7) {
           this.turnArmed = false;
           this.baseYaw += Math.sign(sx) * SNAP_TURN;
         } else if (Math.abs(sx) < 0.3) {
           this.turnArmed = true;
         }
-        if (this.abilityArmed && Math.abs(sy) > 0.7) {
+        if (!this.arcade && this.abilityArmed && Math.abs(sy) > 0.7) {
           this.abilityArmed = false;
           c.pressed.push(sy < 0 ? "ability1" : "ability2");
         } else if (Math.abs(sy) < 0.3) {
@@ -975,6 +999,187 @@ export class VrPlayer {
     }
     this.prevButtons = seen;
     return c;
+  }
+
+  // ------------------------------------------------------------ the arcade machine (2D matches)
+
+  /**
+   * 2D matches in VR: you stand in a dark arcade in front of a School Wars
+   * cabinet, and the match plays on its screen. Built once, in front of where
+   * you were facing when you put the headset on.
+   */
+  private drawArcadeFrame(views: readonly XRView[], head: XRRigidTransform, t: number) {
+    const gl = this.gl;
+    if (!this.cabinet) this.cabinet = this.buildCabinet(head);
+    const cab = this.cabinet;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.layer.framebuffer);
+    gl.clearColor(0.04, 0.02, 0.08, 1);
+    gl.depthMask(true);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    // The game, onto the screen.
+    gl.bindTexture(gl.TEXTURE_2D, cab.screenTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.arcade!);
+
+    // The cabinet's body, buttons and stick.
+    const solid = this.solidProg;
+    gl.useProgram(solid);
+    const sP = gl.getUniformLocation(solid, "P");
+    const sV = gl.getUniformLocation(solid, "V");
+    const sPos = gl.getAttribLocation(solid, "p");
+    const sCol = gl.getAttribLocation(solid, "c");
+    for (const view of views) {
+      const vp = this.layer.getViewport(view);
+      if (!vp) continue;
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+      gl.uniformMatrix4fv(sP, false, view.projectionMatrix);
+      gl.uniformMatrix4fv(sV, false, view.transform.inverse.matrix);
+      gl.bindBuffer(gl.ARRAY_BUFFER, cab.solid);
+      gl.enableVertexAttribArray(sPos);
+      gl.enableVertexAttribArray(sCol);
+      gl.vertexAttribPointer(sPos, 3, gl.FLOAT, false, 24, 0);
+      gl.vertexAttribPointer(sCol, 3, gl.FLOAT, false, 24, 12);
+      gl.drawArrays(gl.TRIANGLES, 0, cab.count);
+    }
+    // The floor, the marquee and the screen.
+    gl.useProgram(this.prog);
+    const locP = gl.getUniformLocation(this.prog, "P");
+    const locV = gl.getUniformLocation(this.prog, "V");
+    const locPos = gl.getAttribLocation(this.prog, "p");
+    const locUv = gl.getAttribLocation(this.prog, "uv");
+    for (const view of views) {
+      const vp = this.layer.getViewport(view);
+      if (!vp) continue;
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+      gl.uniformMatrix4fv(locP, false, view.projectionMatrix);
+      gl.uniformMatrix4fv(locV, false, view.transform.inverse.matrix);
+      for (const [buf, tex] of [
+        [cab.floor, cab.floorTex],
+        [cab.marquee, cab.marqueeTex],
+        [cab.screen, cab.screenTex],
+      ] as const) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.enableVertexAttribArray(locPos);
+        gl.enableVertexAttribArray(locUv);
+        gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 20, 0);
+        gl.vertexAttribPointer(locUv, 2, gl.FLOAT, false, 20, 12);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+    }
+    gl.disable(gl.DEPTH_TEST);
+    // Your hands, and the menu if it's open.
+    this.drawArms(views, t);
+    gl.useProgram(this.prog);
+    if (this.menu.open) this.drawMenu(views, head, locP, locV, locPos, locUv, t);
+  }
+
+  private buildCabinet(head: XRRigidTransform) {
+    const gl = this.gl;
+    const f = forwardOf(head.orientation);
+    const fl = Math.hypot(f.x, f.z) || 1;
+    const fwd: V3 = [f.x / fl, 0, f.z / fl];
+    const right: V3 = [-fwd[2], 0, fwd[0]];
+    const up: V3 = [0, 1, 0];
+    const floorY = head.position.y - 1.55;
+    const base: V3 = [head.position.x, floorY, head.position.z];
+    // A spot in the arcade: across (right), up from the floor, and ahead of where you stood.
+    const at = (x: number, y: number, z: number): V3 => [
+      base[0] + right[0] * x + fwd[0] * z,
+      base[1] + y,
+      base[2] + right[2] * x + fwd[2] * z,
+    ];
+    const mesh: number[] = [];
+    // A box from (x0, y0, z0) to (x1, y1, z1) in arcade coordinates.
+    const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: string) =>
+      addBox(mesh, at((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), right, up, fwd, [(x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2], rgb(color));
+    const near = 0.75; // the front of the cabinet, ahead of you
+    box(-0.43, 0, near, 0.43, 0.95, near + 0.6, "#4c1d95"); // the lower body
+    box(-0.43, 0.95, near + 0.3, 0.43, 1.95, near + 0.6, "#4c1d95"); // the upper body, behind the screen
+    box(-0.44, 0.95, near - 0.05, 0.44, 1.02, near + 0.3, "#18181b"); // the control panel
+    for (const s of [-1, 1]) box(s * 0.43 - 0.012, 0, near - 0.05, s * 0.43 + 0.012, 2.15, near + 0.62, "#d946ef"); // glowing side trim
+    box(-0.16, 1.02, near + 0.08, -0.14, 1.1, near + 0.1, "#27272a"); // the joystick
+    box(-0.175, 1.1, near + 0.065, -0.125, 1.15, near + 0.115, "#ef4444"); // its ball top
+    ["#facc15", "#22d3ee", "#22c55e", "#f97316"].forEach((c, i) => box(0.04 + i * 0.075, 1.02, near + 0.08, 0.09 + i * 0.075, 1.04, near + 0.13, c)); // buttons
+    box(-0.43, 1.95, near + 0.25, 0.43, 2.15, near + 0.6, "#4c1d95"); // the marquee housing
+    // Other cabinets glowing in the dark around the room.
+    for (const [x, z, c] of [
+      [-1.6, 1.4, "#0e7490"],
+      [1.6, 1.4, "#9d174d"],
+      [-2.4, 0.2, "#166534"],
+      [2.4, 0.2, "#854d0e"],
+    ] as const) {
+      box(x - 0.34, 0, z, x + 0.34, 1.95, z + 0.6, "#27272a");
+      box(x - 0.3, 1.2, z - 0.01, x + 0.3, 1.6, z, c);
+    }
+    const solid = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, solid);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh), gl.STATIC_DRAW);
+
+    const quad = (tl: V3, tr: V3, bl: V3, br: V3, uScale = 1, vScale = 1) => {
+      const b = gl.createBuffer()!;
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([...tl, 0, 0, ...bl, 0, vScale, ...tr, uScale, 0, ...br, uScale, vScale]), gl.STATIC_DRAW);
+      return b;
+    };
+    const texture = (source: HTMLCanvasElement | null, repeat = false) => {
+      const tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      if (source) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      const wrap = repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE;
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      return tex;
+    };
+    // The screen, set into the front of the upper body, shaped like the game's canvas.
+    const aspect = this.arcade ? this.arcade.height / Math.max(1, this.arcade.width) : 9 / 16;
+    const sw = 0.76;
+    const sh = Math.min(0.75, sw * aspect);
+    const sy = 1.2;
+    const sz = near + 0.299;
+    const screen = quad(at(-sw / 2, sy + sh, sz), at(sw / 2, sy + sh, sz), at(-sw / 2, sy, sz), at(sw / 2, sy, sz));
+    // The marquee: the game's name in lights.
+    const m = document.createElement("canvas");
+    m.width = 512;
+    m.height = 128;
+    const g = m.getContext("2d")!;
+    const grad = g.createLinearGradient(0, 0, 512, 0);
+    grad.addColorStop(0, "#facc15");
+    grad.addColorStop(1, "#f97316");
+    g.fillStyle = "#0b0b12";
+    g.fillRect(0, 0, 512, 128);
+    g.font = "900 italic 62px ui-sans-serif, system-ui, sans-serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.shadowColor = "#f472b6";
+    g.shadowBlur = 18;
+    g.fillStyle = grad;
+    g.fillText("SCHOOL WARS", 256, 68);
+    const marquee = quad(at(-0.43, 2.15, near + 0.249), at(0.43, 2.15, near + 0.249), at(-0.43, 1.95, near + 0.249), at(0.43, 1.95, near + 0.249));
+    // A dark floor with a glowing grid, like the Game Room's.
+    const fc = document.createElement("canvas");
+    fc.width = 64;
+    fc.height = 64;
+    const fg = fc.getContext("2d")!;
+    fg.fillStyle = "#120a24";
+    fg.fillRect(0, 0, 64, 64);
+    fg.fillStyle = "#d946ef";
+    fg.fillRect(0, 0, 64, 2);
+    fg.fillStyle = "#22d3ee";
+    fg.fillRect(0, 0, 2, 64);
+    const floor = quad(at(-6, 0, 8), at(6, 0, 8), at(-6, 0, -4), at(6, 0, -4), 24, 24);
+    return {
+      solid,
+      count: mesh.length / 6,
+      screen,
+      screenTex: texture(null),
+      marquee,
+      marqueeTex: texture(m),
+      floor,
+      floorTex: texture(fc, true),
+    };
   }
 
   // ------------------------------------------------------------ the VR menu

@@ -171,6 +171,9 @@ export default function GameView({
     let acc = 0;
     /** In VR, where your head is pointing this frame. */
     let vrLook: { yaw: number; pitch: number } | null = null;
+    /** VR arcade machine (2D matches): playing on it, and where the right stick aims. */
+    let arcadeMode = false;
+    let arcadeAim: number | null = null;
     /** One frame of the game: read input, send it, draw. */
     const step = (now: number) => {
       // Controllers are only reported by polling, once a frame.
@@ -227,6 +230,10 @@ export default function GameView({
         }
         input.mouseX = canvas.clientWidth / 2;
         input.mouseY = canvas.clientHeight / 2;
+      } else if (arcadeAim !== null) {
+        // VR arcade machine: look ahead the way the right stick aims.
+        input.mouseX = canvas.clientWidth / 2 + Math.cos(arcadeAim) * canvas.clientWidth * 0.25;
+        input.mouseY = canvas.clientHeight / 2 + Math.sin(arcadeAim) * canvas.clientHeight * 0.25;
       } else if (pad) {
         // Controller: the crosshair goes out as far as the right stick is pushed (close in when
         // it's let go, still pointing the same way), gliding there rather than jumping.
@@ -255,11 +262,13 @@ export default function GameView({
       }
       const aim = fps
         ? input.yaw
-        : pad
-          ? padAssist(input.padAimAngle())
-          : touch
-            ? input.touchAimAngle()
-            : renderer.aimFrom(input.mouseX, input.mouseY);
+        : arcadeAim !== null
+          ? arcadeAim
+          : pad
+            ? padAssist(input.padAimAngle())
+            : touch
+              ? input.touchAimAngle()
+              : renderer.aimFrom(input.mouseX, input.mouseY);
       aimNow = aim;
       let steps = 0;
       while (acc >= TICK_MS && steps < 5) {
@@ -290,7 +299,13 @@ export default function GameView({
     let disposed = false;
     startVrRef.current = () => {
       const onStep = (now: number, yaw: number, pitch: number, c: VrControls, moveYaw: number) => {
-        vrLook = { yaw, pitch };
+        if (arcadeMode) {
+          // At the arcade machine: the right stick aims, the way it points on the screen.
+          if (Math.hypot(c.aimX ?? 0, c.aimY ?? 0) > 0.35) arcadeAim = Math.atan2(c.aimY ?? 0, c.aimX ?? 0);
+          else if (arcadeAim === null) arcadeAim = 0;
+        } else {
+          vrLook = { yaw, pitch };
+        }
         input.moveYaw = moveYaw;
         input.vr = { x: c.moveX, y: c.moveY, fire: c.fire, jump: c.jump, sprint: c.sprint, crouch: c.crouch };
         input.scoreboard = c.scoreboard;
@@ -307,6 +322,8 @@ export default function GameView({
         if (disposed) return;
         vrRef.current = null;
         vrLook = null;
+        arcadeAim = null;
+        arcadeMode = false;
         input.vr = { ...NO_VR };
         input.moveYaw = null;
         input.scoreboard = false;
@@ -315,7 +332,10 @@ export default function GameView({
         last = performance.now();
         raf = requestAnimationFrame(loop);
       };
-      VrPlayer.start(renderer, input.yaw, onStep, onEnd)
+      // 2D matches: you play on an arcade machine in VR, its screen showing this canvas.
+      const arcade = conn.room?.view3d ? undefined : { arcade: canvas };
+      arcadeMode = !!arcade;
+      VrPlayer.start(renderer, input.yaw, onStep, onEnd, arcade)
         .then((vr) => {
           if (disposed) {
             vr.end();
@@ -436,14 +456,14 @@ export default function GameView({
           <div className="flex flex-col gap-2">
             <MenuButton onClick={() => setOverlay("none")}>Resume</MenuButton>
             <MenuButton onClick={() => setOverlay("loadout")}>Change class</MenuButton>
-            {vrOk && isFps && (
+            {vrOk && (
               <MenuButton
                 onClick={() => {
                   setOverlay("none");
                   startVrRef.current?.();
                 }}
               >
-                🥽 Play in VR
+                {isFps ? "🥽 Play in VR" : "🕹️ Play on a VR arcade machine"}
               </MenuButton>
             )}
             <div className="flex items-center justify-between rounded-lg bg-white/5 px-4 py-2.5">
