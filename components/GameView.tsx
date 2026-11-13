@@ -676,7 +676,14 @@ function Results({ results, myId }: { results: ResultsMessage; myId: string | nu
             </tr>
           </thead>
           <tbody>
-            {results.players.map((p) => (
+            {/* 50 v 50: the top twenty, and you. */}
+            {(results.players.length > 20
+              ? [
+                  ...results.players.slice(0, 20),
+                  ...results.players.slice(20).filter((p) => p.id === myId),
+                ]
+              : results.players
+            ).map((p) => (
               <tr key={p.id} className={p.id === myId ? "bg-white/5" : ""}>
                 <td className={`py-1.5 font-medium ${p.team === 0 ? "text-yellow-300" : "text-orange-300"}`}>{p.name}</td>
                 <td className="py-1.5 text-right text-white">{p.kills}</td>

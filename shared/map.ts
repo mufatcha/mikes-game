@@ -1,4 +1,6 @@
 import type { ArchetypeId } from "./archetypes";
+import { T, TI_DOOR, TI_WALL, box, lockerWallH, lockerWallV, stripH, stripV, tardisRoom } from "./mapkit";
+import { buildBigMap } from "./bigmap";
 
 export type WallKind =
   | "wall"
@@ -88,53 +90,10 @@ export interface Room extends Rect {
  * main hall between them, and two cross halls. Every room is shared, so both
  * teams' players of a class spawn in the same place.
  */
-export const MAP_WIDTH = 2600;
+const SW = 2600;
 /** The school building; the Game Room hangs off the bottom of it, below the right cross hall. */
-export const SCHOOL_HEIGHT = 1800;
-export const MAP_HEIGHT = 2240;
-
-const T = 24; // wall thickness
-const L = 14; // locker depth
-
-function split(from: number, to: number, gaps: [number, number][]): [number, number][] {
-  const out: [number, number][] = [];
-  let cur = from;
-  for (const [g1, g2] of [...gaps].sort((a, b) => a[0] - b[0])) {
-    if (g1 > cur) out.push([cur, g1]);
-    cur = Math.max(cur, g2);
-  }
-  if (cur < to) out.push([cur, to]);
-  return out;
-}
-
-/** Horizontal strip from x1 to x2 starting at y, with gaps. */
-function stripH(kind: WallKind, x1: number, x2: number, y: number, h: number, gaps: [number, number][]) {
-  return split(x1, x2, gaps).map(([a, b]): Wall => ({ x: a, y, w: b - a, h, kind }));
-}
-
-/** Vertical strip from y1 to y2 starting at x, with gaps. */
-function stripV(kind: WallKind, y1: number, y2: number, x: number, w: number, gaps: [number, number][]) {
-  return split(y1, y2, gaps).map(([a, b]): Wall => ({ x, y: a, w, h: b - a, kind }));
-}
-
-function box(kind: WallKind, x: number, y: number, w: number, h: number): Wall {
-  return { x, y, w, h, kind };
-}
-
-/** A wall with a row of lockers along its hallway side, broken by doors. */
-function lockerWallH(x1: number, x2: number, y: number, hall: "above" | "below", doors: [number, number][]) {
-  return [
-    ...stripH("wall", x1, x2, y, T, doors),
-    ...stripH("locker", x1, x2, hall === "below" ? y + T : y - L, L, doors),
-  ];
-}
-
-function lockerWallV(y1: number, y2: number, x: number, hall: "left" | "right", doors: [number, number][]) {
-  return [
-    ...stripV("wall", y1, y2, x, T, doors),
-    ...stripV("locker", y1, y2, hall === "right" ? x + T : x - L, L, doors),
-  ];
-}
+const SH = 1800;
+const SMH = 2240;
 
 // Cross halls run top to bottom; the main hall runs left to right.
 const HALL_A = { x1: 900, x2: 1100 };
@@ -143,7 +102,7 @@ const MAIN_HALL = { y1: 700, y2: 1000 };
 const TOP_WALL_Y = MAIN_HALL.y1 - T;
 const BOTTOM_WALL_Y = MAIN_HALL.y2;
 
-export const ROOMS: Room[] = [
+const S_ROOMS: Room[] = [
   { name: "Gym", archetype: "jock", x: 0, y: 0, w: 876, h: 676, floor: "#283246", pattern: "court", label: { x: 438, y: 530 } },
   { name: "Library", archetype: "nerd", x: 1124, y: 0, w: 552, h: 676, floor: "#1d2740", pattern: "carpet", label: { x: 1400, y: 620 } },
   { name: "Classroom", archetype: "teacher", x: 1924, y: 0, w: 676, h: 676, floor: "#2a3240", pattern: "checker", label: { x: 2262, y: 570 } },
@@ -158,19 +117,19 @@ export const ROOMS: Room[] = [
 ];
 
 /** Street-styled corridors, used for floor markings. */
-export const HALLS: Rect[] = [
-  { x: 0, y: MAIN_HALL.y1, w: MAP_WIDTH, h: MAIN_HALL.y2 - MAIN_HALL.y1 },
+const S_HALLS: Rect[] = [
+  { x: 0, y: MAIN_HALL.y1, w: SW, h: MAIN_HALL.y2 - MAIN_HALL.y1 },
   { x: HALL_A.x1, y: 0, w: HALL_A.x2 - HALL_A.x1, h: MAIN_HALL.y1 },
   { x: HALL_B.x1, y: 0, w: HALL_B.x2 - HALL_B.x1, h: MAIN_HALL.y1 },
-  { x: HALL_A.x1, y: MAIN_HALL.y2, w: HALL_A.x2 - HALL_A.x1, h: SCHOOL_HEIGHT - MAIN_HALL.y2 },
-  { x: HALL_B.x1, y: MAIN_HALL.y2, w: HALL_B.x2 - HALL_B.x1, h: SCHOOL_HEIGHT - MAIN_HALL.y2 },
+  { x: HALL_A.x1, y: MAIN_HALL.y2, w: HALL_A.x2 - HALL_A.x1, h: SH - MAIN_HALL.y2 },
+  { x: HALL_B.x1, y: MAIN_HALL.y2, w: HALL_B.x2 - HALL_B.x1, h: SH - MAIN_HALL.y2 },
 ];
 
 const CAFETERIA_TABLES = [1130, 1350, 1570].flatMap((y) => [100, 576].map((x) => ({ x, y })));
 export type School = "lemons" | "orangepeels";
 
 /** Cafeteria tables painted with a rival school's logo and name: Lemons on the left, Orange Peels on the right. */
-export const SCHOOL_TABLES = CAFETERIA_TABLES.map(({ x, y }) => ({
+const S_SCHOOL_TABLES = CAFETERIA_TABLES.map(({ x, y }) => ({
   x,
   y,
   w: 200,
@@ -193,7 +152,7 @@ const NURSE_DOOR: [number, number] = [NURSE.y + NURSE.h / 2 - 35, NURSE.y + NURS
  * face south). It starts parked in the back corner of the Library, behind
  * the shelves; from the console inside you can fly it to any of the others.
  */
-export const TARDIS_SPOTS: { name: string; x: number; y: number }[] = [
+const S_TARDIS_SPOTS: { name: string; x: number; y: number }[] = [
   { name: "📚 Library", x: 1634, y: 2 },
   { name: "🏈 Gym", x: 30, y: 470 },
   { name: "🍔 Cafeteria", x: 470, y: 1450 },
@@ -206,99 +165,20 @@ export const TARDIS_SPOTS: { name: string; x: number; y: number }[] = [
   { name: "🎻 Orchestra Room", x: 40, y: 1836 },
 ];
 
-/**
- * The police box itself. It's a wall like any other, but it moves: the
- * server flies it between TARDIS_SPOTS and every client follows along.
- */
-export const TARDIS: Wall = { x: TARDIS_SPOTS[0].x, y: TARDIS_SPOTS[0].y, w: 38, h: 38, kind: "tardis" };
-let tardisSpot = 0;
-
-/** Which of TARDIS_SPOTS it's parked at. */
-export function tardisSpotNow() {
-  return tardisSpot;
-}
-
-/** Land the TARDIS at one of TARDIS_SPOTS. */
-export function moveTardis(spot: number) {
-  const s = TARDIS_SPOTS[spot];
-  if (!s) return;
-  tardisSpot = spot;
-  TARDIS.x = s.x;
-  TARDIS.y = s.y;
-}
-
-/** Walking into the TARDIS doors (in front of its south face) takes you inside. */
-export function atTardisDoor(x: number, y: number) {
-  return x > TARDIS.x + 6 && x < TARDIS.x + TARDIS.w - 6 && y > TARDIS.y + TARDIS.h && y < TARDIS.y + TARDIS.h + 26;
-}
-
-/**
- * Inside the TARDIS: a big console room, far bigger than the box. It sits
- * off the east edge of the school, closed in by its own walls; the inside
- * of the police box doors is in the middle of its south wall.
- */
-export const TARDIS_INSIDE: Rect = { x: MAP_WIDTH + 400, y: 300, w: 560, h: 420 };
-const TI = TARDIS_INSIDE;
-const TI_WALL = 20;
-const TI_DOOR = 32;
-const TI_DOOR_X = TI.x + TI.w / 2;
-
-export function inTardis(x: number, y: number) {
-  return x > TI.x - TI_WALL && x < TI.x + TI.w + TI_WALL && y > TI.y - TI_WALL && y < TI.y + TI.h + TI_WALL;
-}
-
-/** Walking back into the doors from inside takes you out to wherever the TARDIS has landed. */
-export function atTardisExit(x: number, y: number) {
-  return Math.abs(x - TI_DOOR_X) < TI_DOOR - 6 && y > TI.y + TI.h - 26;
-}
-
-/** Standing at the console, where you choose where to fly. */
-export function atTardisConsole(x: number, y: number) {
-  return Math.hypot(x - TI_DOOR_X, y - (TI.y + TI.h / 2)) < 80;
-}
-
-/** Where you end up going in, and coming back out (in front of wherever it's landed). */
-export const TARDIS_ARRIVE_INSIDE: Point = { x: TI_DOOR_X, y: TI.y + TI.h - 90 };
-export function tardisArriveOutside(): Point {
-  return { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h + 60 };
-}
-
-/** For the minimap: anyone inside the TARDIS shows where the box is. */
-export function onMap(x: number, y: number): Point {
-  return inTardis(x, y) ? { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h / 2 } : { x, y };
-}
-
-const TARDIS_ROOM: Wall[] = [
-  box("tardiswall", TI.x - TI_WALL, TI.y - TI_WALL, TI.w + TI_WALL * 2, TI_WALL),
-  box("tardiswall", TI.x - TI_WALL, TI.y, TI_WALL, TI.h),
-  box("tardiswall", TI.x + TI.w, TI.y, TI_WALL, TI.h),
-  box("tardiswall", TI.x - TI_WALL, TI.y + TI.h, TI.w / 2 + TI_WALL - TI_DOOR, TI_WALL),
-  box("tardisdoor", TI_DOOR_X - TI_DOOR, TI.y + TI.h, TI_DOOR * 2, TI_WALL),
-  box("tardiswall", TI_DOOR_X + TI_DOOR, TI.y + TI.h, TI.w / 2 + TI_WALL - TI_DOOR, TI_WALL),
-  // The console in the middle, with the time rotor rising out of it.
-  box("console", TI_DOOR_X - 35, TI.y + TI.h / 2 - 35, 70, 70),
-  box("rotor", TI_DOOR_X - 8, TI.y + TI.h / 2 - 8, 16, 16),
-  // Six coral struts around the console, leaving a clear path from the doors.
-  ...[0, 60, 120, 180, 240, 300].map((deg) => {
-    const a = (deg * Math.PI) / 180;
-    return box("strut", TI_DOOR_X + Math.cos(a) * 140 - 6, TI.y + TI.h / 2 + Math.sin(a) * 140 - 6, 12, 12);
-  }),
-];
+/** The police box (it travels between the spots above), and its console room off the east edge of the school. */
+const S_TARDIS: Wall = { x: S_TARDIS_SPOTS[0].x, y: S_TARDIS_SPOTS[0].y, w: 38, h: 38, kind: "tardis" };
+const S_TARDIS_INSIDE: Rect = { x: SW + 400, y: 300, w: 560, h: 420 };
+const TARDIS_ROOM: Wall[] = tardisRoom(S_TARDIS_INSIDE);
 
 /**
  * The Game Room, where the Gamer spawns: down through a door at the bottom of
  * the right cross hall. Dark walls lit with RGB strips and game posters, arcade
  * cabinets, a big TV with a couch and beanbags, and two gaming PC setups.
  */
-export const GAME_ROOM: Rect = { x: 1500, y: SCHOOL_HEIGHT + T, w: 600, h: MAP_HEIGHT - SCHOOL_HEIGHT - T };
+const S_GAME_ROOM: Rect = { x: 1500, y: SH + T, w: 600, h: SMH - SH - T };
 
-/** Somewhere you can actually get to: the school, or the rooms below it (not the closed-off space between them). */
-export function reachable(x: number, y: number) {
-  const inside = (r: Rect) => x > r.x && x < r.x + r.w && y > r.y;
-  return y < SCHOOL_HEIGHT || inside(GAME_ROOM) || inside(BAND_ROOM) || inside(ORCHESTRA_ROOM);
-}
 const GAME_DOOR: [number, number] = [1740, 1860];
-const GR = GAME_ROOM;
+const GR = S_GAME_ROOM;
 const GAME_ROOM_WALLS: Wall[] = [
   box("gamerwall", GR.x - T, GR.y, T, GR.h),
   box("gamerwall", GR.x + GR.w, GR.y, T, GR.h),
@@ -329,8 +209,8 @@ const GAME_ROOM_WALLS: Wall[] = [
  * risers around a drum set, the orchestra in a half circle facing the
  * conductor's podium, with music stands in front.
  */
-export const BAND_ROOM: Rect = { x: 700, y: SCHOOL_HEIGHT + T, w: 600, h: MAP_HEIGHT - SCHOOL_HEIGHT - T };
-export const ORCHESTRA_ROOM: Rect = { x: T, y: SCHOOL_HEIGHT + T, w: 676 - T * 2, h: MAP_HEIGHT - SCHOOL_HEIGHT - T };
+const BAND_ROOM: Rect = { x: 700, y: SH + T, w: 600, h: SMH - SH - T };
+const ORCHESTRA_ROOM: Rect = { x: T, y: SH + T, w: 676 - T * 2, h: SMH - SH - T };
 const BAND_DOOR: [number, number] = [940, 1060];
 const ORCHESTRA_DOOR: [number, number] = [290, 410];
 const BR = BAND_ROOM;
@@ -361,7 +241,7 @@ const MUSIC_WALLS: Wall[] = [
   box("shelf", OR.x + 20, OR.y + OR.h - 40, 200, 26), // the cello and bass rack
   ...ORCHESTRA_STANDS.map(({ x, y }) => box("easel", x, y, 26, 14)),
 ];
-export const WALLS: Wall[] = [
+const S_WALLS: Wall[] = [
   // Gym
   ...lockerWallV(0, MAIN_HALL.y1, HALL_A.x1 - T, "right", [[250, 370]]),
   ...lockerWallH(0, HALL_A.x1 - T, TOP_WALL_Y, "below", [[200, 330], [570, 700]]),
@@ -378,25 +258,25 @@ export const WALLS: Wall[] = [
 
   // Classroom
   ...lockerWallV(0, MAIN_HALL.y1, HALL_B.x2, "left", [[250, 370]]),
-  ...lockerWallH(HALL_B.x2 + T, MAP_WIDTH, TOP_WALL_Y, "below", [[2000, 2130], [2370, 2500]]),
+  ...lockerWallH(HALL_B.x2 + T, SW, TOP_WALL_Y, "below", [[2000, 2130], [2370, 2500]]),
   box("desk", 2150, 60, 200, 40),
   ...CLASS_DESKS.map(({ x, y }) => box("desk", x, y, 50, 34)),
 
   // Cafeteria
   ...lockerWallH(0, HALL_A.x1 - T, BOTTOM_WALL_Y, "above", [[200, 330], [570, 700]]),
-  ...lockerWallV(MAIN_HALL.y2, SCHOOL_HEIGHT, HALL_A.x1 - T, "right", [[1400, 1520]]),
+  ...lockerWallV(MAIN_HALL.y2, SH, HALL_A.x1 - T, "right", [[1400, 1520]]),
   ...CAFETERIA_TABLES.map(({ x, y }) => box("table", x, y, 200, 50)),
 
   // Detention
   ...lockerWallH(HALL_A.x2 + T, HALL_B.x1 - T, BOTTOM_WALL_Y, "above", [[1340, 1460]]),
-  ...lockerWallV(MAIN_HALL.y2, SCHOOL_HEIGHT, HALL_A.x2, "left", [[1380, 1500]]),
-  ...lockerWallV(MAIN_HALL.y2, SCHOOL_HEIGHT, HALL_B.x1 - T, "right", [[1380, 1500]]),
+  ...lockerWallV(MAIN_HALL.y2, SH, HALL_A.x2, "left", [[1380, 1500]]),
+  ...lockerWallV(MAIN_HALL.y2, SH, HALL_B.x1 - T, "right", [[1380, 1500]]),
   ...DETENTION_DESKS.map(({ x, y }) => box("desk", x, y, 50, 34)),
   box("desk", 1330, 1700, 140, 40),
 
   // Art room
-  ...lockerWallH(HALL_B.x2 + T, MAP_WIDTH, BOTTOM_WALL_Y, "above", [[2000, 2130], [2370, 2500]]),
-  ...lockerWallV(MAIN_HALL.y2, SCHOOL_HEIGHT, HALL_B.x2, "left", [[1400, 1520]]),
+  ...lockerWallH(HALL_B.x2 + T, SW, BOTTOM_WALL_Y, "above", [[2000, 2130], [2370, 2500]]),
+  ...lockerWallV(MAIN_HALL.y2, SH, HALL_B.x2, "left", [[1400, 1520]]),
   ...[1180, 1420, 1620].flatMap((y) => [2020, 2200, 2380].map((x) => box("easel", x, y, 80, 50))),
 
   // Locker banks in the main hall for cover, either side of the Nurse's Office
@@ -404,11 +284,11 @@ export const WALLS: Wall[] = [
   box("locker", 2020, 830, 160, 40),
 
   // Shh.
-  TARDIS,
+  S_TARDIS,
   ...TARDIS_ROOM,
 
   // The bottom wall of the school, with a door from the right cross hall down into the Game Room.
-  ...stripH("wall", 0, MAP_WIDTH, SCHOOL_HEIGHT, T, [GAME_DOOR, BAND_DOOR, ORCHESTRA_DOOR]),
+  ...stripH("wall", 0, SW, SH, T, [GAME_DOOR, BAND_DOOR, ORCHESTRA_DOOR]),
   ...MUSIC_WALLS,
   ...GAME_ROOM_WALLS,
 
@@ -420,7 +300,7 @@ export const WALLS: Wall[] = [
 ];
 
 /** Benches beside the lunch tables and a chair behind every desk. */
-export const DECOR: Decor[] = [
+const S_DECOR: Decor[] = [
   ...CAFETERIA_TABLES.flatMap(({ x, y }): Decor[] => [
     { kind: "bench", x: x + 10, y: y - 24, w: 180, h: 14 },
     { kind: "bench", x: x + 10, y: y + 60, w: 180, h: 14 },
@@ -436,13 +316,9 @@ export const DECOR: Decor[] = [
  * The Nurse's Office: heals and protects whoever stands in it, but they can't
  * throw from inside, and staying too long makes them pass out.
  */
-export const SAFE_ZONE: Rect & { name: string } = { name: "Nurse's Office", ...NURSE };
+const S_SAFE_ZONE: Rect & { name: string } = { name: "Nurse's Office", ...NURSE };
 
-export function inSafeZone(x: number, y: number) {
-  return x >= SAFE_ZONE.x && x <= SAFE_ZONE.x + SAFE_ZONE.w && y >= SAFE_ZONE.y && y <= SAFE_ZONE.y + SAFE_ZONE.h;
-}
-
-export const SPAWNS: Record<ArchetypeId, Point[]> = {
+const S_SPAWNS: Record<ArchetypeId, Point[]> = {
   // The Principal starts at either end of the main hall, away from the classrooms.
   principal: [
     { x: 150, y: 850 },
@@ -571,3 +447,175 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 2550, y: 1720 },
   ],
 };
+
+// ---------------------------------------------------------------- maps, and which one is in play
+
+/** The maps: the school, and the big school for 50 v 50 (see bigmap.ts). */
+export type MapId = "school" | "big";
+
+/** Everything that makes up a map. */
+export interface GameMap {
+  id: MapId;
+  width: number;
+  height: number;
+  /** The main building's height; anything below it is reachable only inside `below`. */
+  schoolHeight: number;
+  /** Rooms below the main building you can walk into. */
+  below: Rect[];
+  rooms: Room[];
+  halls: Rect[];
+  walls: Wall[];
+  decor: Decor[];
+  safeZone: Rect & { name: string };
+  spawns: Record<ArchetypeId, Point[]>;
+  tardis: Wall;
+  tardisSpots: { name: string; x: number; y: number }[];
+  tardisInside: Rect;
+  schoolTables: { x: number; y: number; w: number; h: number; school: School }[];
+  /** Which of tardisSpots the TARDIS is parked at. */
+  tardisSpot: number;
+}
+
+const SCHOOL_MAP: GameMap = {
+  id: "school",
+  width: SW,
+  height: SMH,
+  schoolHeight: SH,
+  below: [S_GAME_ROOM, BAND_ROOM, ORCHESTRA_ROOM],
+  rooms: S_ROOMS,
+  halls: S_HALLS,
+  walls: S_WALLS,
+  decor: S_DECOR,
+  safeZone: S_SAFE_ZONE,
+  spawns: S_SPAWNS,
+  tardis: S_TARDIS,
+  tardisSpots: S_TARDIS_SPOTS,
+  tardisInside: S_TARDIS_INSIDE,
+  schoolTables: S_SCHOOL_TABLES,
+  tardisSpot: 0,
+};
+
+const MAPS = new Map<MapId, GameMap>([["school", SCHOOL_MAP]]);
+let current: GameMap = SCHOOL_MAP;
+
+/** The map in play. Everything below follows it; switch with switchMap. */
+export let MAP_ID: MapId = "school";
+export let MAP_WIDTH = SW;
+export let MAP_HEIGHT = SMH;
+/** The main building; the rooms in `below` hang off the bottom of it. */
+export let SCHOOL_HEIGHT = SH;
+export let ROOMS: Room[] = S_ROOMS;
+/** Street-styled corridors, used for floor markings. */
+export let HALLS: Rect[] = S_HALLS;
+export let WALLS: Wall[] = S_WALLS;
+/** Benches beside the lunch tables and a chair behind every desk. */
+export let DECOR: Decor[] = S_DECOR;
+/**
+ * The Nurse's Office: heals and protects whoever stands in it, but they can't
+ * throw from inside, and staying too long makes them pass out.
+ */
+export let SAFE_ZONE: Rect & { name: string } = S_SAFE_ZONE;
+export let SPAWNS: Record<ArchetypeId, Point[]> = S_SPAWNS;
+/** The police box. It's a wall like any other, but it moves: the server flies it between TARDIS_SPOTS and every client follows along. */
+export let TARDIS: Wall = S_TARDIS;
+export let TARDIS_SPOTS = S_TARDIS_SPOTS;
+/**
+ * Inside the TARDIS: a big console room, far bigger than the box. It sits
+ * off the east edge of the school, closed in by its own walls; the inside
+ * of the police box doors is in the middle of its south wall.
+ */
+export let TARDIS_INSIDE: Rect = S_TARDIS_INSIDE;
+/** Cafeteria tables painted with a rival school's logo and name. */
+export let SCHOOL_TABLES = S_SCHOOL_TABLES;
+/** Where you end up going in to the TARDIS. */
+export let TARDIS_ARRIVE_INSIDE: Point = arriveInside(S_TARDIS_INSIDE);
+
+function arriveInside(ti: Rect): Point {
+  return { x: ti.x + ti.w / 2, y: ti.y + ti.h - 90 };
+}
+
+/** Which map a mode is played on: 50 v 50 has the big school. */
+export function mapIdFor(mode: string): MapId {
+  return mode === "mega" ? "big" : "school";
+}
+
+/** Make this map the one in play (cheap: everything just points at it). */
+export function switchMap(id: MapId) {
+  if (id === current.id) return;
+  let m = MAPS.get(id);
+  if (!m) {
+    m = buildBigMap();
+    MAPS.set(id, m);
+  }
+  current = m;
+  MAP_ID = m.id;
+  MAP_WIDTH = m.width;
+  MAP_HEIGHT = m.height;
+  SCHOOL_HEIGHT = m.schoolHeight;
+  ROOMS = m.rooms;
+  HALLS = m.halls;
+  WALLS = m.walls;
+  DECOR = m.decor;
+  SAFE_ZONE = m.safeZone;
+  SPAWNS = m.spawns;
+  TARDIS = m.tardis;
+  TARDIS_SPOTS = m.tardisSpots;
+  TARDIS_INSIDE = m.tardisInside;
+  SCHOOL_TABLES = m.schoolTables;
+  TARDIS_ARRIVE_INSIDE = arriveInside(m.tardisInside);
+}
+
+/** Which of TARDIS_SPOTS it's parked at. */
+export function tardisSpotNow() {
+  return current.tardisSpot;
+}
+
+/** Land the TARDIS at one of TARDIS_SPOTS. */
+export function moveTardis(spot: number) {
+  const s = TARDIS_SPOTS[spot];
+  if (!s) return;
+  current.tardisSpot = spot;
+  TARDIS.x = s.x;
+  TARDIS.y = s.y;
+}
+
+/** Walking into the TARDIS doors (in front of its south face) takes you inside. */
+export function atTardisDoor(x: number, y: number) {
+  return x > TARDIS.x + 6 && x < TARDIS.x + TARDIS.w - 6 && y > TARDIS.y + TARDIS.h && y < TARDIS.y + TARDIS.h + 26;
+}
+
+export function inTardis(x: number, y: number) {
+  const ti = TARDIS_INSIDE;
+  return x > ti.x - TI_WALL && x < ti.x + ti.w + TI_WALL && y > ti.y - TI_WALL && y < ti.y + ti.h + TI_WALL;
+}
+
+/** Walking back into the doors from inside takes you out to wherever the TARDIS has landed. */
+export function atTardisExit(x: number, y: number) {
+  const ti = TARDIS_INSIDE;
+  return Math.abs(x - (ti.x + ti.w / 2)) < TI_DOOR - 6 && y > ti.y + ti.h - 26;
+}
+
+/** Standing at the console, where you choose where to fly. */
+export function atTardisConsole(x: number, y: number) {
+  const ti = TARDIS_INSIDE;
+  return Math.hypot(x - (ti.x + ti.w / 2), y - (ti.y + ti.h / 2)) < 80;
+}
+
+/** Where you come back out (in front of wherever it's landed). */
+export function tardisArriveOutside(): Point {
+  return { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h + 60 };
+}
+
+/** For the minimap: anyone inside the TARDIS shows where the box is. */
+export function onMap(x: number, y: number): Point {
+  return inTardis(x, y) ? { x: TARDIS.x + TARDIS.w / 2, y: TARDIS.y + TARDIS.h / 2 } : { x, y };
+}
+
+export function inSafeZone(x: number, y: number) {
+  return x >= SAFE_ZONE.x && x <= SAFE_ZONE.x + SAFE_ZONE.w && y >= SAFE_ZONE.y && y <= SAFE_ZONE.y + SAFE_ZONE.h;
+}
+
+/** Somewhere you can actually get to: the main building, or a room below it (not the closed-off space between them). */
+export function reachable(x: number, y: number) {
+  return y < SCHOOL_HEIGHT || current.below.some((r) => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h);
+}

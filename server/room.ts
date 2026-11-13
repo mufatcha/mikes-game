@@ -24,6 +24,7 @@ import {
   type Loadout,
 } from "../shared/archetypes";
 import { Match, type MatchEntry } from "./match";
+import { mapIdFor, switchMap } from "../shared/map";
 import { CHEAT_CODE, PRANK_IDS } from "../shared/pranks";
 import { XP_FOR_PLAYING, XP_FOR_WINNING, clampLevel, sanitizeLevels, type ClassLevels } from "../shared/progress";
 
@@ -63,6 +64,7 @@ export class Room {
   /** Seen in 3D first person instead of top-down; works with every mode. */
   view3d = false;
   match: Match | null = null;
+  private snapCount = 0;
   /** Last time the room had nobody in it; used for cleanup. */
   emptySince = Date.now();
 
@@ -83,6 +85,7 @@ export class Room {
   }
 
   join(ws: ServerWebSocket<SocketData>) {
+    this.enterMap();
     const id = ws.data.clientId;
     if (this.isFull) {
       this.send(ws, { t: "error", message: `This match is full (${this.capacity} players).`, fatal: true });
@@ -108,6 +111,7 @@ export class Room {
   }
 
   leave(id: string) {
+    this.enterMap();
     const client = this.clients.get(id);
     if (!client) return;
     this.clients.delete(id);
@@ -120,6 +124,7 @@ export class Room {
   }
 
   handle(id: string, raw: string | Buffer) {
+    this.enterMap();
     const client = this.clients.get(id);
     if (!client) return;
     let msg: ClientMessage;
@@ -243,9 +248,11 @@ export class Room {
 
   /** Advance one simulation tick. */
   tick() {
+    this.enterMap();
     if (this.phase === "match" && this.match) {
       this.match.step();
-      this.broadcastSnapshot();
+      // 50 v 50 sends half as many snapshots (they're big); everyone smooths between them anyway.
+      if (this.mode !== "mega" || ++this.snapCount % 2 === 0) this.broadcastSnapshot();
       if (this.match.finished) this.finishMatch();
     } else if (this.phase === "results" && Date.now() >= this.resultsUntil) {
       this.phase = "lobby";
@@ -255,6 +262,14 @@ export class Room {
   }
 
   /** The 7v1 Principal seat and both duel mascot seats play a fixed character. */
+  /**
+   * Point the shared map at this room's (the big school for 50 v 50). One
+   * server runs many rooms one at a time, so each switches to its map first.
+   */
+  private enterMap() {
+    switchMap(mapIdFor(this.mode));
+  }
+
   private isPrincipalSeat(team: Team) {
     return isPrincipalSeat(this.mode, team);
   }
@@ -372,8 +387,8 @@ export class Room {
    */
   private takenClasses(team: Team, exceptId: string | null, extra: MatchEntry[] = []) {
     const taken = new Set<ArchetypeId>();
-    // Seven students and six classes: in boss mode, students can share.
-    if (this.mode === "boss" || this.mode === "duel") return taken;
+    // Seven students and six classes: in boss mode students can share, and so can 50 a side.
+    if (this.mode === "boss" || this.mode === "duel" || this.mode === "mega") return taken;
     // Who plays what, per player, so someone isn't counted twice.
     const held = new Map<string, Set<ArchetypeId>>();
     const add = (id: string, a: ArchetypeId) => {

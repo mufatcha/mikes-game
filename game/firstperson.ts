@@ -1,5 +1,5 @@
 import { EYE_HEIGHT, MAX_PITCH, THROW_HEIGHT, type Team } from "@/shared/constants";
-import { MAP_HEIGHT, MAP_WIDTH, WALLS, type Wall } from "@/shared/map";
+import { MAP_HEIGHT, MAP_ID, MAP_WIDTH, WALLS, type Wall } from "@/shared/map";
 import { segmentRectHit } from "@/shared/physics";
 import type { BulletSnap, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
 import { UNNOTICED_SPOT_RANGE, WEAPONS, heightFor, radiusFor } from "@/shared/archetypes";
@@ -65,17 +65,26 @@ const TOP_COLORS: Partial<Record<Surface, [number, number, number]>> = {
   couch: [82, 82, 91],
   beanbag: [147, 51, 234],
 };
-
-/** The outside of the building: walls just past the map edge, with windows. */
-const OUTER: Wall[] = [
-  { x: -40, y: -40, w: MAP_WIDTH + 80, h: 40, kind: "wall" },
-  { x: -40, y: MAP_HEIGHT, w: MAP_WIDTH + 80, h: 40, kind: "wall" },
-  { x: -40, y: 0, w: 40, h: MAP_HEIGHT, kind: "wall" },
-  { x: MAP_WIDTH, y: 0, w: 40, h: MAP_HEIGHT, kind: "wall" },
-];
-const OUTER_SET = new Set(OUTER);
-const ALL_WALLS = [...WALLS, ...OUTER];
-const WALL_INDEX = new Map(ALL_WALLS.map((w, i) => [w, i]));
+/**
+ * Every wall of the map in play, plus the outside of the building (walls
+ * just past the map edge, with windows), worked out once per map.
+ */
+const worlds = new Map<string, { all: Wall[]; outer: Set<Wall>; index: Map<Wall, number> }>();
+function world() {
+  let w = worlds.get(MAP_ID);
+  if (!w) {
+    const outer: Wall[] = [
+      { x: -40, y: -40, w: MAP_WIDTH + 80, h: 40, kind: "wall" },
+      { x: -40, y: MAP_HEIGHT, w: MAP_WIDTH + 80, h: 40, kind: "wall" },
+      { x: -40, y: 0, w: 40, h: MAP_HEIGHT, kind: "wall" },
+      { x: MAP_WIDTH, y: 0, w: 40, h: MAP_HEIGHT, kind: "wall" },
+    ];
+    const all = [...WALLS, ...outer];
+    w = { all, outer: new Set(outer), index: new Map(all.map((x, i) => [x, i])) };
+    worlds.set(MAP_ID, w);
+  }
+  return w;
+}
 /** These reach (nearly) the ceiling and hide everything behind them. */
 const FULL_HEIGHT = new Set(["wall", "locker", "clinic", "tardiswall", "tardisdoor", "rotor", "strut", "gamerwall", "tvscreen"]);
 
@@ -107,17 +116,18 @@ function exitT(x: number, y: number, ex: number, ey: number, r: Wall) {
  * things, so a desk behind another desk still shows above it.
  */
 function castRay(x: number, y: number, dx: number, dy: number) {
+  const wd = world();
   let tall: Hit | null = null;
   const lows: Hit[] = [];
   const ex = x + dx * MAX_VIEW;
   const ey = y + dy * MAX_VIEW;
-  for (const w of ALL_WALLS) {
+  for (const w of wd.all) {
     const hit = segmentRectHit(x, y, ex, ey, w);
     if (!hit) continue;
     const dist = hit.t * MAX_VIEW;
     const hx = x + dx * dist;
     const hy = y + dy * dist;
-    const surface: Surface = OUTER_SET.has(w) ? "outer" : w.kind;
+    const surface: Surface = wd.outer.has(w) ? "outer" : w.kind;
     const h: Hit = {
       wall: w,
       surface,
@@ -297,7 +307,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
       const bottom = horizon + (EYE * proj) / d;
       const units = TEX_UNITS[hit.surface];
       const segment = Math.floor(hit.u / units);
-      const variant = hit.surface === "wall" ? wallVariant(WALL_INDEX.get(hit.wall) ?? 0, segment) : "plain";
+      const variant = hit.surface === "wall" ? wallVariant(world().index.get(hit.wall) ?? 0, segment) : "plain";
       const tex = wallTexture(hit.surface, variant);
       const texX = Math.min(tex.width - 1, Math.floor((hit.u - segment * units) * PPU));
       ctx.drawImage(tex, texX, 0, 1, tex.height, c * step, top, step, bottom - top);
@@ -586,7 +596,7 @@ function drawPlayerOverlay(
 
 /** Every wall and piece of furniture, including the building's outside walls, with its surface and index (for wall posters). */
 export function worldWalls(): { wall: Wall; surface: Surface; index: number }[] {
-  return ALL_WALLS.map((wall, index) => ({ wall, surface: OUTER_SET.has(wall) ? "outer" : wall.kind, index }));
+  return world().all.map((wall, index) => ({ wall, surface: world().outer.has(wall) ? "outer" : wall.kind, index }));
 }
 
 /** The color of the top of low furniture (desks, tables…), if it has one. */
@@ -629,8 +639,8 @@ export function visiblePlayers(
 
 /** Whether a full-height wall blocks the straight line between two points. */
 export function wallBetween(x0: number, y0: number, x1: number, y1: number) {
-  for (const w of ALL_WALLS) {
-    if (!OUTER_SET.has(w) && !FULL_HEIGHT.has(w.kind)) continue;
+  for (const w of world().all) {
+    if (!world().outer.has(w) && !FULL_HEIGHT.has(w.kind)) continue;
     if (segmentRectHit(x0, y0, x1, y1, w)) return true;
   }
   return false;
@@ -654,11 +664,11 @@ export function aimDistance(x: number, y: number, z: number, yaw: number, pitch:
   let best = max;
   if (dz < -1e-4) best = Math.min(best, -z / dz);
   if (dz > 1e-4) best = Math.min(best, (CEILING - z) / dz);
-  for (const w of ALL_WALLS) {
+  for (const w of world().all) {
     const hit = segmentRectHit(x, y, x + dx * best, y + dy * best, w);
     if (!hit) continue;
     const d = hit.t * best;
-    const surface: Surface = OUTER_SET.has(w) ? "outer" : w.kind;
+    const surface: Surface = world().outer.has(w) ? "outer" : w.kind;
     // Low furniture only stops it if the line is still below its top there.
     if (z + dz * d <= SURFACE_HEIGHT[surface]) best = d;
   }

@@ -1,6 +1,6 @@
 import { BASE_SPEED, DT, TICK_MS } from "@/shared/constants";
 import { movePlayer, stanceSpeed, stepVertical, type Body } from "@/shared/physics";
-import { moveTardis, tardisSpotNow } from "@/shared/map";
+import { mapIdFor, moveTardis, tardisSpotNow, switchMap } from "@/shared/map";
 import type {
   ClientMessage,
   GameEvent,
@@ -169,6 +169,8 @@ export class GameConnection {
         break;
       case "room":
         this.room = msg;
+        // 50 v 50 plays on the big school: everything that reads the map follows along.
+        switchMap(mapIdFor(msg.mode));
         if (msg.phase === "lobby") this.resetMatchState();
         this.events.onRoom(msg);
         break;

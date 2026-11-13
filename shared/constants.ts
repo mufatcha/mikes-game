@@ -4,6 +4,8 @@ export const DT = 1 / TICK_RATE;
 
 export const TEAM_SIZE = 4;
 export const MAX_HUMANS = TEAM_SIZE * 2;
+/** 50 v 50: players per team on the big school (bots fill the seats). */
+export const MEGA_TEAM_SIZE = 50;
 
 export const PLAYER_RADIUS = 18;
 export const BASE_SPEED = 250;
@@ -54,10 +56,11 @@ export type Team = 0 | 1;
  * - "fog": 4v4 where you only see a small circle around you.
  * - "boss": 7 students against 1 Principal.
  * - "duel": 1v1, the two school mascots, each with their own powers.
+ * - "mega": 50 v 50 on the big school (bots fill the teams).
  * Every mode can be played top-down or in 3D first person (see VIEWS).
  */
-export type GameMode = "teams" | "fog" | "boss" | "duel";
-export const GAME_MODE_IDS: GameMode[] = ["teams", "fog", "boss", "duel"];
+export type GameMode = "teams" | "fog" | "boss" | "duel" | "mega";
+export const GAME_MODE_IDS: GameMode[] = ["teams", "fog", "boss", "duel", "mega"];
 export const GAME_MODES: { id: GameMode; name: string; emoji: string; blurb: string }[] = [
   { id: "teams", name: "Team Battle · 4v4", emoji: "⚔️", blurb: "Lemons vs Orange Peels. First to 50 knockouts wins." },
   {
@@ -78,6 +81,12 @@ export const GAME_MODES: { id: GameMode; name: string; emoji: string; blurb: str
     emoji: "🥊",
     blurb: "Lenny the Lemon vs Peely the Orange, each with their own four powers. First to 3 knockouts.",
   },
+  {
+    id: "mega",
+    name: "School-Wide War · 50v50",
+    emoji: "🏫",
+    blurb: "Fifty a side on the big school: ten classrooms, a huge atrium and long halls. Bots fill every empty seat. First to 1,000 knockouts.",
+  },
 ];
 
 /** How the match is seen, picked by the host for any mode: top-down, or 3D through your own eyes. */
@@ -95,6 +104,7 @@ export const VIEWS: { view3d: boolean; name: string; emoji: string; blurb: strin
 export function teamSizeFor(mode: GameMode, team: Team) {
   if (mode === "boss") return team === 0 ? 7 : 1;
   if (mode === "duel") return 1;
+  if (mode === "mega") return MEGA_TEAM_SIZE;
   return TEAM_SIZE;
 }
 
@@ -113,12 +123,14 @@ export function isPrincipalSeat(mode: GameMode, team: Team) {
 export function matchDurationFor(mode: GameMode) {
   if (mode === "boss") return 6 * 60;
   if (mode === "duel") return 5 * 60;
+  if (mode === "mega") return 10 * 60;
   return MATCH_DURATION;
 }
 
 /** Knockouts needed to win (boss mode is won by knocking out the Principal instead). */
 export function winScoreFor(mode: GameMode) {
   if (mode === "duel") return 3;
+  if (mode === "mega") return 1000;
   if (mode === "boss") return Infinity;
   return SCORE_TO_WIN;
 }

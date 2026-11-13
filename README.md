@@ -28,6 +28,8 @@ To test with friends on the same network, open the web app at your machine's LAN
 
 **The Principal (7v1).** The host can switch the lobby to this mode. Seven students (who can share classes) take on one Principal: a bigger, slower boss with 10000 health, 25% damage resistance, 12% extra speed and 20% extra damage, who doesn't respawn and gets nothing from the Nurse's Office. Each student has 3 lives; after the third knockout they spectate. Students win by knocking the Principal out; the Principal wins by surviving the 6-minute timer or knocking every student out of lives. Click **Be the Principal** in the lobby to take the seat, or a bot plays it. The Principal's abilities (keys can be changed in Settings; phones get buttons):
 
+**School-Wide War (50v50).** The host can pick this mode for a fifty-a-side battle on the big school, a separate map about two and a half times the size: four classrooms along the top (Gym, Library, Kindergarten, Classroom), the Cafeteria and Art Room either side of a huge open atrium with the Nurse's Office in the middle, and four rooms along the bottom (Detention, Band Room, Orchestra Room, Game Room), joined by two long main halls and three cross halls with locker banks and planters for cover. Up to 8 friends can join and bots fill every other seat; classes can repeat; first to 1,000 knockouts wins (10 minutes). The lobby, scoreboard and results show the top players rather than all hundred. To keep it smooth, the server sends 50v50 updates 15 times a second, compressed.
+
 - 🔒 **Detention** (E, 20s cooldown): pick a student in sight, then stop the skill-check needle. The closer to the center, the longer they're locked in the Detention room: 20–30 seconds. Locked-up students can't move or throw, and can't be hurt.
 - 📣 **Stern Lecture** (F, 10s): 20 damage and a 1.5-second stun to every student nearby in sight.
 - 📝 **Pop Quiz** (C, 6s): a ring of 16 quiz papers in every direction.
@@ -110,7 +112,7 @@ Each time you change the game, pushing to GitHub updates the Steam version too, 
 | `game/` | Browser game client: networking with client-side prediction and interpolation (`connection.ts`), canvas renderer and HUD (`renderer.ts`), input, sound |
 | `components/`, `app/` | Next.js pages and React UI: home, lobby, class picker, in-game menus, results |
 
-Class and throwable stats live in `shared/archetypes.ts`, and the map layout lives in `shared/map.ts`.
+Class and throwable stats live in `shared/archetypes.ts`, and the maps live in `shared/map.ts` (the school, and the switch between maps) and `shared/bigmap.ts` (the big school for 50v50), built with the helpers in `shared/mapkit.ts`.
 
 ## Deploying (free)
 

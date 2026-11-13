@@ -78,6 +78,8 @@ const server = Bun.serve({
   websocket: {
     data: {} as SocketData,
     idleTimeout: 60,
+    // Snapshots are JSON with the same field names over and over: compressing them makes them far smaller.
+    perMessageDeflate: true,
     maxPayloadLength: 16 * 1024,
     open(ws) {
       rooms.get(ws.data.code)?.join(ws);

@@ -1,10 +1,8 @@
 import {
-  GAME_ROOM,
-  HALLS,
   MAP_HEIGHT,
   MAP_WIDTH,
+  MAP_ID,
   ROOMS,
-  SCHOOL_HEIGHT,
   TARDIS_INSIDE,
   WALL_HEIGHT,
   inSafeZone,
@@ -911,25 +909,36 @@ function rgb(r: number, g: number, b: number) {
 }
 
 const CELL = 20;
-const GRID_W = Math.ceil(MAP_WIDTH / CELL);
-const GRID_H = Math.ceil(MAP_HEIGHT / CELL);
 const FLOOR_KINDS: (FloorPattern | "hall")[] = ["hall", "court", "carpet", "checker", "tiles", "stripes", "splatter", "neon", "stage"];
-let floorGrid: Uint8Array | null = null;
+/** Each map's floors, worked out once per map. */
+const floorGrids = new Map<string, { w: number; h: number; cells: Uint8Array }>();
 
-/** Which floor each 20x20 cell of the map has, worked out once. */
+/** Which floor each 20x20 cell of the map in play has. */
 function grid() {
-  if (floorGrid) return floorGrid;
-  floorGrid = new Uint8Array(GRID_W * GRID_H);
-  for (let gy = 0; gy < GRID_H; gy++) {
-    for (let gx = 0; gx < GRID_W; gx++) {
+  let g = floorGrids.get(MAP_ID);
+  if (g) return g;
+  const w = Math.ceil(MAP_WIDTH / CELL);
+  const h = Math.ceil(MAP_HEIGHT / CELL);
+  const cells = new Uint8Array(w * h);
+  for (let gy = 0; gy < h; gy++) {
+    for (let gx = 0; gx < w; gx++) {
       const x = gx * CELL + CELL / 2;
       const y = gy * CELL + CELL / 2;
       const room = ROOMS.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
-      const inHall = HALLS.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
-      floorGrid[gy * GRID_W + gx] = room ? FLOOR_KINDS.indexOf(room.pattern) : inHall ? 0 : 0;
+      cells[gy * w + gx] = room ? FLOOR_KINDS.indexOf(room.pattern) : 0;
     }
   }
-  return floorGrid;
+  g = { w, h, cells };
+  floorGrids.set(MAP_ID, g);
+  return g;
+}
+
+/** What floor a spot is: a room's pattern, or "hall". */
+function floorKindAt(x: number, y: number) {
+  const g = grid();
+  const gx = Math.max(0, Math.min(g.w - 1, Math.floor(x / CELL)));
+  const gy = Math.max(0, Math.min(g.h - 1, Math.floor(y / CELL)));
+  return FLOOR_KINDS[g.cells[gy * g.w + gx]];
 }
 
 function mod(a: number, n: number) {
@@ -969,9 +978,7 @@ export function floorTexel(x: number, y: number): number {
     if (mod(x, 20) < 0.8 || mod(y, 20) < 0.8) return rgb(167, 214, 190);
     return rgb(236, 244, 240);
   }
-  const gx = Math.max(0, Math.min(GRID_W - 1, Math.floor(x / CELL)));
-  const gy = Math.max(0, Math.min(GRID_H - 1, Math.floor(y / CELL)));
-  const kind = FLOOR_KINDS[grid()[gy * GRID_W + gx]];
+  const kind = floorKindAt(x, y);
   switch (kind) {
     case "court": {
       // Gym floor: honey-colored planks with staggered joints.
@@ -1034,7 +1041,7 @@ export function floorTexel(x: number, y: number): number {
 
 /** Ceiling color at a world position, packed; bit 24 is set for the glowing light panels. */
 export function ceilingTexel(x: number, y: number): number {
-  if (y > SCHOOL_HEIGHT && x > GAME_ROOM.x - 30) {
+  if (floorKindAt(x, y) === "neon") {
     // The Game Room: dark, with rows of RGB LED strips cycling through the colours.
     if (mod(y, 60) < 3) {
       const hue = mod(x / 40, RGB_STOPS.length) | 0;

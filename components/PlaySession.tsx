@@ -57,7 +57,7 @@ function Session({ code, name }: { code: string; name: string }) {
   const loadout = meEntry?.loadout ?? savedLoadout;
   // Classes our team is full up on (one each, but two Orchestra Kids), mapped to who has them.
   const teammates = (room?.roster ?? []).filter(
-    (r) => room?.mode !== "boss" && meEntry && r.team === meEntry.team && r.id !== myId,
+    (r) => room?.mode !== "boss" && room?.mode !== "mega" && meEntry && r.team === meEntry.team && r.id !== myId,
   );
   const taken = new Map<ArchetypeId, string>();
   for (const a of new Set(teammates.map((r) => r.loadout.archetype))) {

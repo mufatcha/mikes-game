@@ -18,7 +18,6 @@ import {
   ROOMS,
   SAFE_ZONE,
   SCHOOL_HEIGHT,
-  GAME_ROOM,
   TARDIS_INSIDE,
   TARDIS_SPOTS,
   inTardis,
@@ -1395,7 +1394,8 @@ export class Renderer {
     ctx.strokeStyle = "#cbd5e1";
     ctx.lineWidth = 10;
     ctx.strokeRect(-5, -5, MAP_WIDTH + 10, SCHOOL_HEIGHT + 10);
-    ctx.strokeRect(GAME_ROOM.x - 29, GAME_ROOM.y - 5, GAME_ROOM.w + 58, GAME_ROOM.h + 10);
+    // And round the rooms below it.
+    for (const r of ROOMS) if (r.y >= SCHOOL_HEIGHT) ctx.strokeRect(r.x - 29, r.y - 5, r.w + 58, r.h + 10);
 
     this.drawTardisFloor();
   }
@@ -2455,7 +2455,10 @@ export class Renderer {
     const colW = w / 2;
     const x0 = (this.cw - w) / 2;
     const y0 = 110;
-    const maxRows = Math.max(4, ...([0, 1] as Team[]).map((t) => snap.players.filter((p) => roster.get(p.id)?.team === t).length));
+    // Big teams (50 v 50) show their top ten (and you), with a count of the rest.
+    const LIMIT = 10;
+    const counts = ([0, 1] as Team[]).map((t) => snap.players.filter((p) => roster.get(p.id)?.team === t).length);
+    const maxRows = Math.max(4, ...counts.map((c) => Math.min(LIMIT, c))) + (counts.some((c) => c > LIMIT) ? 1 : 0);
     this.panel(x0, y0, w, 80 + maxRows * 44);
     const names = teamNamesFor(this.mode);
     for (const team of [0, 1] as Team[]) {
@@ -2466,6 +2469,13 @@ export class Renderer {
       const rows = snap.players
         .filter((p) => roster.get(p.id)?.team === team)
         .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+      const extra = rows.length - LIMIT;
+      if (extra > 0) {
+        const mine = rows.findIndex((p) => p.id === this.conn.myId);
+        if (mine >= LIMIT) rows[LIMIT - 1] = rows[mine];
+        rows.length = LIMIT;
+        this.text(`… and ${extra} more`, cx, y0 + 60 + LIMIT * 44, 12, "#9ca3af", "left");
+      }
       rows.forEach((p, i) => {
         const y = y0 + 60 + i * 44;
         const info = roster.get(p.id)!;

@@ -1,26 +1,41 @@
 import { PLAYER_RADIUS } from "../shared/constants";
-import { MAP_HEIGHT, MAP_WIDTH, WALLS, type Point } from "../shared/map";
+import { MAP_HEIGHT, MAP_ID, MAP_WIDTH, WALLS, type Point } from "../shared/map";
 import { hasLineOfSight } from "../shared/physics";
 
 const CELL = 20;
-const COLS = Math.ceil(MAP_WIDTH / CELL);
-const ROWS = Math.ceil(MAP_HEIGHT / CELL);
 const INFLATE = PLAYER_RADIUS + 3;
 
-const blocked = new Uint8Array(COLS * ROWS);
+/** The walkable grid for the map in play (built once per map; see sync). */
+let COLS = 0;
+let ROWS = 0;
+let blocked: Uint8Array = new Uint8Array(0);
+const grids = new Map<string, { cols: number; rows: number; blocked: Uint8Array }>();
 
-for (let r = 0; r < ROWS; r++) {
-  for (let c = 0; c < COLS; c++) {
-    const x = c * CELL + CELL / 2;
-    const y = r * CELL + CELL / 2;
-    let b = x < INFLATE || y < INFLATE || x > MAP_WIDTH - INFLATE || y > MAP_HEIGHT - INFLATE;
-    for (const w of WALLS) {
-      if (b) break;
-      b =
-        x > w.x - INFLATE && x < w.x + w.w + INFLATE && y > w.y - INFLATE && y < w.y + w.h + INFLATE;
+/** Point the grid at the map in play, building it the first time. */
+function sync() {
+  let g = grids.get(MAP_ID);
+  if (!g) {
+    const cols = Math.ceil(MAP_WIDTH / CELL);
+    const rows = Math.ceil(MAP_HEIGHT / CELL);
+    const cells = new Uint8Array(cols * rows);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = c * CELL + CELL / 2;
+        const y = r * CELL + CELL / 2;
+        let b = x < INFLATE || y < INFLATE || x > MAP_WIDTH - INFLATE || y > MAP_HEIGHT - INFLATE;
+        for (const w of WALLS) {
+          if (b) break;
+          b = x > w.x - INFLATE && x < w.x + w.w + INFLATE && y > w.y - INFLATE && y < w.y + w.h + INFLATE;
+        }
+        cells[r * cols + c] = b ? 1 : 0;
+      }
     }
-    blocked[r * COLS + c] = b ? 1 : 0;
+    g = { cols, rows, blocked: cells };
+    grids.set(MAP_ID, g);
   }
+  COLS = g.cols;
+  ROWS = g.rows;
+  blocked = g.blocked;
 }
 
 function cellIndex(x: number, y: number) {
@@ -115,6 +130,7 @@ const NEIGHBORS: [number, number, number][] = [
 
 /** A* over the walkable grid, then smoothed. Returns waypoints excluding the start. */
 export function findPath(from: Point, to: Point): Point[] {
+  sync();
   const start = nearestOpen(cellIndex(from.x, from.y));
   const goal = nearestOpen(cellIndex(to.x, to.y));
   if (start === goal) return [to];
@@ -182,5 +198,6 @@ function smooth(from: Point, pts: Point[]): Point[] {
 }
 
 export function isOpen(p: Point) {
+  sync();
   return !blocked[cellIndex(p.x, p.y)];
 }

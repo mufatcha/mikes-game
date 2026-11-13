@@ -1,5 +1,5 @@
 import { segmentRect } from "@/shared/physics";
-import { HALLS, ROOMS, SAFE_ZONE, TARDIS_INSIDE, WALLS, type Rect, type Wall, type WallKind } from "@/shared/map";
+import { HALLS, MAP_ID, ROOMS, SAFE_ZONE, TARDIS_INSIDE, WALLS, type Rect, type Wall, type WallKind } from "@/shared/map";
 
 /** You can always see this close around you, in every direction. */
 export const NEAR_SIGHT = 170;
@@ -35,7 +35,13 @@ const BLOCKS_SIGHT: Record<WallKind, boolean> = {
   couch: false,
   beanbag: false,
 };
-const OCCLUDERS: Wall[] = WALLS.filter((w) => BLOCKS_SIGHT[w.kind]);
+/** The walls you can't see through, worked out once per map. */
+const occluders = new Map<string, Wall[]>();
+function occluding(): Wall[] {
+  let o = occluders.get(MAP_ID);
+  if (!o) occluders.set(MAP_ID, (o = WALLS.filter((w) => BLOCKS_SIGHT[w.kind])));
+  return o;
+}
 
 /** The sight polygon runs this far into a wall, so the face of the wall you're looking at stays lit. */
 const WALL_REVEAL = 10;
@@ -81,7 +87,7 @@ function castRay(x: number, y: number, ex: number, ey: number, walls: Wall[]) {
  * standing there would.
  */
 export function sightPolygon(x: number, y: number, range = FAR_SIGHT): [number, number][] {
-  const walls = OCCLUDERS.filter((w) => near(w, x, y, range));
+  const walls = occluding().filter((w) => near(w, x, y, range));
   const angles: number[] = [];
   for (let i = 0; i < SWEEP_RAYS; i++) angles.push((i / SWEEP_RAYS) * Math.PI * 2 - Math.PI);
   // Rays just either side of every wall corner give sharp shadow edges.
@@ -136,7 +142,7 @@ export function canSee(x: number, y: number, aim: number, tx: number, ty: number
     [px, py],
     [-px, -py],
   ]) {
-    if (OCCLUDERS.every((w) => segmentRect(x, y, tx + ox, ty + oy, w) === null)) return true;
+    if (occluding().every((w) => segmentRect(x, y, tx + ox, ty + oy, w) === null)) return true;
   }
   return false;
 }

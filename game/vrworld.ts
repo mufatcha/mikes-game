@@ -192,8 +192,10 @@ export class VrWorld {
       this.addBox(batchFor, wall, surface, index);
     }
     // Floor and ceiling: the school, and the TARDIS's console room.
-    const floor = this.bake(0, 0, MAP_WIDTH, MAP_HEIGHT, 1, floorTexel);
-    const ceiling = this.bake(0, 0, MAP_WIDTH, MAP_HEIGHT, 1, ceilingTexel);
+    // One texel per unit, or coarser on the big school so the textures stay a size headsets can hold.
+    const step = Math.max(1, Math.ceil(Math.max(MAP_WIDTH, MAP_HEIGHT) / 3000));
+    const floor = this.bake(0, 0, MAP_WIDTH, MAP_HEIGHT, step, floorTexel);
+    const ceiling = this.bake(0, 0, MAP_WIDTH, MAP_HEIGHT, step, ceilingTexel);
     const ti = TARDIS_INSIDE;
     const tFloor = this.bake(ti.x, ti.y, ti.w, ti.h, 1, floorTexel);
     const tCeiling = this.bake(ti.x, ti.y, ti.w, ti.h, 1, ceilingTexel);

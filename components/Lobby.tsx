@@ -163,7 +163,8 @@ export default function Lobby({
                 )}
               </div>
               <ul className="flex flex-col gap-2">
-                {Array.from({ length: size }, (_, i) => {
+                {/* Big teams (50 v 50) list who's joined and sum up the rest. */}
+                {Array.from({ length: size > 8 ? Math.min(size, members.length + 1) : size }, (_, i) => {
                   const m = members[i];
                   if (!m) {
                     return (
@@ -173,7 +174,9 @@ export default function Lobby({
                       >
                         {isPrincipalSeat(mode, team)
                           ? `Open: a bot ${ARCHETYPES[seatLoadout(mode, team)!.archetype].name} will play`
-                          : "Open slot (a bot will play)"}
+                          : size > 8
+                            ? `+ ${size - members.length} more seats (bots will play)`
+                            : "Open slot (a bot will play)"}
                       </li>
                     );
                   }
