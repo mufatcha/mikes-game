@@ -1070,3 +1070,9 @@ export function drawViewModel(
   }
   flush(out);
 }
+
+/** Your sleeve and hand colors (mascots wear white gloves), for your tracked arms in VR. */
+export function armColors(archetype: ArchetypeId, team: Team): { sleeve: string; skin: string } {
+  const mascot = archetype === "lemon" || archetype === "orangepeel";
+  return { sleeve: SLEEVES[archetype] ?? TEAM_COLORS[team], skin: mascot ? "#f8fafc" : SKIN[archetype] };
+}

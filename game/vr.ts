@@ -1,5 +1,6 @@
 import { EYE_HEIGHT, MAX_PITCH } from "@/shared/constants";
 import type { Renderer, VrArms } from "./renderer";
+import { VR_QUALITY_SCALE, getVrQuality } from "@/lib/settings";
 
 /**
  * Playing the 3D view in a VR headset (WebXR: Meta Quest's browser, or a PC
@@ -108,8 +109,8 @@ export interface VrControls {
 const UNITS_PER_METER = EYE_HEIGHT / 1.6;
 /** Each eye's picture covers this much side to side (a little more than a headset shows). */
 const EYE_FOV = (110 * Math.PI) / 180;
-const EYE_W = 960;
-const EYE_H = 840;
+const EYE_W = 1440;
+const EYE_H = 1260;
 const PROJ = EYE_W / 2 / Math.tan(EYE_FOV / 2);
 /** How far in front of your eye the picture hangs (any distance looks the same; this keeps it clear of your face). */
 const SHEET_DIST = 3;
@@ -126,10 +127,12 @@ const WRIST_SIZE = 0.22;
 const WRIST_BACK = 0.08;
 const WRIST_RAISE = 0.1;
 /** The flat floor and ceiling past the sheet's reach: how far below and above your eyes, and how wide. */
-const CAP_GAP = 2;
+/** The game's floor is this far below your eyes and its ceiling this far above (80 units up), in meters. */
+const FLOOR_DROP = EYE_HEIGHT / UNITS_PER_METER;
+const CEILING_RISE = (80 - EYE_HEIGHT) / UNITS_PER_METER;
 const CAP_SIZE = 100;
 /** Picture sizes to drop to if the computer can't keep up (fractions of full size). */
-const SCALES = [1, 0.8, 0.65, 0.5];
+const SCALES = [1, 0.85, 0.7, 0.55, 0.45];
 const SNAP_TURN = Math.PI / 6;
 const DEAD = 0.15;
 
@@ -165,12 +168,106 @@ interface ArmScreen {
 }
 
 const newArm = (): ArmScreen => ({ grip: null, canvas: null, tex: null, buf: null, drawnAt: 0, showing: false });
+
+// ---------------------------------------------------------------- arm meshes
+
+const SOLID_VERT = `attribute vec3 p; attribute vec3 c; uniform mat4 P; uniform mat4 V; varying vec3 vc;
+void main() { vc = c; gl_Position = P * V * vec4(p, 1.0); }`;
+const SOLID_FRAG = `precision mediump float; varying vec3 vc;
+void main() { gl_FragColor = vec4(vc, 1.0); }`;
+
+type V3 = [number, number, number];
+/** Forearm length, wrist to elbow, in meters. */
+const FOREARM = 0.25;
+/** Light from above and a little in front, for shading the arms. */
+const SUN: V3 = (() => {
+  const v: V3 = [0.3, 0.9, 0.35];
+  const l = Math.hypot(...v);
+  return v.map((x) => x / l) as V3;
+})();
+
+function rotateBy(q: DOMPointReadOnly, v: V3): V3 {
+  const { x, y, z, w } = q;
+  return [
+    (1 - 2 * (y * y + z * z)) * v[0] + 2 * (x * y - w * z) * v[1] + 2 * (x * z + w * y) * v[2],
+    2 * (x * y + w * z) * v[0] + (1 - 2 * (x * x + z * z)) * v[1] + 2 * (y * z - w * x) * v[2],
+    2 * (x * z - w * y) * v[0] + 2 * (y * z + w * x) * v[1] + (1 - 2 * (x * x + y * y)) * v[2],
+  ];
+}
+const add = (p: V3, dir: V3, by: number): V3 => [p[0] + dir[0] * by, p[1] + dir[1] * by, p[2] + dir[2] * by];
+
+const colorCache = new Map<string, V3>();
+/** Any CSS color as 0-1 RGB. */
+function rgb(css: string): V3 {
+  let c = colorCache.get(css);
+  if (!c) {
+    const g = document.createElement("canvas").getContext("2d")!;
+    g.fillStyle = "#888888";
+    g.fillStyle = css;
+    const hex = String(g.fillStyle);
+    c =
+      hex.startsWith("#") && hex.length === 7
+        ? [parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255]
+        : [0.6, 0.6, 0.6];
+    colorCache.set(css, c);
+  }
+  return c;
+}
+
+/** Shade a color for a surface facing `n`. */
+function lit(color: V3, n: V3): V3 {
+  const f = 0.5 + 0.5 * Math.max(0, n[0] * SUN[0] + n[1] * SUN[1] + n[2] * SUN[2]);
+  return [color[0] * f, color[1] * f, color[2] * f];
+}
+
+function tri(out: number[], a: V3, b: V3, c: V3, col: V3) {
+  out.push(...a, ...col, ...b, ...col, ...c, ...col);
+}
+
+/** A box centered at `c`, with half-sizes `h` along the axes `ax`, `ay`, `az`. */
+function addBox(out: number[], c: V3, ax: V3, ay: V3, az: V3, h: V3, color: V3) {
+  const corner = ([sx, sy, sz]: V3): V3 => add(add(add(c, ax, sx * h[0]), ay, sy * h[1]), az, sz * h[2]);
+  const neg = (v: V3): V3 => [-v[0], -v[1], -v[2]];
+  const faces: [V3, V3[]][] = [
+    [ax, [[1, -1, -1], [1, 1, -1], [1, 1, 1], [1, -1, 1]]],
+    [neg(ax), [[-1, -1, 1], [-1, 1, 1], [-1, 1, -1], [-1, -1, -1]]],
+    [ay, [[-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, 1, -1]]],
+    [neg(ay), [[-1, -1, 1], [-1, -1, -1], [1, -1, -1], [1, -1, 1]]],
+    [az, [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]]],
+    [neg(az), [[1, -1, -1], [-1, -1, -1], [-1, 1, -1], [1, 1, -1]]],
+  ];
+  for (const [n, quad] of faces) {
+    const [a, b, cc, d] = quad.map(corner);
+    const col = lit(color, n);
+    tri(out, a, b, cc, col);
+    tri(out, a, cc, d, col);
+  }
+}
+
+/** A round ball (8 slices, 6 rings). */
+function addBall(out: number[], c: V3, r: number, color: V3) {
+  const at = (i: number, j: number): V3 => {
+    const th = (i / 6) * Math.PI;
+    const ph = (j / 8) * Math.PI * 2;
+    return [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+  };
+  const p = (n: V3): V3 => [c[0] + n[0] * r, c[1] + n[1] * r, c[2] + n[2] * r];
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 8; j++) {
+      const col = lit(color, at(i + 0.5, j + 0.5));
+      tri(out, p(at(i, j)), p(at(i + 1, j)), p(at(i + 1, j + 1)), col);
+      tri(out, p(at(i, j)), p(at(i + 1, j + 1)), p(at(i, j + 1)), col);
+    }
+  }
+}
 interface Eye {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   tex: WebGLTexture;
   buf: WebGLBuffer;
   drawn: boolean;
+  /** Out of date (you turned, respawned or the size changed): draw it again next frame, but keep showing it until then. */
+  stale: boolean;
 }
 
 /** One game frame in VR: where you're facing (map angle) and looking up or down. */
@@ -181,7 +278,10 @@ export class VrPlayer {
   private layer: XRWebGLLayer;
   private space: XRReferenceSpace | null = null;
   private prog: WebGLProgram;
-  /** Triangles joining the 4 x 4 grid of points each eye's sheet is made of. */
+  /** Plain colored shapes (your arms), and their points. */
+  private solidProg: WebGLProgram;
+  private armBuf: WebGLBuffer;
+  /** Triangles joining the 6 x 4 grid of points each eye's sheet is made of. */
   private grid: WebGLBuffer;
   private eyes: Eye[] = [];
   private raf = 0;
@@ -220,10 +320,12 @@ export class VrPlayer {
     const Layer = (window as unknown as { XRWebGLLayer: XRWebGLLayerClass }).XRWebGLLayer;
     this.layer = new Layer(session, gl);
     session.updateRenderState({ baseLayer: this.layer, depthNear: 0.1, depthFar: 400 });
-    this.prog = this.makeProgram();
-    // First the floor and ceiling caps (points 16-23), then the sheet drawn over them.
-    const tris: number[] = [16, 17, 18, 18, 17, 19, 20, 21, 22, 22, 21, 23];
-    for (let r = 0; r < 3; r++) {
+    this.prog = this.makeProgram(VERT, FRAG);
+    this.solidProg = this.makeProgram(SOLID_VERT, SOLID_FRAG);
+    this.armBuf = gl.createBuffer()!;
+    // First the floor and ceiling caps (points 24-31), then the sheet drawn over them.
+    const tris: number[] = [24, 25, 26, 26, 25, 27, 28, 29, 30, 30, 29, 31];
+    for (let r = 0; r < 5; r++) {
       for (let c = 0; c < 3; c++) {
         const i = r * 4 + c;
         tris.push(i, i + 4, i + 1, i + 1, i + 4, i + 5);
@@ -292,7 +394,7 @@ export class VrPlayer {
     if (this.faceYaw !== null) {
       this.baseYaw = this.faceYaw - this.headYaw;
       this.faceYaw = null;
-      this.eyes.forEach((e) => (e.drawn = false));
+      this.eyes.forEach((e) => (e.stale = true));
     }
     const controls = this.readControls();
     // Each controller's grip, for the arm screens.
@@ -309,7 +411,7 @@ export class VrPlayer {
     const views = pose.views;
     while (this.eyes.length < views.length) this.eyes.push(this.makeEye());
     // Draw each eye's picture (or just one of them, taking turns, if the computer is struggling).
-    const all = !this.alternate || this.eyes.some((e, i) => i < views.length && !e.drawn);
+    const all = !this.alternate || this.eyes.some((e, i) => i < views.length && (!e.drawn || e.stale));
     const start = performance.now();
     let drawnNow = 0;
     views.forEach((view, i) => {
@@ -322,15 +424,21 @@ export class VrPlayer {
     // Switch between both-eyes and taking-turns with some slack so it doesn't flip back and forth.
     if (!this.alternate && this.eyeMs * 2 > this.frameMs * 0.75) this.alternate = true;
     else if (this.alternate && this.eyeMs * 2 < this.frameMs * 0.45) this.alternate = false;
-    // Still too slow even taking turns: make the pictures smaller (and bigger again when there's room).
-    const level = SCALES.indexOf(this.scale);
-    if (this.alternate && this.eyeMs > this.frameMs * 0.7 && level < SCALES.length - 1) this.setScale(SCALES[level + 1]);
-    else if (!this.alternate && this.eyeMs * 2 < this.frameMs * 0.3 && level > 0) this.setScale(SCALES[level - 1]);
+    // Settings picks the resolution; on Auto it drops a step at a time if the headset struggles.
+    const quality = getVrQuality();
+    if (quality !== "auto") {
+      if (this.scale !== VR_QUALITY_SCALE[quality]) this.setScale(VR_QUALITY_SCALE[quality]);
+    } else {
+      const level = Math.max(0, SCALES.indexOf(this.scale));
+      if (!SCALES.includes(this.scale)) this.setScale(SCALES[0]);
+      else if (this.alternate && this.eyeMs > this.frameMs * 0.7 && level < SCALES.length - 1) this.setScale(SCALES[level + 1]);
+      else if (!this.alternate && this.eyeMs * 2 < this.frameMs * 0.3 && level > 0) this.setScale(SCALES[level - 1]);
+    }
 
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.layer.framebuffer);
     gl.clearColor(0.09, 0.09, 0.11, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(this.prog);
     const locP = gl.getUniformLocation(this.prog, "P");
     const locV = gl.getUniformLocation(this.prog, "V");
@@ -351,11 +459,69 @@ export class VrPlayer {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, eye.tex);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.grid);
-      gl.drawElements(gl.TRIANGLES, 66, gl.UNSIGNED_SHORT, 0);
+      gl.drawElements(gl.TRIANGLES, 102, gl.UNSIGNED_SHORT, 0);
     });
-    // Your arm screens, on top of everything, in both eyes.
+    // Your tracked arms, then the screens on them, on top of everything, in both eyes.
+    this.drawArms(views, t);
     for (const side of ["left", "right"] as const) this.drawArm(side, views, locP, locV, locPos, locUv, t);
   };
+
+  // ------------------------------------------------------------ your tracked arms
+
+  /**
+   * Your arms, where your real ones are: a hand around each controller and a
+   * sleeved forearm reaching back toward your elbow, in your class's colors,
+   * with the ball in your throwing (right) hand.
+   */
+  private drawArms(views: readonly XRView[], t: number) {
+    const look = this.renderer.vrArmLook(t);
+    const left = this.arms.left.grip;
+    const right = this.arms.right.grip;
+    if (!look || (!left && !right)) return;
+    const mesh: number[] = [];
+    const sleeve = rgb(look.sleeve);
+    const skin = rgb(look.skin);
+    for (const [grip, throwing] of [
+      [left, false],
+      [right, true],
+    ] as const) {
+      if (!grip) continue;
+      const q = grip.orientation;
+      const g: V3 = [grip.position.x, grip.position.y, grip.position.z];
+      const ax = rotateBy(q, [1, 0, 0]);
+      const ay = rotateBy(q, [0, 1, 0]);
+      const az = rotateBy(q, [0, 0, 1]); // back along your forearm, toward the elbow
+      // Your fist around the controller.
+      addBox(mesh, add(g, az, 0.01), ax, ay, az, [0.035, 0.045, 0.05], skin);
+      // The forearm, from the wrist back to the elbow, in your sleeve.
+      addBox(mesh, add(g, az, 0.06 + FOREARM / 2), ax, ay, az, [0.033, 0.033, FOREARM / 2], sleeve);
+      if (throwing && look.ball) addBall(mesh, add(add(g, az, -0.075), ay, 0.015), 0.045, rgb(look.ball));
+    }
+    const gl = this.gl;
+    const prog = this.solidProg;
+    gl.useProgram(prog);
+    gl.enable(gl.DEPTH_TEST);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.armBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mesh), gl.DYNAMIC_DRAW);
+    const locP = gl.getUniformLocation(prog, "P");
+    const locV = gl.getUniformLocation(prog, "V");
+    const locPos = gl.getAttribLocation(prog, "p");
+    const locCol = gl.getAttribLocation(prog, "c");
+    gl.enableVertexAttribArray(locPos);
+    gl.enableVertexAttribArray(locCol);
+    for (const view of views) {
+      const vp = this.layer.getViewport(view);
+      if (!vp) continue;
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+      gl.uniformMatrix4fv(locP, false, view.projectionMatrix);
+      gl.uniformMatrix4fv(locV, false, view.transform.inverse.matrix);
+      gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 24, 0);
+      gl.vertexAttribPointer(locCol, 3, gl.FLOAT, false, 24, 12);
+      gl.drawArrays(gl.TRIANGLES, 0, mesh.length / 6);
+    }
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(this.prog);
+  }
 
   // ------------------------------------------------------------ the arm screens
 
@@ -435,6 +601,8 @@ export class VrPlayer {
       gl.viewport(vp.x, vp.y, vp.width, vp.height);
       gl.uniformMatrix4fv(locP, false, view.projectionMatrix);
       gl.uniformMatrix4fv(locV, false, view.transform.inverse.matrix);
+      gl.enableVertexAttribArray(locPos);
+      gl.enableVertexAttribArray(locUv);
       gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 20, 0);
       gl.vertexAttribPointer(locUv, 2, gl.FLOAT, false, 20, 12);
       gl.bindTexture(gl.TEXTURE_2D, arm.tex);
@@ -451,7 +619,7 @@ export class VrPlayer {
 
   private setScale(s: number) {
     this.scale = s;
-    this.eyes.forEach((e) => (e.drawn = false));
+    this.eyes.forEach((e) => (e.stale = true));
     // Give the new size a moment before judging it.
     this.eyeMs = this.frameMs * 0.4;
   }
@@ -490,7 +658,7 @@ export class VrPlayer {
       hudW: HUD_W,
       hudH: HUD_H,
       hudShift,
-      hudScale: s,
+      hudScale: s * (EYE_W / 960),
       primary: i === 0,
       arms: this.armsPresent(),
     });
@@ -504,43 +672,74 @@ export class VrPlayer {
     const fz = -Math.cos(look);
     const rx = Math.cos(look);
     const rz = Math.sin(look);
-    // Past its edges the sheet carries on far out in every direction, stretching the picture's edge
-    // pixels (ceiling above, floor below), so looking steeply up or down never shows a gap.
-    // A 4 x 4 grid of points: [far, edge, edge, far] across and down.
-    const verts = new Float32Array(24 * 5);
+    // Past its top and bottom edges the sheet folds onto the real ceiling and floor (at the right
+    // height above and below your head, the same for both eyes, so they look solid, not like a
+    // hole), stretching the picture's edge rows over them, all the way to straight above and below
+    // you. Six rows of points: [over your head, edge's ceiling spot, top edge, bottom edge, edge's
+    // floor spot, under your feet], each across [far left, left edge, right edge, far right].
+    const hp = head.position;
+    const floorY = hp.y - FLOOR_DROP;
+    const ceilY = hp.y + CEILING_RISE;
+    const verts = new Float32Array(32 * 5);
     let n = 0;
-    for (const [py, lift] of [
-      [0, SHEET_REACH],
+    const put = (x: number, y: number, z: number, u: number, v: number) => {
+      verts.set([x, y, z, u, v], n);
+      n += 5;
+    };
+    const cols: [number, number][] = [
+      [0, -SHEET_REACH],
       [0, 0],
-      [H, 0],
-      [H, -SHEET_REACH],
-    ]) {
-      for (const [px, slide] of [
-        [0, -SHEET_REACH],
-        [0, 0],
-        [W, 0],
-        [W, SHEET_REACH],
-      ]) {
-        const a = (px - W / 2) / proj;
-        const up = (horizon - py) / proj;
-        verts.set(
-          [
-            p.x + SHEET_DIST * (fx + rx * a) + rx * slide,
-            p.y + SHEET_DIST * up + lift,
-            p.z + SHEET_DIST * (fz + rz * a) + rz * slide,
-            px / W,
-            py / H,
-          ],
-          n,
-        );
-        n += 5;
+      [W, 0],
+      [W, SHEET_REACH],
+    ];
+    const edge = (px: number, slide: number, py: number) => {
+      const a = (px - W / 2) / proj;
+      const up = (horizon - py) / proj;
+      return {
+        x: p.x + SHEET_DIST * (fx + rx * a) + rx * slide,
+        y: p.y + SHEET_DIST * up,
+        z: p.z + SHEET_DIST * (fz + rz * a) + rz * slide,
+        side: SHEET_DIST * a + slide,
+      };
+    };
+    // Where the ray from this eye through an edge point meets the plane at height `planeY`
+    // (or, if it never does, a point far straight up or down from the edge).
+    const meet = (e: { x: number; y: number; z: number }, planeY: number) => {
+      const dy = e.y - p.y;
+      const towards = planeY > p.y ? dy > 0.02 : dy < -0.02;
+      if (!towards) return { x: e.x, y: e.y + Math.sign(planeY - p.y) * SHEET_REACH, z: e.z };
+      const k = (planeY - p.y) / dy;
+      return { x: p.x + (e.x - p.x) * k, y: planeY, z: p.z + (e.z - p.z) * k };
+    };
+    for (const [row, v] of [
+      ["overhead", 0],
+      ["ceiling", 0],
+      ["top", 0],
+      ["bottom", 1],
+      ["floor", 1],
+      ["underfoot", 1],
+    ] as const) {
+      for (const [px, slide] of cols) {
+        const u = px / W;
+        const top = edge(px, slide, 0);
+        const bottom = edge(px, slide, H);
+        if (row === "top") put(top.x, top.y, top.z, u, v);
+        else if (row === "bottom") put(bottom.x, bottom.y, bottom.z, u, v);
+        else if (row === "ceiling" || row === "floor") {
+          const m = meet(row === "ceiling" ? top : bottom, row === "ceiling" ? ceilY : floorY);
+          put(m.x, m.y, m.z, u, v);
+        } else {
+          // Straight over your head or under your feet, at the same distance to the side.
+          const e = row === "overhead" ? top : bottom;
+          put(hp.x + rx * e.side, row === "overhead" ? ceilY : floorY, hp.z + rz * e.side, u, v);
+        }
       }
     }
-    // Straight down and straight up (past where the sheet reaches): a flat floor and ceiling in
-    // the color of the middle of the picture's bottom and top edges.
-    for (const [dy, v] of [
-      [-CAP_GAP, 0.999],
-      [CAP_GAP, 0.001],
+    // Everywhere else: a flat floor and ceiling in the color of the middle of the picture's bottom
+    // and top edges, around your head.
+    for (const [y, v] of [
+      [floorY, 0.999],
+      [ceilY, 0.001],
     ]) {
       for (const [cx, cz] of [
         [-CAP_SIZE, -CAP_SIZE],
@@ -548,13 +747,13 @@ export class VrPlayer {
         [-CAP_SIZE, CAP_SIZE],
         [CAP_SIZE, CAP_SIZE],
       ]) {
-        verts.set([p.x + cx, p.y + dy, p.z + cz, 0.5, v], n);
-        n += 5;
+        put(hp.x + cx, y, hp.z + cz, 0.5, v);
       }
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, eye.buf);
     gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
     eye.drawn = true;
+    eye.stale = false;
   }
 
   // ------------------------------------------------------------ controllers
@@ -603,7 +802,7 @@ export class VrPlayer {
         if (this.turnArmed && Math.abs(sx) > 0.7) {
           this.turnArmed = false;
           this.baseYaw += Math.sign(sx) * SNAP_TURN;
-          this.eyes.forEach((e) => (e.drawn = false));
+          this.eyes.forEach((e) => (e.stale = true));
         } else if (Math.abs(sx) < 0.3) {
           this.turnArmed = true;
         }
@@ -633,10 +832,10 @@ export class VrPlayer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    return { canvas, ctx, tex, buf: gl.createBuffer()!, drawn: false };
+    return { canvas, ctx, tex, buf: gl.createBuffer()!, drawn: false, stale: false };
   }
 
-  private makeProgram(): WebGLProgram {
+  private makeProgram(vertSrc: string, fragSrc: string): WebGLProgram {
     const gl = this.gl;
     const shader = (type: number, src: string) => {
       const s = gl.createShader(type)!;
@@ -646,8 +845,8 @@ export class VrPlayer {
       return s;
     };
     const prog = gl.createProgram()!;
-    gl.attachShader(prog, shader(gl.VERTEX_SHADER, VERT));
-    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FRAG));
+    gl.attachShader(prog, shader(gl.VERTEX_SHADER, vertSrc));
+    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, fragSrc));
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) ?? "link failed");
     return prog;

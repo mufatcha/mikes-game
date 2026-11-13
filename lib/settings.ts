@@ -429,6 +429,38 @@ export function setVrSpot(item: VrHudItem, spot: VrSpot) {
 export function resetVrHud() {
   write(VR_KEY, JSON.stringify(DEFAULT_VR_HUD));
 }
+
+/** VR picture resolution. Auto starts sharp and drops only if the headset can't keep up. */
+export type VrQuality = "auto" | "low" | "medium" | "high" | "ultra";
+export const VR_QUALITIES: [VrQuality, string, string][] = [
+  ["auto", "Auto", "Sharp, and lower only if the headset can't keep up"],
+  ["low", "Low", "Smoothest on slower headsets"],
+  ["medium", "Medium", "In between"],
+  ["high", "High", "Sharp"],
+  ["ultra", "Ultra", "Sharpest; needs a fast headset or PC"],
+];
+/** How big each eye's picture is drawn for each fixed setting (Auto adjusts between these). */
+export const VR_QUALITY_SCALE: Record<Exclude<VrQuality, "auto">, number> = { low: 0.5, medium: 0.75, high: 1, ultra: 1.3 };
+
+const VRQ_KEY = "mg.vrquality";
+
+function readVrQuality(): VrQuality {
+  const raw = read(VRQ_KEY);
+  return VR_QUALITIES.some(([q]) => q === raw) ? (raw as VrQuality) : "auto";
+}
+
+export function useVrQuality() {
+  return useSyncExternalStore(subscribe, readVrQuality, () => "auto" as VrQuality);
+}
+
+export function getVrQuality() {
+  return readVrQuality();
+}
+
+export function saveVrQuality(q: VrQuality) {
+  write(VRQ_KEY, q);
+}
+
 const KEY_NAMES: Record<string, string> = {
   ArrowUp: "↑",
   ArrowDown: "↓",

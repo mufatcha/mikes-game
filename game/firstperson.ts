@@ -161,8 +161,9 @@ function drawFloorAndCeiling(
   yaw: number,
   horizon: number,
   proj: number,
+  sharp = false,
 ) {
-  const q = w > 1100 ? 4 : 3;
+  const q = sharp ? 2 : w > 1100 ? 4 : 3;
   const bw = Math.ceil(w / q);
   const bh = Math.ceil(h / q);
   if (!surfaceBuf || surfaceBuf.img.width !== bw || surfaceBuf.img.height !== bh) {
@@ -243,7 +244,11 @@ export interface FirstPersonScene {
   alive: boolean;
   /** Field of view across the screen, in radians (wider in VR). */
   fov?: number;
-    /** How far your eyes are above (or, crouching, below) their usual height. */
+    /** Draw your own arm on screen (off in VR, where your real arms are tracked instead). */
+  viewModel?: boolean;
+  /** Finer walls and floor (VR, where the picture is big and close to your eyes). */
+  sharp?: boolean;
+  /** How far your eyes are above (or, crouching, below) their usual height. */
   eyeLift: number;
 }
 
@@ -263,12 +268,12 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
   const horizon = h / 2 + s.shakeY + Math.tan(pitch) * proj;
   const cam: Camera3D = { x, y, eye: EYE, yaw, w, horizon, proj, shakeX: s.shakeX };
 
-  drawFloorAndCeiling(ctx, w, h, x, y, yaw, horizon, proj);
+  drawFloorAndCeiling(ctx, w, h, x, y, yaw, horizon, proj, s.sharp);
   // Things lying on the floor go down before the walls, so the walls hide the ones behind them.
   for (const z of s.zones) drawFloorZone3D(ctx, cam, z, fogAmount(Math.hypot(z.x - x, z.y - y)), now);
 
   // Walls, one textured slice per few columns, with a depth buffer for sprites.
-  const step = Math.max(2, Math.ceil(w / 640));
+  const step = s.sharp ? Math.max(1, Math.ceil(w / 1200)) : Math.max(2, Math.ceil(w / 640));
   const cols = Math.ceil(w / step);
   const depth = new Float32Array(cols).fill(MAX_VIEW);
   /**
@@ -476,7 +481,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
 
   // Your own arm with the ball in hand, fixed on screen (it doesn't tilt as you look up and down).
   const me = s.players.find((p) => p.id === s.myId);
-  if (me && s.alive) {
+  if (me && s.alive && s.viewModel !== false) {
     const wpn = WEAPONS[me.weapon];
     drawViewModel(
       ctx,

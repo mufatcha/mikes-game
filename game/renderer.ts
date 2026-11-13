@@ -56,6 +56,7 @@ import type { GameConnection } from "./connection";
 import { drawFirstPerson } from "./firstperson";
 import { CROUCH_SCALE } from "@/shared/physics";
 import { drawInstrument2D, instrumentOf } from "./instruments";
+import { armColors } from "./avatar3d";
 import { drawFace } from "./skins";
 import { CONE_HALF, FAR_SIGHT, FOG_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
 
@@ -463,6 +464,8 @@ export class Renderer {
       reveal: !!me?.reveal,
       detentionTarget: this.detentionTarget,
       alive: !!me?.alive,
+      viewModel: false,
+      sharp: true,
       eyeLift: (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0),
     });
     if (eye.primary) this.targetable = seen;
@@ -477,6 +480,22 @@ export class Renderer {
       this.drawHudItems(f, eye.yaw, (item) => vrSpot(item, eye.arms) === "view" && (item !== "scoreboard" || f.scoreboard));
       this.drawCrosshair(eye.hudW / 2, eye.hudH / 2, f.now, me);
     });
+  }
+
+  /**
+   * VR: what your tracked arms look like: your class's sleeves and hands, and
+   * the ball (in its color) in your throwing hand. Null while you're knocked out.
+   */
+  vrArmLook(now: number): { sleeve: string; skin: string; ball: string | null } | null {
+    const me = this.conn.me;
+    if (!me?.alive) return null;
+    const team = this.conn.room?.roster.find((r) => r.id === me.id)?.team ?? 0;
+    const { sleeve, skin } = armColors(me.form === "pyro" ? "pyro" : me.archetype, team);
+    const w = WEAPONS[me.weapon];
+    // An instrument or a Gamer form has its own look: just show your hands then.
+    const plain = !instrumentOf(me.weapon) && !me.form;
+    const ball = !plain ? null : w.color === "rainbow" ? PAINT_COLORS[Math.floor(now / 400) % PAINT_COLORS.length] : w.color;
+    return { sleeve, skin, ball };
   }
 
   /**

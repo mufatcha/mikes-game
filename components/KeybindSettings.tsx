@@ -16,6 +16,9 @@ import {
   VR_SPOTS,
   setVrSpot,
   resetVrHud,
+  useVrQuality,
+  saveVrQuality,
+  VR_QUALITIES,
   type AimAssist,
   type PadAction,
   RESERVED_KEY,
@@ -223,15 +226,35 @@ function Toggle({ label, hint, on, onChange }: { label: string; hint: string; on
 /** VR: which arm (or in front of you, or nowhere) each piece of the HUD goes on. */
 function VrHudSettings() {
   const hud = useVrHud();
+  const quality = useVrQuality();
   return (
     <>
       <div className="mt-2 border-t border-white/10 pt-4">
-        <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">🥽 VR: what&apos;s on each arm</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">🥽 VR</h3>
         <p className="mt-1 text-sm text-zinc-500">
           In VR, your health and the rest are on screens on your arms; raise an arm to look. &quot;In front&quot; floats it
           in your view instead (the scoreboard there only shows while you hold the left grip).
         </p>
       </div>
+      <div className="rounded-lg bg-white/5 px-4 py-2">
+        <span className="block text-zinc-200">VR resolution</span>
+        <span className="text-xs text-zinc-500">{VR_QUALITIES.find(([q]) => q === quality)?.[2]}</span>
+        <div className="mt-2 grid grid-cols-5 gap-1 rounded-lg bg-black/30 p-1">
+          {VR_QUALITIES.map(([q, name]) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => saveVrQuality(q)}
+              className={`rounded-md px-2 py-1.5 text-sm font-semibold transition ${
+                quality === q ? "bg-amber-400 text-black" : "text-zinc-300 hover:bg-white/10"
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <h4 className="text-sm font-semibold text-zinc-300">What&apos;s on each arm</h4>
       <div className="flex flex-col gap-1.5">
         {VR_HUD_ITEMS.map(({ id, label }) => (
           <div key={id} className="flex flex-col gap-1.5 rounded-lg bg-white/5 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
