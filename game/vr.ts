@@ -52,6 +52,7 @@ interface XRHaptic {
 interface XRInputSource {
   handedness: "left" | "right" | "none";
   gripSpace?: XRSpace;
+  targetRaySpace?: XRSpace;
   gamepad?: Gamepad & { hapticActuators?: XRHaptic[] };
 }
 interface XRSession extends EventTarget {
@@ -253,8 +254,8 @@ function addBall(out: number[], c: V3, r: number, color: V3) {
   }
 }
 
-/** One game frame in VR: where you're facing (map angle) and looking up or down. */
-export type VrStep = (now: number, yaw: number, pitch: number, controls: VrControls) => void;
+/** One game frame in VR: where you aim (map angle, up or down), your controllers, and which way you face for walking. */
+export type VrStep = (now: number, yaw: number, pitch: number, controls: VrControls, moveYaw: number) => void;
 
 export class VrPlayer {
   private gl: WebGLRenderingContext;
@@ -288,6 +289,10 @@ export class VrPlayer {
   /** Each arm's controller this frame and its screen, and where your head is. */
   private arms: Record<Side, ArmScreen> = { left: newArm(), right: newArm() };
   private headPos: DOMPointReadOnly | null = null;
+  /** Where your right controller points this frame (you aim with it), and the matrix placing the world. */
+  private aimRay: XRRigidTransform | null = null;
+  private lastM: Float32Array | null = null;
+  private reticle = { tex: null as WebGLTexture | null, buf: null as WebGLBuffer | null, laser: null as WebGLBuffer | null };
 
   private constructor(
     private session: XRSession,
@@ -380,11 +385,28 @@ export class VrPlayer {
         this.arms[src.handedness].grip = frame.getPose(src.gripSpace, this.space)?.transform ?? null;
       }
     }
-    this.step(t, this.baseYaw + this.headYaw, clampPitch(Math.asin(Math.max(-1, Math.min(1, hf.y)))), controls);
+    // Aim with your right hand: where its controller points (or where you look, without one).
+    this.aimRay = null;
+    for (const src of this.session.inputSources) {
+      if (src.handedness === "right" && src.targetRaySpace && this.space) {
+        this.aimRay = frame.getPose(src.targetRaySpace, this.space)?.transform ?? null;
+      }
+    }
+    const lookYaw = this.baseYaw + this.headYaw;
+    const lookPitch = clampPitch(Math.asin(Math.max(-1, Math.min(1, hf.y))));
+    let aimYaw = lookYaw;
+    let aimPitch = lookPitch;
+    if (this.aimRay) {
+      const d = forwardOf(this.aimRay.orientation);
+      aimYaw = this.baseYaw + Math.atan2(d.x, -d.z);
+      aimPitch = clampPitch(Math.asin(Math.max(-1, Math.min(1, d.y))));
+    }
+    // You walk the way you look, and throw the way your hand points.
+    this.step(t, aimYaw, aimPitch, controls, lookYaw);
 
     this.adjustResolution();
     const views = pose.views;
-    const scene = this.renderer.vrScene(this.baseYaw + this.headYaw);
+    const scene = this.renderer.vrScene(aimYaw);
 
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.layer.framebuffer);
@@ -393,7 +415,8 @@ export class VrPlayer {
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (scene) {
-      this.world.draw(views, (i) => this.layer.getViewport(views[i]), scene, this.worldMatrix(head.position, scene));
+      this.lastM = this.worldMatrix(head.position, scene);
+      this.world.draw(views, (i) => this.layer.getViewport(views[i]), scene, this.lastM);
     }
     // Your tracked arms, the screens on them, and the HUD in the middle of your view, on top.
     this.drawArms(views, t);
@@ -404,6 +427,7 @@ export class VrPlayer {
     const locUv = gl.getAttribLocation(this.prog, "uv");
     for (const side of ["left", "right"] as const) this.drawArm(side, views, locP, locV, locPos, locUv, t);
     this.drawView(views, head, locP, locV, locPos, locUv, t);
+    if (this.aimRay && scene && this.lastM) this.drawReticle(views, head, aimYaw, aimPitch, locP, locV, locPos, locUv);
   };
 
   /**
@@ -500,7 +524,7 @@ export class VrPlayer {
     if (t - v.drawnAt > 30) {
       const dt = v.drawnAt ? Math.min(0.1, (t - v.drawnAt) / 1000) : 0;
       v.drawnAt = t;
-      this.renderer.drawVrView(v.canvas!.getContext("2d")!, VIEW_W, VIEW_H, dt, this.armsPresent());
+      this.renderer.drawVrView(v.canvas!.getContext("2d")!, VIEW_W, VIEW_H, dt, this.armsPresent(), !this.aimRay);
       gl.bindTexture(gl.TEXTURE_2D, v.tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v.canvas!);
     }
@@ -683,6 +707,134 @@ export class VrPlayer {
       gl.vertexAttribPointer(locUv, 2, gl.FLOAT, false, 20, 12);
       gl.bindTexture(gl.TEXTURE_2D, arm.tex);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    gl.disable(gl.BLEND);
+  }
+
+  // ------------------------------------------------------------ the reticle
+
+  /**
+   * Where your shooting hand is aiming: a ring out on whatever the aim hits
+   * (a wall, the floor, a player's spot), always the same size to your eye,
+   * and a short laser from the controller toward it.
+   */
+  private drawReticle(
+    views: readonly XRView[],
+    head: XRRigidTransform,
+    yaw: number,
+    pitch: number,
+    locP: WebGLUniformLocation | null,
+    locV: WebGLUniformLocation | null,
+    locPos: number,
+    locUv: number,
+  ) {
+    const gl = this.gl;
+    const M = this.lastM!;
+    const ray = this.aimRay!;
+    const r = this.reticle;
+    if (!r.tex) {
+      const c = document.createElement("canvas");
+      c.width = 128;
+      c.height = 128;
+      const g = c.getContext("2d")!;
+      for (const [width, color] of [
+        [14, "rgba(0,0,0,0.6)"],
+        [7, "#ffffff"],
+      ] as const) {
+        g.lineWidth = width;
+        g.strokeStyle = color;
+        g.beginPath();
+        g.arc(64, 64, 40, 0, Math.PI * 2);
+        g.stroke();
+      }
+      g.fillStyle = "#ffffff";
+      g.beginPath();
+      g.arc(64, 64, 7, 0, Math.PI * 2);
+      g.fill();
+      r.tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, r.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      r.buf = gl.createBuffer()!;
+      r.laser = gl.createBuffer()!;
+    }
+    // The aim point in the world, then in your room.
+    const w = this.renderer.vrAimPoint(yaw, pitch);
+    const at: V3 = [
+      M[0] * w.x + M[4] * w.y + M[8] * w.z + M[12],
+      M[1] * w.x + M[5] * w.y + M[9] * w.z + M[13],
+      M[2] * w.x + M[6] * w.y + M[10] * w.z + M[14],
+    ];
+    const hp = head.position;
+    const toEye: V3 = [hp.x - at[0], hp.y - at[1], hp.z - at[2]];
+    const dist = Math.hypot(...toEye) || 1;
+    const n: V3 = [toEye[0] / dist, toEye[1] / dist, toEye[2] / dist];
+    // Facing you: right = up x n, up = n x right.
+    let right: V3 = [n[2], 0, -n[0]];
+    const rl = Math.hypot(...right) || 1;
+    right = [right[0] / rl, right[1] / rl, right[2] / rl];
+    const up: V3 = [n[1] * right[2], n[2] * right[0] - n[0] * right[2], -n[1] * right[0]];
+    const half = dist * 0.03;
+    const pt = (sx: number, sy: number, u: number, v: number) => [
+      at[0] + right[0] * sx + up[0] * sy,
+      at[1] + right[1] * sx + up[1] * sy,
+      at[2] + right[2] * sx + up[2] * sy,
+      u,
+      v,
+    ];
+    gl.bindBuffer(gl.ARRAY_BUFFER, r.buf);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([...pt(-half, half, 0, 0), ...pt(-half, -half, 0, 1), ...pt(half, half, 1, 0), ...pt(half, -half, 1, 1)]),
+      gl.DYNAMIC_DRAW,
+    );
+
+    // The laser: a thin strip from the controller toward the aim point, fading out.
+    const o = ray.position;
+    const f = forwardOf(ray.orientation);
+    const len = Math.min(1.2, Math.hypot(at[0] - o.x, at[1] - o.y, at[2] - o.z));
+    const toHead: V3 = [hp.x - o.x, hp.y - o.y, hp.z - o.z];
+    // Sideways across the beam, so it faces you.
+    let sx = f.y * toHead[2] - f.z * toHead[1];
+    let sy = f.z * toHead[0] - f.x * toHead[2];
+    let sz = f.x * toHead[1] - f.y * toHead[0];
+    const sl = Math.hypot(sx, sy, sz) || 1;
+    const bw = 0.0025;
+    sx = (sx / sl) * bw;
+    sy = (sy / sl) * bw;
+    sz = (sz / sl) * bw;
+    const end: V3 = [o.x + f.x * len, o.y + f.y * len, o.z + f.z * len];
+    // A white strip (the middle of the reticle texture is solid white).
+    const beam = new Float32Array([
+      o.x - sx, o.y - sy, o.z - sz, 0.5, 0.5,
+      o.x + sx, o.y + sy, o.z + sz, 0.5, 0.5,
+      end[0] - sx, end[1] - sy, end[2] - sz, 0.5, 0.5,
+      end[0] + sx, end[1] + sy, end[2] + sz, 0.5, 0.5,
+    ]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, r.laser);
+    gl.bufferData(gl.ARRAY_BUFFER, beam, gl.DYNAMIC_DRAW);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.disable(gl.DEPTH_TEST);
+    for (const view of views) {
+      const vp = this.layer.getViewport(view);
+      if (!vp) continue;
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+      gl.uniformMatrix4fv(locP, false, view.projectionMatrix);
+      gl.uniformMatrix4fv(locV, false, view.transform.inverse.matrix);
+      gl.enableVertexAttribArray(locPos);
+      gl.enableVertexAttribArray(locUv);
+      gl.bindTexture(gl.TEXTURE_2D, r.tex);
+      for (const buf of [r.laser, r.buf]) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 20, 0);
+        gl.vertexAttribPointer(locUv, 2, gl.FLOAT, false, 20, 12);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
     }
     gl.disable(gl.BLEND);
   }

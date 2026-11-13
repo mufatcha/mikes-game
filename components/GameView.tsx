@@ -265,8 +265,9 @@ export default function GameView({
     const NO_VR = { x: 0, y: 0, fire: false, jump: false, sprint: false, crouch: false };
     let disposed = false;
     startVrRef.current = () => {
-      const onStep = (now: number, yaw: number, pitch: number, c: VrControls) => {
+      const onStep = (now: number, yaw: number, pitch: number, c: VrControls, moveYaw: number) => {
         vrLook = { yaw, pitch };
+        input.moveYaw = moveYaw;
         input.vr = { x: c.moveX, y: c.moveY, fire: c.fire, jump: c.jump, sprint: c.sprint, crouch: c.crouch };
         input.scoreboard = c.scoreboard;
         const me = conn.me;
@@ -283,6 +284,7 @@ export default function GameView({
         vrRef.current = null;
         vrLook = null;
         input.vr = { ...NO_VR };
+        input.moveYaw = null;
         input.scoreboard = false;
         setInVr(false);
         cancelAnimationFrame(raf);

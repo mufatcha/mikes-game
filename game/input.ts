@@ -174,10 +174,13 @@ export class InputController {
     this.lookUp(-Math.sin(this.touchAim) * 1.4 * dt);
   }
 
+  /** VR: walk the way your head faces (while you aim with your hand); null = walk the way you aim. */
+  moveYaw: number | null = null;
+
   /** Turn movement relative to where you face into a world direction. */
   private toWorld(strafe: number, forward: number): [number, number] {
-    const c = Math.cos(this.yaw);
-    const s = Math.sin(this.yaw);
+    const c = Math.cos(this.moveYaw ?? this.yaw);
+    const s = Math.sin(this.moveYaw ?? this.yaw);
     return [forward * c - strafe * s, forward * s + strafe * c];
   }
 

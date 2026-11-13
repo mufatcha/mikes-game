@@ -639,3 +639,27 @@ export function wallBetween(x0: number, y0: number, x1: number, y1: number) {
 export function ballColorOf(color: string, n: number) {
   return color === "rainbow" ? PAINT_COLORS[Math.abs(n) % PAINT_COLORS.length] : color;
 }
+
+/**
+ * How far an aim line from (x, y, z) goes, looking along yaw and pitch,
+ * before it hits a wall, furniture taller than it is there, the floor or the
+ * ceiling (in world units, at most `max`).
+ */
+export function aimDistance(x: number, y: number, z: number, yaw: number, pitch: number, max = 1500) {
+  const c = Math.cos(pitch);
+  const dx = Math.cos(yaw) * c;
+  const dy = Math.sin(yaw) * c;
+  const dz = Math.sin(pitch);
+  let best = max;
+  if (dz < -1e-4) best = Math.min(best, -z / dz);
+  if (dz > 1e-4) best = Math.min(best, (CEILING - z) / dz);
+  for (const w of ALL_WALLS) {
+    const hit = segmentRectHit(x, y, x + dx * best, y + dy * best, w);
+    if (!hit) continue;
+    const d = hit.t * best;
+    const surface: Surface = OUTER_SET.has(w) ? "outer" : w.kind;
+    // Low furniture only stops it if the line is still below its top there.
+    if (z + dz * d <= SURFACE_HEIGHT[surface]) best = d;
+  }
+  return best;
+}

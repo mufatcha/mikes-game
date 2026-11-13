@@ -54,7 +54,7 @@ import { abilitySlots } from "./layout";
 import { ABILITY_ACTIONS, VR_HUD_ITEMS, getKeybinds, getVrHud, keyLabel, type VrHudItem, type VrSpot } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
-import { ballColorOf, drawFirstPerson, fogFor, visiblePlayers, wallBetween } from "./firstperson";
+import { aimDistance, ballColorOf, drawFirstPerson, fogFor, visiblePlayers, wallBetween } from "./firstperson";
 import { CROUCH_SCALE } from "@/shared/physics";
 import { drawInstrument2D, instrumentOf } from "./instruments";
 import { armColors, avatarModel, type AvatarModel } from "./avatar3d";
@@ -443,7 +443,7 @@ export class Renderer {
    * red flash when you're hit, and whatever Settings puts "In front" (the
    * scoreboard only while you hold the left grip). The rest is on your arms.
    */
-  drawVrView(ctx: CanvasRenderingContext2D, w: number, h: number, dt: number, arms: VrArms) {
+  drawVrView(ctx: CanvasRenderingContext2D, w: number, h: number, dt: number, arms: VrArms, crosshair: boolean) {
     const f = this.vrFrame;
     if (!f) return;
     const me = this.conn.me;
@@ -452,7 +452,8 @@ export class Renderer {
     this.withHudCanvas(ctx, w, h, 1, 0, 0, () => {
       this.drawHurtVignette(dt);
       this.drawHudItems(f, this.vrAim, (item) => vrSpot(item, arms) === "view" && (item !== "scoreboard" || f.scoreboard));
-      this.drawCrosshair(w / 2, h / 2, f.now, me);
+      // With a right controller the reticle sits where your hand points instead (drawn by vr.ts).
+      if (crosshair) this.drawCrosshair(w / 2, h / 2, f.now, me);
     });
   }
 
@@ -525,6 +526,14 @@ export class Renderer {
       sparks: this.particles.map((p) => ({ x: p.x, y: p.y, z: THROW_HEIGHT, size: p.size, color: p.color, alpha: p.life / p.maxLife })),
       zones: f.zones,
     };
+  }
+
+  /** VR: where your aim (from your eyes, along yaw and pitch) lands in the world, for the reticle. */
+  vrAimPoint(yaw: number, pitch: number): { x: number; y: number; z: number } {
+    const z = EYE_HEIGHT + (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0);
+    const d = aimDistance(this.myX, this.myY, z, yaw, pitch);
+    const c = Math.cos(pitch);
+    return { x: this.myX + Math.cos(yaw) * c * d, y: this.myY + Math.sin(yaw) * c * d, z: z + Math.sin(pitch) * d };
   }
 
   /**
