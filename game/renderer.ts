@@ -147,6 +147,8 @@ export interface VrEye {
   hudShift: number;
   /** Drawn smaller when the eye pictures are made smaller to keep up. */
   hudScale: number;
+  /** Your health and the rest are on your wrist, so leave them out of the view. */
+  wrist: boolean;
   /** The eye whose view decides who's on screen (for Detention) and fades the hurt flash. */
   primary: boolean;
 }
@@ -452,30 +454,62 @@ export class Renderer {
     });
     if (eye.primary) this.targetable = seen;
 
-    // The HUD: the normal screen layout, drawn into a box around the middle of this eye's view.
-    const saved = { ctx: this.ctx, cw: this.cw, ch: this.ch, dpr: this.dpr };
-    const hudW = eye.hudW;
-    const hudH = eye.hudH;
+    // In view: the crosshair, the red flash when you're hit, and the scoreboard while you hold it.
+    // Everything else is on your wrist (drawVrWrist), unless there's no controller to put it on.
     const k = eye.hudScale;
-    const ox = (w - hudW * k) / 2 + eye.hudShift;
-    const oy = (h - hudH * k) / 2; // the middle of the picture is straight where you look
+    const ox = (w - eye.hudW * k) / 2 + eye.hudShift;
+    const oy = (h - eye.hudH * k) / 2; // the middle of the picture is straight where you look
+    this.withHudCanvas(ctx, eye.hudW, eye.hudH, k, ox, oy, () => {
+      this.drawHurtVignette(eye.primary ? f.dt : 0);
+      if (!eye.wrist) this.drawHudItems(f, eye.yaw);
+      if (f.scoreboard) this.drawScoreboard(f.roster);
+      this.drawCrosshair(eye.hudW / 2, eye.hudH / 2, f.now, me);
+    });
+  }
+
+  /**
+   * VR: the screen on your wrist, with your health, ammo, score, minimap,
+   * powers and the kill feed. Drawn onto its own canvas, once a frame.
+   */
+  drawVrWrist(ctx: CanvasRenderingContext2D, w: number, h: number, yaw: number) {
+    const f = this.vrFrame;
+    if (!f) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    // A dark screen with a rim, so it reads as a device strapped to your arm.
+    ctx.fillStyle = "rgba(10,12,18,0.82)";
+    ctx.strokeStyle = "rgba(251,191,36,0.85)";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.roundRect(3, 3, w - 6, h - 6, 28);
+    ctx.fill();
+    ctx.stroke();
+    this.withHudCanvas(ctx, w, h, 1, 0, 0, () => this.drawHudItems(f, yaw));
+  }
+
+  /** The usual HUD pieces (everything but the crosshair, hurt flash and scoreboard). */
+  private drawHudItems(f: NonNullable<Renderer["vrFrame"]>, yaw: number) {
+    const me = this.conn.me;
+    this.drawMinimap(f.players, f.roster, f.revealed, yaw);
+    if (this.mode === "boss") this.drawBossBar(f.players, f.roster);
+    else this.drawScore();
+    this.drawFeed(f.now);
+    if (me) this.drawStatus(me, false);
+    if (me?.cds) this.drawAbilityBar(me, false);
+    else if (me && SUPERS[me.archetype]) this.drawSuperMeter(me, false);
+    this.drawBanner(f.now);
+  }
+
+  /** Run HUD drawing as if the screen were a w x h box on this canvas (scaled by k, at ox, oy). */
+  private withHudCanvas(ctx: CanvasRenderingContext2D, w: number, h: number, k: number, ox: number, oy: number, draw: () => void) {
+    const saved = { ctx: this.ctx, cw: this.cw, ch: this.ch, dpr: this.dpr };
     this.ctx = ctx;
-    this.cw = hudW;
-    this.ch = hudH;
+    this.cw = w;
+    this.ch = h;
     this.dpr = 1;
     try {
       ctx.setTransform(k, 0, 0, k, ox, oy);
-      this.drawHurtVignette(eye.primary ? f.dt : 0);
-      this.drawMinimap(f.players, f.roster, f.revealed, eye.yaw);
-      if (this.mode === "boss") this.drawBossBar(f.players, f.roster);
-      else this.drawScore();
-      this.drawFeed(f.now);
-      if (me) this.drawStatus(me, false);
-      if (me?.cds) this.drawAbilityBar(me, false);
-      else if (me && SUPERS[me.archetype]) this.drawSuperMeter(me, false);
-      this.drawBanner(f.now);
-      if (f.scoreboard) this.drawScoreboard(f.roster);
-      this.drawCrosshair(hudW / 2, hudH / 2, f.now, me);
+      draw();
     } finally {
       this.ctx = saved.ctx;
       this.cw = saved.cw;
