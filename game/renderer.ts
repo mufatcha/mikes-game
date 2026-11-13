@@ -2430,6 +2430,24 @@ function makeFloorTile(kind: FloorPattern, base: string): HTMLCanvasElement {
       g.stroke();
       break;
     }
+    case "stage": {
+      // The music rooms: long dark stage boards with staggered joints.
+      size(240, 56);
+      g.fillStyle = "rgba(255,214,170,0.07)";
+      for (let r = 0; r < 4; r++) if (r % 2) g.fillRect(0, r * 14, 240, 14);
+      g.strokeStyle = "rgba(0,0,0,0.45)";
+      g.lineWidth = 1.5;
+      g.beginPath();
+      for (let r = 0; r < 4; r++) {
+        g.moveTo(0, r * 14);
+        g.lineTo(240, r * 14);
+        const x = (r * 70) % 240;
+        g.moveTo(x, r * 14);
+        g.lineTo(x, r * 14 + 14);
+      }
+      g.stroke();
+      break;
+    }
     case "neon": {
       // The Game Room: a glowing magenta and cyan grid on a dark floor.
       size(40, 40);

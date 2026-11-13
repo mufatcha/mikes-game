@@ -66,7 +66,7 @@ export interface Point {
   y: number;
 }
 
-export type FloorPattern = "court" | "carpet" | "checker" | "tiles" | "stripes" | "splatter" | "neon";
+export type FloorPattern = "court" | "carpet" | "checker" | "tiles" | "stripes" | "splatter" | "neon" | "stage";
 
 /** Furniture drawn on the floor that players walk over (doesn't block). */
 export interface Decor extends Rect {
@@ -152,6 +152,9 @@ export const ROOMS: Room[] = [
   { name: "Art Room", archetype: "artkid", x: 1924, y: 1024, w: 676, h: 776, floor: "#25304a", pattern: "splatter", label: { x: 2262, y: 1545 } },
   // Down at the end of the right cross hall, through a door in the bottom wall of the school.
   { name: "Game Room", archetype: "gamer", x: 1500, y: 1824, w: 600, h: 416, floor: "#0f0a1e", pattern: "neon", label: { x: 1800, y: 1975 } },
+  // The music wing, below the school on the left.
+  { name: "Band Room", archetype: "bandkid", x: 700, y: 1824, w: 600, h: 416, floor: "#3b2a1a", pattern: "stage", label: { x: 1000, y: 1880 } },
+  { name: "Orchestra Room", archetype: "orchestra", x: 24, y: 1824, w: 628, h: 416, floor: "#3b2a1a", pattern: "stage", label: { x: 338, y: 2190 } },
 ];
 
 /** Street-styled corridors, used for floor markings. */
@@ -199,6 +202,8 @@ export const TARDIS_SPOTS: { name: string; x: number; y: number }[] = [
   { name: "🤡 Detention", x: 1300, y: 1450 },
   { name: "🏫 Main Hall", x: 700, y: 740 },
   { name: "🎮 Game Room", x: 1560, y: 1836 },
+  { name: "🥁 Band Room", x: 720, y: 1836 },
+  { name: "🎻 Orchestra Room", x: 40, y: 1836 },
 ];
 
 /**
@@ -287,9 +292,10 @@ const TARDIS_ROOM: Wall[] = [
  */
 export const GAME_ROOM: Rect = { x: 1500, y: SCHOOL_HEIGHT + T, w: 600, h: MAP_HEIGHT - SCHOOL_HEIGHT - T };
 
-/** Somewhere you can actually get to: the school, or the Game Room below it (not the closed-off space beside it). */
+/** Somewhere you can actually get to: the school, or the rooms below it (not the closed-off space between them). */
 export function reachable(x: number, y: number) {
-  return y < SCHOOL_HEIGHT || (x > GAME_ROOM.x && x < GAME_ROOM.x + GAME_ROOM.w && y > GAME_ROOM.y);
+  const inside = (r: Rect) => x > r.x && x < r.x + r.w && y > r.y;
+  return y < SCHOOL_HEIGHT || inside(GAME_ROOM) || inside(BAND_ROOM) || inside(ORCHESTRA_ROOM);
 }
 const GAME_DOOR: [number, number] = [1740, 1860];
 const GR = GAME_ROOM;
@@ -314,6 +320,47 @@ const GAME_ROOM_WALLS: Wall[] = [
   box("beanbag", 1926, 2150, 34, 34),
 ];
 
+
+/**
+ * The music wing, below the school on the left: the Band Room (through a door
+ * at the bottom of the left cross hall), where the Band Kid spawns, and the
+ * Orchestra Room (through a door at the bottom of the Cafeteria), where the
+ * Orchestra Kid spawns. Both have a stage floor; the band sits on stepped
+ * risers around a drum set, the orchestra in a half circle facing the
+ * conductor's podium, with music stands in front.
+ */
+export const BAND_ROOM: Rect = { x: 700, y: SCHOOL_HEIGHT + T, w: 600, h: MAP_HEIGHT - SCHOOL_HEIGHT - T };
+export const ORCHESTRA_ROOM: Rect = { x: T, y: SCHOOL_HEIGHT + T, w: 676 - T * 2, h: MAP_HEIGHT - SCHOOL_HEIGHT - T };
+const BAND_DOOR: [number, number] = [940, 1060];
+const ORCHESTRA_DOOR: [number, number] = [290, 410];
+const BR = BAND_ROOM;
+const OR = ORCHESTRA_ROOM;
+/** Music stands in a row, each a little stand with a chair behind it (see DECOR). */
+const BAND_STANDS = [
+  ...[780, 880, 1120, 1220].map((x) => ({ x, y: 1920 })),
+  ...[760, 860, 960, 1140, 1240].map((x) => ({ x, y: 2030 })),
+];
+const ORCHESTRA_STANDS = [0.12, 0.26, 0.4, 0.6, 0.74, 0.88].map((t) => {
+  // A half circle around the podium near the top of the room.
+  const a = Math.PI * (1 - t);
+  return { x: OR.x + OR.w / 2 + Math.cos(a) * 230 - 12, y: OR.y + 70 + Math.sin(a) * 200 - 10 };
+});
+const MUSIC_WALLS: Wall[] = [
+  // Band Room
+  box("wall", BR.x + BR.w, BR.y, T, BR.h),
+  box("bleacher", BR.x + 40, BR.y + BR.h - 110, BR.w - 80, 30), // the back riser
+  box("table", BR.x + BR.w / 2 - 50, BR.y + BR.h - 70, 100, 50), // the drum set, up on the riser's edge
+  box("shelf", BR.x + 6, BR.y + 160, 26, 160), // instrument lockers
+  box("shelf", BR.x + BR.w - 32, BR.y + 160, 26, 160),
+  ...BAND_STANDS.map(({ x, y }) => box("easel", x, y, 26, 14)),
+  // Orchestra Room (the left wall is the school's outside wall; the right is shared with the Band Room)
+  box("wall", 0, OR.y, T, OR.h),
+  box("wall", OR.x + OR.w, OR.y, T * 2 + (BR.x - (OR.x + OR.w) - T * 2), OR.h),
+  box("desk", OR.x + OR.w / 2 - 30, OR.y + 40, 60, 40), // the conductor's podium
+  box("table", OR.x + OR.w - 150, OR.y + OR.h - 80, 130, 60), // the grand piano
+  box("shelf", OR.x + 20, OR.y + OR.h - 40, 200, 26), // the cello and bass rack
+  ...ORCHESTRA_STANDS.map(({ x, y }) => box("easel", x, y, 26, 14)),
+];
 export const WALLS: Wall[] = [
   // Gym
   ...lockerWallV(0, MAIN_HALL.y1, HALL_A.x1 - T, "right", [[250, 370]]),
@@ -361,7 +408,8 @@ export const WALLS: Wall[] = [
   ...TARDIS_ROOM,
 
   // The bottom wall of the school, with a door from the right cross hall down into the Game Room.
-  ...stripH("wall", 0, MAP_WIDTH, SCHOOL_HEIGHT, T, [[GAME_DOOR[0], GAME_DOOR[1]]]),
+  ...stripH("wall", 0, MAP_WIDTH, SCHOOL_HEIGHT, T, [GAME_DOOR, BAND_DOOR, ORCHESTRA_DOOR]),
+  ...MUSIC_WALLS,
   ...GAME_ROOM_WALLS,
 
   // The Nurse's Office building.
@@ -380,6 +428,8 @@ export const DECOR: Decor[] = [
   ...[...CLASS_DESKS, ...DETENTION_DESKS].map(({ x, y }): Decor => ({ kind: "chair", x: x + 12, y: y + 40, w: 26, h: 22 })),
   { kind: "chair", x: 2235, y: 28, w: 30, h: 24 },
   { kind: "chair", x: 1385, y: 1748, w: 30, h: 24 },
+  // A chair behind every music stand.
+  ...[...BAND_STANDS, ...ORCHESTRA_STANDS].map(({ x, y }): Decor => ({ kind: "chair", x: x, y: y + 22, w: 26, h: 22 })),
 ];
 
 /**
@@ -468,23 +518,23 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 300, y: 1500 },
     { x: 600, y: 1260 },
   ],
-  // The pep band warms up in the gym.
+  // The Band Kid warms up in the Band Room.
   bandkid: [
-    { x: 200, y: 150 },
-    { x: 650, y: 150 },
-    { x: 300, y: 330 },
-    { x: 580, y: 330 },
-    { x: 250, y: 500 },
-    { x: 620, y: 500 },
+    { x: 760, y: 1880 },
+    { x: 1240, y: 1880 },
+    { x: 830, y: 1990 },
+    { x: 1170, y: 1990 },
+    { x: 1000, y: 2000 },
+    { x: 1000, y: 1900 },
   ],
-  // The orchestra rehearses in the cafeteria.
+  // The Orchestra Kid rehearses in the Orchestra Room.
   orchestra: [
-    { x: 438, y: 1130 },
-    { x: 438, y: 1300 },
-    { x: 438, y: 1450 },
-    { x: 438, y: 1650 },
-    { x: 60, y: 1460 },
-    { x: 820, y: 1460 },
+    { x: 338, y: 1950 },
+    { x: 150, y: 2120 },
+    { x: 430, y: 2150 },
+    { x: 100, y: 1900 },
+    { x: 580, y: 1900 },
+    { x: 338, y: 2100 },
   ],
   clown: [
     { x: 1400, y: 1150 },

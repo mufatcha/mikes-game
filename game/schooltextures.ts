@@ -1,4 +1,5 @@
 import {
+  GAME_ROOM,
   HALLS,
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -912,7 +913,7 @@ function rgb(r: number, g: number, b: number) {
 const CELL = 20;
 const GRID_W = Math.ceil(MAP_WIDTH / CELL);
 const GRID_H = Math.ceil(MAP_HEIGHT / CELL);
-const FLOOR_KINDS: (FloorPattern | "hall")[] = ["hall", "court", "carpet", "checker", "tiles", "stripes", "splatter", "neon"];
+const FLOOR_KINDS: (FloorPattern | "hall")[] = ["hall", "court", "carpet", "checker", "tiles", "stripes", "splatter", "neon", "stage"];
 let floorGrid: Uint8Array | null = null;
 
 /** Which floor each 20x20 cell of the map has, worked out once. */
@@ -1006,6 +1007,14 @@ export function floorTexel(x: number, y: number): number {
       if (gy < 1.4) return rgb(34, 211, 238);
       return rgb(18, 10, 36);
     }
+    case "stage": {
+      // The music rooms: dark polished stage boards, long and narrow.
+      const row = Math.floor(y / 14);
+      const off = hash(row, 11) * 120;
+      if (mod(y, 14) < 0.7 || mod(x + off, 120) < 0.7) return rgb(44, 28, 16);
+      const grain = hash(Math.floor(x / 6), row) * 16;
+      return rgb(120 - grain, 78 - grain * 0.7, 44 - grain * 0.4);
+    }
     case "splatter": {
       const cell = hash(Math.floor(x / 18), Math.floor(y / 18));
       if (cell > 0.88 && hash(Math.floor(x / 6), Math.floor(y / 6)) > 0.35) {
@@ -1025,7 +1034,7 @@ export function floorTexel(x: number, y: number): number {
 
 /** Ceiling color at a world position, packed; bit 24 is set for the glowing light panels. */
 export function ceilingTexel(x: number, y: number): number {
-  if (y > SCHOOL_HEIGHT) {
+  if (y > SCHOOL_HEIGHT && x > GAME_ROOM.x - 30) {
     // The Game Room: dark, with rows of RGB LED strips cycling through the colours.
     if (mod(y, 60) < 3) {
       const hue = mod(x / 40, RGB_STOPS.length) | 0;
