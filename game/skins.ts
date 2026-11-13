@@ -19,6 +19,8 @@ export const SKIN: Record<ArchetypeId, string> = {
   // The Pyro's face is all gas mask.
   pyro: "#3f3f46",
   quietkid: "#e8b796",
+  kindergartner: "#f5c6a0",
+  baller: "#8d5524",
   principal: "#d6a57c",
   // The mascots' "skin" is the fruit itself.
   lemon: "#facc15",
@@ -56,6 +58,13 @@ export function drawFace(
   ctx.lineJoin = "round";
 
   // Things behind the head.
+  if (a === "kindergartner") {
+    // Pigtails with pink bobbles, sticking out each side.
+    for (const s of [-1, 1]) {
+      circle(ctx, cx + s * r * 1.05, cy - r * 0.35, r * 0.34, "#e0b04a");
+      circle(ctx, cx + s * r * 0.86, cy - r * 0.5, r * 0.12, "#f472b6");
+    }
+  }
   if (a === "quietkid") {
     // The hood, pulled up.
     circle(ctx, cx, cy - r * 0.06, r * 1.22, "#4b5563");
@@ -100,6 +109,18 @@ export function drawFace(
     for (let i = 0; i < 22; i++) {
       circle(ctx, cx + Math.cos(i * 1.9) * r * ((i % 5) / 5 + 0.1), cy + Math.sin(i * 1.9) * r * ((i % 4) / 4 + 0.1), r * 0.045, "rgba(154,52,18,0.35)");
     }
+  } else if (a === "kindergartner") {
+    // A blonde bowl cut with a little fringe.
+    ctx.fillStyle = "#e0b04a";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 0.62, r * 1.04, r * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (a === "baller") {
+    // Short black hair and a white sweatband.
+    ctx.fillStyle = "#1c1917";
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 0.4);
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillRect(cx - r, cy - r * 0.62, r * 2, r * 0.22);
   } else if (a === "quietkid") {
     // Messy brown hair under the hood.
     ctx.fillStyle = "#4a3426";
@@ -501,6 +522,27 @@ export function drawOutfit(
       ctx.lineTo(x + w, y);
       ctx.fill();
       break;
+    case "kindergartner":
+      // Denim dungarees with a smiley patch, over the team T-shirt.
+      ctx.fillStyle = "#3b82f6";
+      ctx.fillRect(x + w * 0.18, y + h * 0.3, w * 0.64, h * 0.7);
+      ctx.fillRect(x + w * 0.2, y, w * 0.1, h * 0.32);
+      ctx.fillRect(x + w * 0.7, y, w * 0.1, h * 0.32);
+      circle(ctx, x + w / 2, y + h * 0.52, w * 0.12, "#fde047");
+      circle(ctx, x + w / 2 - w * 0.04, y + h * 0.49, w * 0.018, INK);
+      circle(ctx, x + w / 2 + w * 0.04, y + h * 0.49, w * 0.018, INK);
+      break;
+    case "baller":
+      // A sleeveless jersey: white trim and number 23.
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillRect(x, y, w * 0.14, h);
+      ctx.fillRect(x + w * 0.86, y, w * 0.14, h);
+      ctx.font = `900 ${Math.max(6, w * 0.42)}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#fff";
+      ctx.fillText("23", x + w / 2, y + h * 0.5);
+      break;
     case "quietkid":
       // A plain grey hoodie: front pocket, and the earbud wire running down into it.
       ctx.fillStyle = "#4b5563";
@@ -690,6 +732,23 @@ function drawOutfitBack(ctx: CanvasRenderingContext2D, a: ArchetypeId, x: number
     case "orchestra":
       ctx.fillStyle = "#111827"; // the back of the concert jacket
       ctx.fillRect(x, y, w, h);
+      break;
+    case "kindergartner":
+      // A little backpack.
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(x + w * 0.2, y + h * 0.15, w * 0.6, h * 0.6);
+      ctx.fillStyle = "#b91c1c";
+      ctx.fillRect(x + w * 0.28, y + h * 0.48, w * 0.44, h * 0.18);
+      break;
+    case "baller":
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillRect(x, y, w * 0.14, h);
+      ctx.fillRect(x + w * 0.86, y, w * 0.14, h);
+      ctx.font = `900 ${Math.max(6, w * 0.5)}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#fff";
+      ctx.fillText("23", x + w / 2, y + h * 0.5);
       break;
     case "quietkid":
       // Just a plain hoodie from behind, with the hood up.

@@ -51,6 +51,10 @@ import {
 import type { BulletSnap, GameEvent, InputFrame, PlayerSnap, ZoneSnap } from "../shared/protocol";
 import {
   ABILITY_IDS,
+  SLAM_DISTANCE,
+  SLAM_RADIUS,
+  SLAM_STUN,
+  heightFor,
   AFTERBURN_DAMAGE,
   UNNOTICED_TIME,
   POWER_UP_HEAL,
@@ -722,7 +726,8 @@ export class Match {
    */
   /** In 3D, throws leave your hand: higher mid-jump or up on a desk, lower when crouching. */
   private handHeight(p: PlayerState) {
-    return p.z + THROW_HEIGHT * (p.crouching ? CROUCH_SCALE : 1);
+    // Taller classes throw from higher up, shorter ones from lower down.
+    return p.z + THROW_HEIGHT * heightFor(p.loadout.archetype) * (p.crouching ? CROUCH_SCALE : 1);
   }
 
   private pitchOf(p: PlayerState, weapon: WeaponId) {
@@ -834,7 +839,7 @@ export class Match {
       if (t === null || (hitT !== null && t >= hitT)) continue;
       // Over their head is a miss.
       // Over their head, or under their feet when they jump, is a miss.
-      const tall = PLAYER_HEIGHT * (p.radius / PLAYER_RADIUS) * (p.crouching ? CROUCH_SCALE : 1);
+      const tall = PLAYER_HEIGHT * heightFor(p.loadout.archetype) * (p.crouching ? CROUCH_SCALE : 1);
       if (zAt(t) - r > p.z + tall || zAt(t) + r < p.z) continue;
       hitT = t;
       target = p;
@@ -1231,7 +1236,7 @@ export class Match {
         let reach = JAM_RANGE;
         const foe = p.isBot && targetId ? this.players.get(targetId) : undefined;
         if (foe) reach = Math.min(reach, Math.hypot(foe.x - p.x, foe.y - p.y));
-        else if (this.view3d && p.pitch < -0.05) reach = Math.min(reach, EYE_HEIGHT / Math.tan(-p.pitch));
+        else if (this.view3d && p.pitch < -0.05) reach = Math.min(reach, (EYE_HEIGHT * heightFor(p.loadout.archetype)) / Math.tan(-p.pitch));
         const ex = p.x + Math.cos(p.aim) * reach;
         const ey = p.y + Math.sin(p.aim) * reach;
         const wall = firstWallHitWithNormal(p.x, p.y, ex, ey);
@@ -1348,6 +1353,31 @@ export class Match {
           t.hasteUntil = Math.max(t.hasteUntil, this.time + FIGHT_SONG_TIME);
         }
         break;
+      case "tantrum":
+        // Twelve toy blocks, all the way round.
+        this.fan(p, "block", 12, Math.PI - Math.PI / 12);
+        break;
+      case "slamdunk": {
+        // Leap forward (stopping at walls), then slam it down on everyone around where you land.
+        const dx = Math.cos(p.aim);
+        const dy = Math.sin(p.aim);
+        for (let d = 0; d < SLAM_DISTANCE; d += 30) {
+          const bx = p.x;
+          const by = p.y;
+          movePlayer(p, dx, dy, 30 / DT, DT, p.radius);
+          if (Math.hypot(p.x - bx, p.y - by) < 9) break;
+        }
+        p.inputs = [];
+        for (const t of this.players.values()) {
+          if (!t.alive || t.team === p.team || this.isJailed(t)) continue;
+          if (Math.hypot(t.x - p.x, t.y - p.y) > SLAM_RADIUS + t.radius) continue;
+          if (!hasLineOfSight(p.x, p.y, t.x, t.y)) continue;
+          this.damage(t, this.superShot(p, "dunk"), t.x, t.y);
+          if (t.alive) t.stunnedUntil = Math.max(t.stunnedUntil, this.time + SLAM_STUN);
+        }
+        this.events.push({ k: "shot", by: p.id, weapon: "dunk" });
+        break;
+      }
       case "crescendo":
         this.fan(p, "note", 9, 0.6);
         break;
@@ -1460,7 +1490,7 @@ export class Match {
       return;
     }
     let nearest: PlayerState | null = null;
-    let best = def.id === "paintbomb" || def.id === "dash" ? 300 : def.id === "airblast" ? AIRBLAST_RANGE : 600;
+    let best = def.id === "paintbomb" || def.id === "dash" || def.id === "slamdunk" || def.id === "tantrum" ? 300 : def.id === "airblast" ? AIRBLAST_RANGE : 600;
     for (const t of this.players.values()) {
       if (!t.alive || t.team === p.team || this.isJailed(t)) continue;
       const d = Math.hypot(t.x - p.x, t.y - p.y);

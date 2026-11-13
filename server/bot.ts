@@ -67,6 +67,12 @@ const PREFERRED_RANGE: Record<WeaponId, number> = {
   airblast: 180,
   paperplane: 600,
   stickynote: 380,
+  glitter: 380,
+  juicebox: 450,
+  block: 400,
+  basketball: 650,
+  chestpass: 450,
+  dunk: 200,
 };
 
 function wrapAngle(a: number) {

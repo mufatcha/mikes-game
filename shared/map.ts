@@ -536,6 +536,24 @@ export const SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 580, y: 1900 },
     { x: 338, y: 2100 },
   ],
+  // The Kindergartner plays among the Art Room easels.
+  kindergartner: [
+    { x: 2110, y: 1110 },
+    { x: 2290, y: 1110 },
+    { x: 2110, y: 1340 },
+    { x: 2470, y: 1340 },
+    { x: 2290, y: 1560 },
+    { x: 2470, y: 1720 },
+  ],
+  // The Basketball Star shoots around in the Gym.
+  baller: [
+    { x: 300, y: 200 },
+    { x: 580, y: 200 },
+    { x: 200, y: 330 },
+    { x: 680, y: 330 },
+    { x: 300, y: 520 },
+    { x: 580, y: 520 },
+  ],
   clown: [
     { x: 1400, y: 1150 },
     { x: 1400, y: 1300 },

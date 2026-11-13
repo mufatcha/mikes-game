@@ -48,6 +48,7 @@ import {
   LECTURE_RADIUS,
   WEAPONS,
   radiusFor,
+  heightFor,
   weaponsOf,
 } from "@/shared/archetypes";
 import { abilitySlots } from "./layout";
@@ -347,7 +348,7 @@ export class Renderer {
         detentionTarget: this.detentionTarget,
         alive: !!me?.alive,
         // Your view rises as you jump (or stand on a desk) and drops when you crouch.
-        eyeLift: (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0),
+        eyeLift: this.myEyeZ() - EYE_HEIGHT,
       });
       this.targetable = seen;
       // The Intercom also marks every student on the minimap, as in the top-down view.
@@ -485,6 +486,7 @@ export class Renderer {
         archetype: p.form === "pyro" ? "pyro" : p.archetype,
         team,
         scale: radiusFor(p.archetype) / 18,
+        height: heightFor(p.archetype),
         ballColor: ballColorOf(wpn.color, p.ammo),
         ballRadius: Math.min(6, Math.max(3, wpn.radius)),
         instrument: instrumentOf(p.weapon),
@@ -515,7 +517,7 @@ export class Renderer {
     return {
       x: this.myX,
       y: this.myY,
-      eyeZ: EYE_HEIGHT + (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0),
+      eyeZ: this.myEyeZ(),
       now: f.now,
       fog: fogFor(fogOfWar),
       players,
@@ -530,12 +532,13 @@ export class Renderer {
 
   /** VR: where your aim (from your eyes, along yaw and pitch) lands in the world, for the reticle. */
   vrAimPoint(yaw: number, pitch: number): { x: number; y: number; z: number } {
-    const z = EYE_HEIGHT + (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0);
+    const z = this.myEyeZ();
     const d = aimDistance(this.myX, this.myY, z, yaw, pitch);
     const c = Math.cos(pitch);
     return { x: this.myX + Math.cos(yaw) * c * d, y: this.myY + Math.sin(yaw) * c * d, z: z + Math.sin(pitch) * d };
   }
 
+/** Your eye height (world units): taller classes see from higher up; jumping and crouching move it too. */  private myEyeZ() {    const me = this.conn.me;    const eye = EYE_HEIGHT * (me ? heightFor(me.archetype) : 1);    return eye + (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? eye * (1 - CROUCH_SCALE) : 0);  }
   /**
    * VR: what your tracked arms look like: your class's sleeves and hands, and
    * the ball (in its color) in your throwing hand. Null while you're knocked out.

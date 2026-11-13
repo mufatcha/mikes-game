@@ -72,6 +72,7 @@ const SLEEVES: Partial<Record<ArchetypeId, string>> = {
   orchestra: "#111827",
   gamer: "#1f2937",
   quietkid: "#4b5563",
+  baller: "#8d5524", // sleeveless: bare arms
 };
 
 // ---------------------------------------------------------------- textures
@@ -486,6 +487,17 @@ function figureParts(a: ArchetypeId, team: Team, walk: number, throwArm: number)
   if (a === "teacher") parts.push({ c: [0, -6.5, 54], h: [3, 2.5, 3], color: "#6b4423" });
   if (a === "artkid") parts.push({ c: [1, 0.5, 56.2], h: [8, 8, 1.3], color: "#b91c1c" });
   if (a === "jock") parts.push({ c: [0, 0, 51.5], h: [7.3, 7.3, 1], color: "#dc2626" });
+  if (a === "kindergartner") {
+    // Pigtails with pink bobbles, and a little red backpack.
+    for (const s of [-1, 1]) {
+      parts.push(
+        { c: [s * 8.6, -1, 50], h: [1.8, 1.8, 2.6], color: "#e0b04a" },
+        { c: [s * 7.6, -1, 52.4], h: [1, 1, 1], color: "#f472b6" },
+      );
+    }
+    parts.push({ c: [0, -7.5, 33], h: [6, 2.2, 6], color: "#ef4444" });
+  }
+  if (a === "baller") parts.push({ c: [0, 0, 51.5], h: [7.3, 7.3, 1], color: "#f8fafc" });
   if (a === "quietkid") {
     // The hood, pulled up over the back and top of the head (the face still shows), and earbuds.
     parts.push(
@@ -836,6 +848,8 @@ export function drawAvatar(
     team: Team;
     /** 1 for a regular student; bigger classes are bigger. */
     scale: number;
+    /** How tall, compared with a regular student (defaults to scale): short and tall classes. */
+    height?: number;
     ballColor: string;
     ballRadius: number;
     /** The instrument they're playing, held in place of a ball. */
@@ -861,7 +875,7 @@ export function drawAvatar(
   const angle = o.aim + (o.stunned ? Math.sin(o.now / 120) * 0.35 : 0);
   const throwArm = 1.3 + Math.sin(o.now / 400 + o.x) * 0.05 - walk * 0.1;
   const k = o.scale;
-  const kz = k * (o.crouch ? CROUCH_SCALE : 1);
+  const kz = (o.height ?? k) * (o.crouch ? CROUCH_SCALE : 1);
   const at: Placement = { x: o.x, y: o.y, z: o.lift + bob * k, angle, k, kz };
   const fogAmt = fog(center.depth);
 
@@ -1144,7 +1158,7 @@ export function avatarModel(o: AvatarInput): AvatarModel {
   const angle = o.aim + (o.stunned ? Math.sin(o.now / 120) * 0.35 : 0);
   const throwArm = 1.3 + Math.sin(o.now / 400 + o.x) * 0.05 - walk * 0.1;
   const k = o.scale;
-  const kz = k * (o.crouch ? CROUCH_SCALE : 1);
+  const kz = (o.height ?? k) * (o.crouch ? CROUCH_SCALE : 1);
   const at: Placement = { x: o.x, y: o.y, z: o.lift + bob * k, angle, k, kz };
   const quads: WorldQuad[] = [];
   partQuads(quads, o.form ? characterParts(o.form, o.team, walk, throwArm) : figureParts(o.archetype, o.team, walk, throwArm), at);

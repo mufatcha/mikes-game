@@ -62,7 +62,13 @@ export type WeaponId =
   | "airblast"
   | "paperplane"
   | "stickynote"
-  | "note";
+  | "note"
+  | "glitter"
+  | "juicebox"
+  | "block"
+  | "basketball"
+  | "chestpass"
+  | "dunk";
 
 export type ArchetypeId =
   | "teacher"
@@ -76,6 +82,8 @@ export type ArchetypeId =
   | "gamer"
   | "pyro"
   | "quietkid"
+  | "kindergartner"
+  | "baller"
   | "principal"
   | "lemon"
   | "orangepeel";
@@ -129,6 +137,8 @@ export interface ArchetypeDef {
   maxHp?: number;
   /** How fast the super fills, compared with everyone else (1 = normal). */
   superRate?: number;
+  /** How tall, compared with a regular student (defaults to growing with radius). */
+  height?: number;
   /** Body size; defaults to PLAYER_RADIUS. */
   radius?: number;
   /** 1–5 ratings shown in the class picker. */
@@ -438,6 +448,38 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     projectileSpeed: 1300, spread: 0, pellets: 1, range: 900, auto: false,
     radius: 7, color: "#c084fc", style: "ball",
   },
+  // The Kindergartner.
+  glitter: {
+    id: "glitter", name: "Glitter Glue", damage: 7, fireRate: 8, magSize: 30, reloadTime: 1.3,
+    projectileSpeed: 1300, spread: 0.08, pellets: 1, range: 520, auto: true,
+    radius: 3, color: "rainbow", style: "blob",
+  },
+  juicebox: {
+    id: "juicebox", name: "Juice Box", damage: 22, fireRate: 1.4, magSize: 6, reloadTime: 1.6,
+    projectileSpeed: 950, spread: 0.02, pellets: 1, range: 650, auto: false,
+    radius: 6, color: "#f472b6", style: "ball", slow: 1.2,
+  },
+  block: {
+    id: "block", name: "Toy Block", damage: 20, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1050, spread: 0, pellets: 1, range: 600, auto: false,
+    radius: 6, color: "rainbow", style: "ball",
+  },
+  // The Basketball Star.
+  basketball: {
+    id: "basketball", name: "Basketball", damage: 34, fireRate: 1.3, magSize: 6, reloadTime: 2,
+    projectileSpeed: 1250, spread: 0.01, pellets: 1, range: 950, auto: false,
+    radius: 8, color: "#ea580c", style: "ball", bounces: 1,
+  },
+  chestpass: {
+    id: "chestpass", name: "Chest Pass", damage: 15, fireRate: 3.2, magSize: 12, reloadTime: 1.6,
+    projectileSpeed: 1550, spread: 0.03, pellets: 1, range: 650, auto: true,
+    radius: 6, color: "#c2410c", style: "ball",
+  },
+  dunk: {
+    id: "dunk", name: "Slam Dunk", damage: 55, fireRate: 1, magSize: 1, reloadTime: 1,
+    projectileSpeed: 1, spread: 0, pellets: 1, range: 1, auto: false,
+    radius: 0, color: "#ea580c", style: "ball",
+  },
   // Thrown by the Principal's abilities, not held.
   quiz: {
     id: "quiz", name: "Pop Quiz", damage: 18, fireRate: 1, magSize: 1, reloadTime: 1,
@@ -519,6 +561,20 @@ export const ARCHETYPES: Record<ArchetypeId, ArchetypeDef> = {
     tagline: "Sits at the back with headphones in and never says a word. You won't see them coming.",
     defense: 0.1, speed: 1.08, primary: "paperplane", secondary: "stickynote",
     ratings: { attack: 3, defense: 2, speed: 4, range: 4 },
+  },
+  kindergartner: {
+    id: "kindergartner", name: "Kindergartner", emoji: "🧸",
+    tagline: "Tiny, quick and hard to hit, with a glue stick and a juice box. Naptime is for losers.",
+    defense: 0, speed: 1.22, primary: "glitter", secondary: "juicebox",
+    maxHp: 75, radius: 13, height: 0.62,
+    ratings: { attack: 2, defense: 1, speed: 5, range: 3 },
+  },
+  baller: {
+    id: "baller", name: "Basketball Star", emoji: "🏀",
+    tagline: "Towers over everyone. Slow, tough, and throws a basketball from downtown.",
+    defense: 0.15, speed: 0.92, primary: "basketball", secondary: "chestpass",
+    maxHp: 150, radius: 22, height: 1.45,
+    ratings: { attack: 4, defense: 4, speed: 2, range: 4 },
   },
   // Boss of the 7v1 mode; never in the class picker.
   principal: {
@@ -789,7 +845,9 @@ export type SuperId =
   | "crescendo"
   | "summon"
   | "airblast"
-  | "unnoticed";
+  | "unnoticed"
+  | "tantrum"
+  | "slamdunk";
 
 export interface SuperDef {
   id: SuperId;
@@ -843,6 +901,14 @@ export const SUPERS: Partial<Record<ArchetypeId, SuperDef>> = {
   quietkid: {
     id: "unnoticed", name: "Unnoticed", emoji: "🫥",
     description: "Nobody notices you for 6 seconds: enemies can't see you at all unless they bump right into you.",
+  },
+  kindergartner: {
+    id: "tantrum", name: "Tantrum", emoji: "😭",
+    description: "Throw a fit: hurl 12 toy blocks in every direction.",
+  },
+  baller: {
+    id: "slamdunk", name: "Slam Dunk", emoji: "🏀",
+    description: "Leap forward and slam it down: 55 damage and a short stun to everyone around where you land.",
   },
 };
 
@@ -930,9 +996,21 @@ export const SPECIAL_WEAPONS: WeaponId[] = [
   "tankshell",
   "afterburn",
   "airblast",
+  "block",
+  "dunk",
 ];
 
 /** How fast a class's super fills (the Gamer's fills faster). */
 export function superRateOf(archetype: ArchetypeId) {
   return ARCHETYPES[archetype].superRate ?? 1;
+}
+
+/** The Basketball Star's Slam Dunk: how far you leap, how wide the slam is, and how long it stuns. */
+export const SLAM_DISTANCE = 280;
+export const SLAM_RADIUS = 170;
+export const SLAM_STUN = 0.8;
+
+/** How tall a class stands, compared with a regular student. */
+export function heightFor(archetype: ArchetypeId): number {
+  return ARCHETYPES[archetype].height ?? radiusFor(archetype) / PLAYER_RADIUS;
 }

@@ -72,6 +72,12 @@ const SHOT_SOUNDS: Record<WeaponId, ShotSound> = {
   // The Quiet Kid: barely a sound.
   paperplane: { freq: 1800, q: 0.6, duration: 0.08, gain: 0.12, thump: 300 },
   stickynote: { freq: 2400, q: 1, duration: 0.04, gain: 0.12, thump: 400 },
+  glitter: { freq: 3000, q: 1.2, duration: 0.05, gain: 0.25, thump: 380 },
+  juicebox: { freq: 900, q: 0.7, duration: 0.16, gain: 0.5, thump: 110 },
+  block: { freq: 1300, q: 1, duration: 0.1, gain: 0.45, thump: 150 },
+  basketball: { freq: 300, q: 0.5, duration: 0.22, gain: 0.8, thump: 55 },
+  chestpass: { freq: 500, q: 0.6, duration: 0.12, gain: 0.55, thump: 80 },
+  dunk: { freq: 180, q: 0.4, duration: 0.45, gain: 0.9, thump: 40 },
 };
 
 /** Tiny synthesized sound effects, so the game needs no audio files. */

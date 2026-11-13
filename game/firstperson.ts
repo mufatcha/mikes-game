@@ -2,7 +2,7 @@ import { EYE_HEIGHT, MAX_PITCH, THROW_HEIGHT, type Team } from "@/shared/constan
 import { MAP_HEIGHT, MAP_WIDTH, WALLS, type Wall } from "@/shared/map";
 import { segmentRectHit } from "@/shared/physics";
 import type { BulletSnap, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
-import { UNNOTICED_SPOT_RANGE, WEAPONS, radiusFor } from "@/shared/archetypes";
+import { UNNOTICED_SPOT_RANGE, WEAPONS, heightFor, radiusFor } from "@/shared/archetypes";
 import {
   PPU,
   SURFACE_HEIGHT,
@@ -391,6 +391,7 @@ export function drawFirstPerson(s: FirstPersonScene): PlayerSnap[] {
             archetype: p.form === "pyro" ? "pyro" : p.archetype,
             team,
             scale: r / 18,
+            height: heightFor(p.archetype),
             ballColor: wpn.color === "rainbow" ? PAINT_COLORS[p.ammo % PAINT_COLORS.length] : wpn.color,
             ballRadius: Math.min(6, Math.max(3, wpn.radius)),
             instrument: instrumentOf(p.weapon),
