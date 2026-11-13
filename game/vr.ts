@@ -1,17 +1,16 @@
 import { EYE_HEIGHT, MAX_PITCH } from "@/shared/constants";
 import type { Renderer, VrArms } from "./renderer";
 import { VR_QUALITY_SCALE, getVrQuality } from "@/lib/settings";
+import { VrWorld } from "./vrworld";
 
 /**
  * Playing the 3D view in a VR headset (WebXR: Meta Quest's browser, or a PC
  * headset with Chrome or Edge).
  *
- * The 3D view is our own raycaster, which draws a flat picture on a canvas.
- * Each frame we draw it once per eye, from that eye's spot and the way that
- * eye is looking, and hang the picture in the headset exactly where it was
- * seen from: on a big upright sheet in front of that eye. The sheet stays put
- * in the room even if the next picture is a frame late, so the world stays
- * steady as you turn your head, and the two eyes' pictures give real depth.
+ * The school is drawn in real 3D on the graphics chip (see vrworld.ts), at
+ * the headset's own resolution, from each eye. Your head looks around, your
+ * controllers are your hands (and carry screens with your health and the
+ * rest), and the crosshair floats in the middle of your view.
  */
 
 // ---------------------------------------------------------------- WebXR types (not in TypeScript's own lib)
@@ -67,7 +66,11 @@ interface XRSystem {
   isSessionSupported(mode: string): Promise<boolean>;
   requestSession(mode: string, init?: { optionalFeatures?: string[] }): Promise<XRSession>;
 }
-type XRWebGLLayerClass = new (session: XRSession, gl: WebGLRenderingContext) => XRWebGLLayer;
+type XRWebGLLayerClass = new (
+  session: XRSession,
+  gl: WebGLRenderingContext,
+  init?: { framebufferScaleFactor?: number; antialias?: boolean },
+) => XRWebGLLayer;
 
 function xrSystem(): XRSystem | null {
   if (typeof navigator === "undefined") return null;
@@ -107,32 +110,21 @@ export interface VrControls {
 
 /** Map units per meter: eyes at 48 units are about 1.6 m up. */
 const UNITS_PER_METER = EYE_HEIGHT / 1.6;
-/** Each eye's picture covers this much side to side (a little more than a headset shows). */
-const EYE_FOV = (110 * Math.PI) / 180;
-const EYE_W = 1440;
-const EYE_H = 1260;
-const PROJ = EYE_W / 2 / Math.tan(EYE_FOV / 2);
-/** How far in front of your eye the picture hangs (any distance looks the same; this keeps it clear of your face). */
-const SHEET_DIST = 3;
-/** How far the sheet carries on above and below the picture, in meters. */
-const SHEET_REACH = 60;
-/** The HUD box in the middle of your view, and how far away it seems. */
-const HUD_W = 520;
-const HUD_H = 380;
-const HUD_DIST = 1.5;
+/** The HUD in the middle of your view (crosshair, hurt flash, anything set to "In front"): canvas size, how far away, how wide (half-angle). */
+const VIEW_W = 1024;
+const VIEW_H = 720;
+const VIEW_DIST = 1.5;
+const VIEW_HALF_ANGLE = (38 * Math.PI) / 180;
+/** If you walk around your real room, the game drifts you back to where you are in the match once you're this far off (meters). */
+const ROOM_SLACK = 0.35;
 /** The arm screens: canvas size, width in meters, how far back from the controller toward your elbow, and how high above it. */
 const WRIST_W = 560;
 const WRIST_H = 400;
 const WRIST_SIZE = 0.22;
 const WRIST_BACK = 0.08;
 const WRIST_RAISE = 0.1;
-/** The flat floor and ceiling past the sheet's reach: how far below and above your eyes, and how wide. */
-/** The game's floor is this far below your eyes and its ceiling this far above (80 units up), in meters. */
-const FLOOR_DROP = EYE_HEIGHT / UNITS_PER_METER;
-const CEILING_RISE = (80 - EYE_HEIGHT) / UNITS_PER_METER;
-const CAP_SIZE = 100;
-/** Picture sizes to drop to if the computer can't keep up (fractions of full size). */
-const SCALES = [1, 0.85, 0.7, 0.55, 0.45];
+/** Headset resolutions Auto steps down through if frames are being missed. */
+const AUTO_SCALES = [1, 0.8, 0.65];
 const SNAP_TURN = Math.PI / 6;
 const DEAD = 0.15;
 
@@ -260,15 +252,6 @@ function addBall(out: number[], c: V3, r: number, color: V3) {
     }
   }
 }
-interface Eye {
-  canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
-  tex: WebGLTexture;
-  buf: WebGLBuffer;
-  drawn: boolean;
-  /** Out of date (you turned, respawned or the size changed): draw it again next frame, but keep showing it until then. */
-  stale: boolean;
-}
 
 /** One game frame in VR: where you're facing (map angle) and looking up or down. */
 export type VrStep = (now: number, yaw: number, pitch: number, controls: VrControls) => void;
@@ -281,9 +264,16 @@ export class VrPlayer {
   /** Plain colored shapes (your arms), and their points. */
   private solidProg: WebGLProgram;
   private armBuf: WebGLBuffer;
-  /** Triangles joining the 6 x 4 grid of points each eye's sheet is made of. */
-  private grid: WebGLBuffer;
-  private eyes: Eye[] = [];
+  /** The school in 3D. */
+  private world: VrWorld;
+  /** The HUD in the middle of your view. */
+  private view = { canvas: null as HTMLCanvasElement | null, tex: null as WebGLTexture | null, buf: null as WebGLBuffer | null, drawnAt: 0 };
+  /** Where your spot in the match is in your real room (meters), and your head's height when you started. */
+  private anchor: { x: number; y: number; z: number } | null = null;
+  /** The headset resolution in use (1 = its normal), and Auto's watch on missed frames. */
+  private layerScale = 1;
+  private bestFrameMs = 1000;
+  private slowFrames = 0;
   private raf = 0;
   private ended = false;
   /** Map angle that the headset's starting "straight ahead" points at; snap turns change it. */
@@ -293,14 +283,8 @@ export class VrPlayer {
   private prevButtons = new Map<string, boolean>();
   private turnArmed = true;
   private abilityArmed = true;
-  /** Drawing both eyes every frame is too slow: draw one each frame, taking turns. */
-  private alternate = false;
-  private nextEye = 0;
-  private eyeMs = 4;
   private frameMs = 1000 / 72;
   private lastT = 0;
-  /** How big the eye pictures are drawn, from SCALES. */
-  private scale = 1;
   /** Each arm's controller this frame and its screen, and where your head is. */
   private arms: Record<Side, ArmScreen> = { left: newArm(), right: newArm() };
   private headPos: DOMPointReadOnly | null = null;
@@ -314,26 +298,17 @@ export class VrPlayer {
   ) {
     this.baseYaw = startYaw;
     const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl", { xrCompatible: true, alpha: false, antialias: false, depth: false } as WebGLContextAttributes);
+    const attrs = { xrCompatible: true, alpha: false, antialias: true } as WebGLContextAttributes;
+    // WebGL 2 where there is one (sharper textures in the distance), WebGL 1 otherwise.
+    const gl = (canvas.getContext("webgl2", attrs) ?? canvas.getContext("webgl", attrs)) as WebGLRenderingContext | null;
     if (!gl) throw new Error("WebGL isn't available.");
     this.gl = gl;
-    const Layer = (window as unknown as { XRWebGLLayer: XRWebGLLayerClass }).XRWebGLLayer;
-    this.layer = new Layer(session, gl);
-    session.updateRenderState({ baseLayer: this.layer, depthNear: 0.1, depthFar: 400 });
+    this.layerScale = this.wantedScale();
+    this.layer = this.makeLayer(this.layerScale);
     this.prog = this.makeProgram(VERT, FRAG);
     this.solidProg = this.makeProgram(SOLID_VERT, SOLID_FRAG);
     this.armBuf = gl.createBuffer()!;
-    // First the floor and ceiling caps (points 24-31), then the sheet drawn over them.
-    const tris: number[] = [24, 25, 26, 26, 25, 27, 28, 29, 30, 30, 29, 31];
-    for (let r = 0; r < 5; r++) {
-      for (let c = 0; c < 3; c++) {
-        const i = r * 4 + c;
-        tris.push(i, i + 4, i + 1, i + 1, i + 4, i + 5);
-      }
-    }
-    this.grid = gl.createBuffer()!;
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.grid);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(tris), gl.STATIC_DRAW);
+    this.world = new VrWorld(gl);
     session.addEventListener("end", this.handleEnd);
   }
 
@@ -394,7 +369,6 @@ export class VrPlayer {
     if (this.faceYaw !== null) {
       this.baseYaw = this.faceYaw - this.headYaw;
       this.faceYaw = null;
-      this.eyes.forEach((e) => (e.stale = true));
     }
     const controls = this.readControls();
     // Each controller's grip, for the arm screens.
@@ -408,63 +382,165 @@ export class VrPlayer {
     }
     this.step(t, this.baseYaw + this.headYaw, clampPitch(Math.asin(Math.max(-1, Math.min(1, hf.y)))), controls);
 
+    this.adjustResolution();
     const views = pose.views;
-    while (this.eyes.length < views.length) this.eyes.push(this.makeEye());
-    // Draw each eye's picture (or just one of them, taking turns, if the computer is struggling).
-    const all = !this.alternate || this.eyes.some((e, i) => i < views.length && (!e.drawn || e.stale));
-    const start = performance.now();
-    let drawnNow = 0;
-    views.forEach((view, i) => {
-      if (!all && i !== this.nextEye % views.length) return;
-      this.drawEye(i, view, head);
-      drawnNow++;
-    });
-    this.nextEye++;
-    if (drawnNow) this.eyeMs = this.eyeMs * 0.9 + ((performance.now() - start) / drawnNow) * 0.1;
-    // Switch between both-eyes and taking-turns with some slack so it doesn't flip back and forth.
-    if (!this.alternate && this.eyeMs * 2 > this.frameMs * 0.75) this.alternate = true;
-    else if (this.alternate && this.eyeMs * 2 < this.frameMs * 0.45) this.alternate = false;
-    // Settings picks the resolution; on Auto it drops a step at a time if the headset struggles.
-    const quality = getVrQuality();
-    if (quality !== "auto") {
-      if (this.scale !== VR_QUALITY_SCALE[quality]) this.setScale(VR_QUALITY_SCALE[quality]);
-    } else {
-      const level = Math.max(0, SCALES.indexOf(this.scale));
-      if (!SCALES.includes(this.scale)) this.setScale(SCALES[0]);
-      else if (this.alternate && this.eyeMs > this.frameMs * 0.7 && level < SCALES.length - 1) this.setScale(SCALES[level + 1]);
-      else if (!this.alternate && this.eyeMs * 2 < this.frameMs * 0.3 && level > 0) this.setScale(SCALES[level - 1]);
-    }
+    const scene = this.renderer.vrScene(this.baseYaw + this.headYaw);
 
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.layer.framebuffer);
-    gl.clearColor(0.09, 0.09, 0.11, 1);
+    const fog = scene?.fog.color ?? [24, 24, 28];
+    gl.clearColor(fog[0] / 255, fog[1] / 255, fog[2] / 255, 1);
+    gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (scene) {
+      this.world.draw(views, (i) => this.layer.getViewport(views[i]), scene, this.worldMatrix(head.position, scene));
+    }
+    // Your tracked arms, the screens on them, and the HUD in the middle of your view, on top.
+    this.drawArms(views, t);
     gl.useProgram(this.prog);
     const locP = gl.getUniformLocation(this.prog, "P");
     const locV = gl.getUniformLocation(this.prog, "V");
     const locPos = gl.getAttribLocation(this.prog, "p");
     const locUv = gl.getAttribLocation(this.prog, "uv");
-    views.forEach((view, i) => {
+    for (const side of ["left", "right"] as const) this.drawArm(side, views, locP, locV, locPos, locUv, t);
+    this.drawView(views, head, locP, locV, locPos, locUv, t);
+  };
+
+  /**
+   * Where the world goes in your real room: your spot in the match sits under
+   * where you're standing, the map's "ahead" lines up with the way the headset
+   * first faced (turned by snap turns), and the floor is your eye height below
+   * your eyes. Leaning moves your view a little; walk too far in your room and
+   * your spot slides back under you.
+   */
+  private worldMatrix(head: DOMPointReadOnly, scene: { x: number; y: number; eyeZ: number }) {
+    if (!this.anchor) this.anchor = { x: head.x, y: head.y, z: head.z };
+    const a = this.anchor;
+    const dx = head.x - a.x;
+    const dz = head.z - a.z;
+    const off = Math.hypot(dx, dz);
+    if (off > ROOM_SLACK) {
+      const k = (off - ROOM_SLACK) / off;
+      a.x += dx * k;
+      a.z += dz * k;
+    }
+    const U = UNITS_PER_METER;
+    const b = this.baseYaw;
+    const s = Math.sin(b);
+    const c = Math.cos(b);
+    const floorY = a.y - scene.eyeZ / U;
+    // Columns: map x, map y, height, and where the map's origin lands.
+    return new Float32Array([
+      -s / U, 0, -c / U, 0,
+      c / U, 0, -s / U, 0,
+      0, 1 / U, 0, 0,
+      a.x + (s * scene.x - c * scene.y) / U, floorY, a.z + (c * scene.x + s * scene.y) / U, 1,
+    ]);
+  }
+
+  // ------------------------------------------------------------ resolution
+
+  /** The headset resolution Settings asks for (Auto starts at the headset's normal). */
+  private wantedScale() {
+    const q = getVrQuality();
+    return q === "auto" ? (AUTO_SCALES.includes(this.layerScale) ? this.layerScale : 1) : VR_QUALITY_SCALE[q];
+  }
+
+  private makeLayer(scale: number): XRWebGLLayer {
+    const Layer = (window as unknown as { XRWebGLLayer: XRWebGLLayerClass }).XRWebGLLayer;
+    const layer = new Layer(this.session, this.gl, { framebufferScaleFactor: scale, antialias: true });
+    this.session.updateRenderState({ baseLayer: layer, depthNear: 0.05, depthFar: 300 });
+    return layer;
+  }
+
+  /** Follow the setting; on Auto, step the resolution down if frames keep being missed. */
+  private adjustResolution() {
+    this.bestFrameMs = Math.min(this.bestFrameMs, Math.max(6, this.frameMs));
+    let want = this.wantedScale();
+    if (getVrQuality() === "auto") {
+      this.slowFrames = this.frameMs > this.bestFrameMs * 1.3 ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 2);
+      const level = AUTO_SCALES.indexOf(want);
+      if (this.slowFrames > 150 && level >= 0 && level < AUTO_SCALES.length - 1) {
+        want = AUTO_SCALES[level + 1];
+        this.slowFrames = 0;
+      }
+    }
+    if (want !== this.layerScale) {
+      this.layerScale = want;
+      this.layer = this.makeLayer(want);
+    }
+  }
+
+  // ------------------------------------------------------------ the HUD in view
+
+  /** The crosshair, the red flash when you're hit, and anything set to "In front", floating straight ahead. */
+  private drawView(
+    views: readonly XRView[],
+    head: XRRigidTransform,
+    locP: WebGLUniformLocation | null,
+    locV: WebGLUniformLocation | null,
+    locPos: number,
+    locUv: number,
+    t: number,
+  ) {
+    const gl = this.gl;
+    const v = this.view;
+    if (!v.tex) {
+      v.canvas = document.createElement("canvas");
+      v.canvas.width = VIEW_W;
+      v.canvas.height = VIEW_H;
+      v.tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, v.tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      v.buf = gl.createBuffer()!;
+    }
+    if (t - v.drawnAt > 30) {
+      const dt = v.drawnAt ? Math.min(0.1, (t - v.drawnAt) / 1000) : 0;
+      v.drawnAt = t;
+      this.renderer.drawVrView(v.canvas!.getContext("2d")!, VIEW_W, VIEW_H, dt, this.armsPresent());
+      gl.bindTexture(gl.TEXTURE_2D, v.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v.canvas!);
+    }
+    // A sheet straight in front of your face, turning with your head.
+    const q = head.orientation;
+    const p = head.position;
+    const f = forwardOf(q);
+    const r = rotateBy(q, [1, 0, 0]);
+    const u = rotateBy(q, [0, 1, 0]);
+    const hw = VIEW_DIST * Math.tan(VIEW_HALF_ANGLE);
+    const hh = (hw * VIEW_H) / VIEW_W;
+    const c: V3 = [p.x + f.x * VIEW_DIST, p.y + f.y * VIEW_DIST, p.z + f.z * VIEW_DIST];
+    const pt = (sx: number, sy: number, tu: number, tv: number) => [
+      c[0] + r[0] * sx + u[0] * sy,
+      c[1] + r[1] * sx + u[1] * sy,
+      c[2] + r[2] * sx + u[2] * sy,
+      tu,
+      tv,
+    ];
+    const verts = new Float32Array([...pt(-hw, hh, 0, 0), ...pt(-hw, -hh, 0, 1), ...pt(hw, hh, 1, 0), ...pt(hw, -hh, 1, 1)]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, v.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.disable(gl.DEPTH_TEST);
+    for (const view of views) {
       const vp = this.layer.getViewport(view);
-      const eye = this.eyes[i];
-      if (!vp || !eye.drawn) return;
+      if (!vp) continue;
       gl.viewport(vp.x, vp.y, vp.width, vp.height);
       gl.uniformMatrix4fv(locP, false, view.projectionMatrix);
       gl.uniformMatrix4fv(locV, false, view.transform.inverse.matrix);
-      gl.bindBuffer(gl.ARRAY_BUFFER, eye.buf);
       gl.enableVertexAttribArray(locPos);
-      gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 20, 0);
       gl.enableVertexAttribArray(locUv);
+      gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 20, 0);
       gl.vertexAttribPointer(locUv, 2, gl.FLOAT, false, 20, 12);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, eye.tex);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.grid);
-      gl.drawElements(gl.TRIANGLES, 102, gl.UNSIGNED_SHORT, 0);
-    });
-    // Your tracked arms, then the screens on them, on top of everything, in both eyes.
-    this.drawArms(views, t);
-    for (const side of ["left", "right"] as const) this.drawArm(side, views, locP, locV, locPos, locUv, t);
-  };
+      gl.bindTexture(gl.TEXTURE_2D, v.tex);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    gl.disable(gl.BLEND);
+  }
 
   // ------------------------------------------------------------ your tracked arms
 
@@ -617,145 +693,6 @@ export class VrPlayer {
   }
 
 
-  private setScale(s: number) {
-    this.scale = s;
-    this.eyes.forEach((e) => (e.stale = true));
-    // Give the new size a moment before judging it.
-    this.eyeMs = this.frameMs * 0.4;
-  }
-  /** Draw what one eye sees and hang it in front of that eye. */
-  private drawEye(i: number, view: XRView, head: XRRigidTransform) {
-    const eye = this.eyes[i];
-    const f = forwardOf(view.transform.orientation);
-    const look = Math.atan2(f.x, -f.z);
-    const pitch = clampPitch(Math.asin(Math.max(-1, Math.min(1, f.y))));
-    const s = this.scale;
-    const W = Math.round(EYE_W * s);
-    const H = Math.round(EYE_H * s);
-    const proj = PROJ * (W / EYE_W);
-    if (eye.canvas.width !== W || eye.canvas.height !== H) {
-      eye.canvas.width = W;
-      eye.canvas.height = H;
-    }
-    const horizon = H / 2 + Math.tan(pitch) * proj;
-    // Where this eye is next to the middle of your head, turned into map units and directions.
-    const p = view.transform.position;
-    const ex = p.x - head.position.x;
-    const ez = p.z - head.position.z;
-    const b = this.baseYaw;
-    const dx = (ex * -Math.sin(b) + -ez * Math.cos(b)) * UNITS_PER_METER;
-    const dy = (ex * Math.cos(b) + -ez * Math.sin(b)) * UNITS_PER_METER;
-    // Slide the HUD inward a little in each eye so it seems to float at arm's length.
-    const side = view.eye === "right" ? -1 : 1;
-    const hudShift = view.eye === "none" ? 0 : side * (Math.hypot(ex, ez) / HUD_DIST) * proj;
-
-    this.renderer.drawVrEye(eye.ctx, W, H, {
-      dx,
-      dy,
-      yaw: b + look,
-      pitch,
-      fov: EYE_FOV,
-      hudW: HUD_W,
-      hudH: HUD_H,
-      hudShift,
-      hudScale: s * (EYE_W / 960),
-      primary: i === 0,
-      arms: this.armsPresent(),
-    });
-
-    const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, eye.tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, eye.canvas);
-
-    // The picture's corners, out in the room: an upright sheet facing the way the eye looked.
-    const fx = Math.sin(look);
-    const fz = -Math.cos(look);
-    const rx = Math.cos(look);
-    const rz = Math.sin(look);
-    // Past its top and bottom edges the sheet folds onto the real ceiling and floor (at the right
-    // height above and below your head, the same for both eyes, so they look solid, not like a
-    // hole), stretching the picture's edge rows over them, all the way to straight above and below
-    // you. Six rows of points: [over your head, edge's ceiling spot, top edge, bottom edge, edge's
-    // floor spot, under your feet], each across [far left, left edge, right edge, far right].
-    const hp = head.position;
-    const floorY = hp.y - FLOOR_DROP;
-    const ceilY = hp.y + CEILING_RISE;
-    const verts = new Float32Array(32 * 5);
-    let n = 0;
-    const put = (x: number, y: number, z: number, u: number, v: number) => {
-      verts.set([x, y, z, u, v], n);
-      n += 5;
-    };
-    const cols: [number, number][] = [
-      [0, -SHEET_REACH],
-      [0, 0],
-      [W, 0],
-      [W, SHEET_REACH],
-    ];
-    const edge = (px: number, slide: number, py: number) => {
-      const a = (px - W / 2) / proj;
-      const up = (horizon - py) / proj;
-      return {
-        x: p.x + SHEET_DIST * (fx + rx * a) + rx * slide,
-        y: p.y + SHEET_DIST * up,
-        z: p.z + SHEET_DIST * (fz + rz * a) + rz * slide,
-        side: SHEET_DIST * a + slide,
-      };
-    };
-    // Where the ray from this eye through an edge point meets the plane at height `planeY`
-    // (or, if it never does, a point far straight up or down from the edge).
-    const meet = (e: { x: number; y: number; z: number }, planeY: number) => {
-      const dy = e.y - p.y;
-      const towards = planeY > p.y ? dy > 0.02 : dy < -0.02;
-      if (!towards) return { x: e.x, y: e.y + Math.sign(planeY - p.y) * SHEET_REACH, z: e.z };
-      const k = (planeY - p.y) / dy;
-      return { x: p.x + (e.x - p.x) * k, y: planeY, z: p.z + (e.z - p.z) * k };
-    };
-    for (const [row, v] of [
-      ["overhead", 0],
-      ["ceiling", 0],
-      ["top", 0],
-      ["bottom", 1],
-      ["floor", 1],
-      ["underfoot", 1],
-    ] as const) {
-      for (const [px, slide] of cols) {
-        const u = px / W;
-        const top = edge(px, slide, 0);
-        const bottom = edge(px, slide, H);
-        if (row === "top") put(top.x, top.y, top.z, u, v);
-        else if (row === "bottom") put(bottom.x, bottom.y, bottom.z, u, v);
-        else if (row === "ceiling" || row === "floor") {
-          const m = meet(row === "ceiling" ? top : bottom, row === "ceiling" ? ceilY : floorY);
-          put(m.x, m.y, m.z, u, v);
-        } else {
-          // Straight over your head or under your feet, at the same distance to the side.
-          const e = row === "overhead" ? top : bottom;
-          put(hp.x + rx * e.side, row === "overhead" ? ceilY : floorY, hp.z + rz * e.side, u, v);
-        }
-      }
-    }
-    // Everywhere else: a flat floor and ceiling in the color of the middle of the picture's bottom
-    // and top edges, around your head.
-    for (const [y, v] of [
-      [floorY, 0.999],
-      [ceilY, 0.001],
-    ]) {
-      for (const [cx, cz] of [
-        [-CAP_SIZE, -CAP_SIZE],
-        [CAP_SIZE, -CAP_SIZE],
-        [-CAP_SIZE, CAP_SIZE],
-        [CAP_SIZE, CAP_SIZE],
-      ]) {
-        put(hp.x + cx, y, hp.z + cz, 0.5, v);
-      }
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, eye.buf);
-    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
-    eye.drawn = true;
-    eye.stale = false;
-  }
-
   // ------------------------------------------------------------ controllers
 
   /**
@@ -802,7 +739,6 @@ export class VrPlayer {
         if (this.turnArmed && Math.abs(sx) > 0.7) {
           this.turnArmed = false;
           this.baseYaw += Math.sign(sx) * SNAP_TURN;
-          this.eyes.forEach((e) => (e.stale = true));
         } else if (Math.abs(sx) < 0.3) {
           this.turnArmed = true;
         }
@@ -819,21 +755,6 @@ export class VrPlayer {
   }
 
   // ------------------------------------------------------------ WebGL setup
-
-  private makeEye(): Eye {
-    const gl = this.gl;
-    const canvas = document.createElement("canvas");
-    canvas.width = EYE_W;
-    canvas.height = EYE_H;
-    const ctx = canvas.getContext("2d")!;
-    const tex = gl.createTexture()!;
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    return { canvas, ctx, tex, buf: gl.createBuffer()!, drawn: false, stale: false };
-  }
 
   private makeProgram(vertSrc: string, fragSrc: string): WebGLProgram {
     const gl = this.gl;

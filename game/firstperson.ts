@@ -580,3 +580,62 @@ function drawPlayerOverlay(
     ctx.fillText(info.name, cx, barY - 3);
   }
 }
+
+// ---------------------------------------------------------------- shared with real 3D (VR)
+
+/** Every wall and piece of furniture, including the building's outside walls, with its surface and index (for wall posters). */
+export function worldWalls(): { wall: Wall; surface: Surface; index: number }[] {
+  return ALL_WALLS.map((wall, index) => ({ wall, surface: OUTER_SET.has(wall) ? "outer" : wall.kind, index }));
+}
+
+/** The color of the top of low furniture (desks, tables…), if it has one. */
+export function topColor(surface: Surface): [number, number, number] | undefined {
+  return TOP_COLORS[surface];
+}
+
+/** How the view fades into the dark with distance: the color, the distance, and the most it fades. */
+export function fogFor(fogOfWar: boolean): { color: [number, number, number]; dist: number; max: number } {
+  return fogOfWar ? { color: WAR_FOG, dist: WAR_FOG_DIST, max: 1 } : { color: HALL_FOG, dist: HALL_FOG_DIST, max: 0.85 };
+}
+
+/** Ceiling height, in world units. */
+export const CEILING_HEIGHT = CEILING;
+
+/** Who the 3D view shows, and how (the same rules for the screen and for VR). */
+export function visiblePlayers(
+  players: PlayerSnap[],
+  roster: Map<string, RosterEntry>,
+  myId: string | null,
+  x: number,
+  y: number,
+  fogOfWar: boolean,
+  reveal: boolean,
+): { p: PlayerSnap; team: Team; enemy: boolean; xray: boolean; dist: number }[] {
+  const myTeam = roster.get(myId ?? "")?.team;
+  const out: { p: PlayerSnap; team: Team; enemy: boolean; xray: boolean; dist: number }[] = [];
+  for (const p of players) {
+    if (!p.alive || p.id === myId) continue;
+    const team: Team = roster.get(p.id)?.team ?? 0;
+    const enemy = team !== myTeam;
+    const dist = Math.hypot(p.x - x, p.y - y);
+    const xray = enemy && reveal;
+    if (enemy && p.hidden && !xray && dist > UNNOTICED_SPOT_RANGE) continue;
+    if (enemy && fogOfWar && !xray && dist > FOG_SIGHT + radiusFor(p.archetype)) continue;
+    out.push({ p, team, enemy, xray, dist });
+  }
+  return out;
+}
+
+/** Whether a full-height wall blocks the straight line between two points. */
+export function wallBetween(x0: number, y0: number, x1: number, y1: number) {
+  for (const w of ALL_WALLS) {
+    if (!OUTER_SET.has(w) && !FULL_HEIGHT.has(w.kind)) continue;
+    if (segmentRectHit(x0, y0, x1, y1, w)) return true;
+  }
+  return false;
+}
+
+/** The ball color for a weapon (rainbow paint picks a color). */
+export function ballColorOf(color: string, n: number) {
+  return color === "rainbow" ? PAINT_COLORS[Math.abs(n) % PAINT_COLORS.length] : color;
+}

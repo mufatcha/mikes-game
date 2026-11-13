@@ -4,6 +4,7 @@ import {
   SAFE_ZONE_MAX_VISITS,
   SAFE_ZONE_VISIT_WINDOW,
   TEAM_COLORS,
+  THROW_HEIGHT,
   teamNamesFor,
   winScoreFor,
   type GameMode,
@@ -53,10 +54,10 @@ import { abilitySlots } from "./layout";
 import { ABILITY_ACTIONS, VR_HUD_ITEMS, getKeybinds, getVrHud, keyLabel, type VrHudItem, type VrSpot } from "@/lib/settings";
 import type { Sfx } from "./audio";
 import type { GameConnection } from "./connection";
-import { drawFirstPerson } from "./firstperson";
+import { ballColorOf, drawFirstPerson, fogFor, visiblePlayers, wallBetween } from "./firstperson";
 import { CROUCH_SCALE } from "@/shared/physics";
 import { drawInstrument2D, instrumentOf } from "./instruments";
-import { armColors } from "./avatar3d";
+import { armColors, avatarModel, type AvatarModel } from "./avatar3d";
 import { drawFace } from "./skins";
 import { CONE_HALF, FAR_SIGHT, FOG_SIGHT, NEAR_SIGHT, canSee, litAreasAt, sightPolygon } from "./vision";
 
@@ -130,31 +131,36 @@ export interface ViewInput {
   scoreboard: boolean;
   /** Off on touch screens, where you aim with a thumbstick instead. */
   crosshair: boolean;
-  /** VR: only keep the game moving (sounds, effects); each eye is drawn after with drawVrEye. */
+  /** VR: only keep the game moving (sounds, effects); the headset draws the world itself (vrScene). */
   vr?: boolean;
 }
 
-/** One eye of the VR view (see Renderer.drawVrEye). */
-export interface VrEye {
-  /** This eye's offset from the middle of your head, in map units. */
-  dx: number;
-  dy: number;
-  yaw: number;
-  pitch: number;
-  fov: number;
-  /** Size of the HUD box in the middle of the view, and how far to slide it sideways so it sits at a comfortable depth. */
-  hudW: number;
-  hudH: number;
-  hudShift: number;
-  /** Drawn smaller when the eye pictures are made smaller to keep up. */
-  hudScale: number;
-  /** Which arms have a controller (HUD pieces set for a missing arm show in front of you instead). */
-  arms: VrArms;
-  /** The eye whose view decides who's on screen (for Detention) and fades the hurt flash. */
-  primary: boolean;
+
+
+/** One VR frame's world (see Renderer.vrScene). */
+export interface VrScene {
+  /** You, in world units; your eyes are eyeZ above the floor. */
+  x: number;
+  y: number;
+  eyeZ: number;
+  now: number;
+  fog: { color: [number, number, number]; dist: number; max: number };
+  players: {
+    p: PlayerSnap;
+    team: Team;
+    name: string;
+    model: AvatarModel;
+    /** Faded (a teammate who's unnoticed). */
+    alpha: number;
+    /** Seen through walls (the Intercom). */
+    xray: boolean;
+    /** Being sent to Detention. */
+    targeted: boolean;
+  }[];
+  bullets: { x: number; y: number; z: number; r: number; color: string }[];
+  sparks: { x: number; y: number; z: number; size: number; color: string; alpha: number }[];
+  zones: ZoneSnap[];
 }
-
-
 /** Which arms have a controller to put a screen on. */
 export interface VrArms {
   left: boolean;
@@ -287,7 +293,7 @@ export class Renderer {
     const zones = this.conn.bracket(renderTick)?.b.zones ?? [];
 
     if (view.vr) {
-      // The headset shows each eye (drawVrEye); the page itself just says you're in VR.
+      // The headset draws the world itself (vrScene); the page just says you're in VR.
       this.shake = 0;
       this.updateParticles(dt, false);
       const myTeam = roster.get(myId ?? "")?.team;
@@ -433,53 +439,92 @@ export class Renderer {
   } | null = null;
 
   /**
-   * Draw one eye of the VR view onto its own canvas: the 3D view from that
-   * eye (wide angle, no screen shake), then the usual HUD squeezed into a
-   * smaller box in the middle, where you can read it in a headset.
+   * VR: the HUD that floats in the middle of your view: the crosshair, the
+   * red flash when you're hit, and whatever Settings puts "In front" (the
+   * scoreboard only while you hold the left grip). The rest is on your arms.
    */
-  drawVrEye(ctx: CanvasRenderingContext2D, w: number, h: number, eye: VrEye) {
+  drawVrView(ctx: CanvasRenderingContext2D, w: number, h: number, dt: number, arms: VrArms) {
     const f = this.vrFrame;
     if (!f) return;
     const me = this.conn.me;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const seen = drawFirstPerson({
-      ctx,
-      w,
-      h,
-      x: this.myX + eye.dx,
-      y: this.myY + eye.dy,
-      yaw: eye.yaw,
-      pitch: eye.pitch,
-      fov: eye.fov,
-      shakeX: 0,
-      shakeY: 0,
-      players: f.players,
-      bullets: f.bullets,
-      zones: f.zones,
-      sparks: this.particles.map((p) => ({ x: p.x, y: p.y, color: p.color, size: p.size, alpha: p.life / p.maxLife })),
-      roster: f.roster,
-      myId: this.conn.myId,
-      now: f.now,
-      fogOfWar: this.mode === "fog",
-      reveal: !!me?.reveal,
-      detentionTarget: this.detentionTarget,
-      alive: !!me?.alive,
-      viewModel: false,
-      sharp: true,
-      eyeLift: (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0),
+    ctx.clearRect(0, 0, w, h);
+    this.withHudCanvas(ctx, w, h, 1, 0, 0, () => {
+      this.drawHurtVignette(dt);
+      this.drawHudItems(f, this.vrAim, (item) => vrSpot(item, arms) === "view" && (item !== "scoreboard" || f.scoreboard));
+      this.drawCrosshair(w / 2, h / 2, f.now, me);
     });
-    if (eye.primary) this.targetable = seen;
+  }
 
-    // In view: the crosshair, the red flash when you're hit, and whatever Settings puts "In front"
-    // (the scoreboard only while you hold the left grip). The rest is on your arms (drawVrArm).
-    const k = eye.hudScale;
-    const ox = (w - eye.hudW * k) / 2 + eye.hudShift;
-    const oy = (h - eye.hudH * k) / 2; // the middle of the picture is straight where you look
-    this.withHudCanvas(ctx, eye.hudW, eye.hudH, k, ox, oy, () => {
-      this.drawHurtVignette(eye.primary ? f.dt : 0);
-      this.drawHudItems(f, eye.yaw, (item) => vrSpot(item, eye.arms) === "view" && (item !== "scoreboard" || f.scoreboard));
-      this.drawCrosshair(eye.hudW / 2, eye.hudH / 2, f.now, me);
-    });
+  /** Where you're facing in VR (for the minimap). */
+  private vrAim = 0;
+
+  /**
+   * VR (real 3D): this frame's world for the headset to draw: where your eyes
+   * are, everyone you can see posed as 3D figures, throws, sparks and puddles.
+   * Also picks who Detention would target (the nearest enemy you're looking at).
+   */
+  vrScene(aim: number): VrScene | null {
+    this.vrAim = aim;
+    const f = this.vrFrame;
+    if (!f) return null;
+    const me = this.conn.me;
+    const myId = this.conn.myId;
+    const fogOfWar = this.mode === "fog";
+    const seen = visiblePlayers(f.players, f.roster, myId, this.myX, this.myY, fogOfWar, !!me?.reveal);
+    const players: VrScene["players"] = [];
+    const targetable: PlayerSnap[] = [];
+    for (const { p, team, enemy, xray, dist } of seen) {
+      const wpn = WEAPONS[p.weapon];
+      const model = avatarModel({
+        id: p.id,
+        x: p.x,
+        y: p.y,
+        aim: p.aim,
+        archetype: p.form === "pyro" ? "pyro" : p.archetype,
+        team,
+        scale: radiusFor(p.archetype) / 18,
+        ballColor: ballColorOf(wpn.color, p.ammo),
+        ballRadius: Math.min(6, Math.max(3, wpn.radius)),
+        instrument: instrumentOf(p.weapon),
+        now: f.now,
+        stunned: p.stunned,
+        lift: p.z ?? 0,
+        crouch: !!p.crouch,
+        form: p.form === "pyro" ? null : (p.form ?? null),
+      });
+      const targeted = p.id === this.detentionTarget;
+      players.push({
+        p,
+        team,
+        name: f.roster.get(p.id)?.name ?? "",
+        model,
+        alpha: p.hidden ? 0.45 : 1,
+        xray,
+        targeted,
+      });
+      if (enemy && dist < 1400) {
+        let diff = Math.atan2(p.y - this.myY, p.x - this.myX) - aim;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        if (Math.abs(diff) < 0.7 && (xray || !wallBetween(this.myX, this.myY, p.x, p.y))) targetable.push(p);
+      }
+    }
+    this.targetable = targetable;
+    return {
+      x: this.myX,
+      y: this.myY,
+      eyeZ: EYE_HEIGHT + (this.conn.predicted?.z ?? 0) - (this.conn.crouching ? EYE_HEIGHT * (1 - CROUCH_SCALE) : 0),
+      now: f.now,
+      fog: fogFor(fogOfWar),
+      players,
+      bullets: f.bullets.map((b) => {
+        const w = WEAPONS[b.w];
+        return { x: b.x, y: b.y, z: b.z ?? THROW_HEIGHT, r: Math.max(3, w.radius), color: ballColorOf(w.color, b.id) };
+      }),
+      sparks: this.particles.map((p) => ({ x: p.x, y: p.y, z: THROW_HEIGHT, size: p.size, color: p.color, alpha: p.life / p.maxLife })),
+      zones: f.zones,
+    };
   }
 
   /**

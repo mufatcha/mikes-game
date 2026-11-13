@@ -1076,3 +1076,91 @@ export function armColors(archetype: ArchetypeId, team: Team): { sleeve: string;
   const mascot = archetype === "lemon" || archetype === "orangepeel";
   return { sleeve: SLEEVES[archetype] ?? TEAM_COLORS[team], skin: mascot ? "#f8fafc" : SKIN[archetype] };
 }
+
+// ---------------------------------------------------------------- real 3D (VR)
+
+/** Everything needed to pose a figure (the same as drawAvatar takes). */
+export type AvatarInput = Parameters<typeof drawAvatar>[2];
+
+/** One face of a figure's box, in world space: corners top-left, top-right, bottom-right, bottom-left. */
+export interface WorldQuad {
+  c: [V3, V3, V3, V3];
+  /** A color, or a 64 x 64 texture mapped corner to corner. */
+  look: string | HTMLCanvasElement;
+  /** How lit the face is (0.56 to 1). */
+  light: number;
+}
+
+export interface AvatarModel {
+  quads: WorldQuad[];
+  /** The ball in their hand, if they hold one. */
+  ball: { x: number; y: number; z: number; r: number; color: string } | null;
+  /** How high the top of their head is, in world units. */
+  top: number;
+}
+
+/** Turn a figure's boxes into world-space faces (as addParts does, without a camera). */
+function partQuads(out: WorldQuad[], parts: Part[], at: Placement) {
+  const fx = Math.cos(at.angle);
+  const fy = Math.sin(at.angle);
+  const sx = -fy;
+  const sy = fx;
+  for (const part of parts) {
+    const th = part.swing ?? 0;
+    const cs = Math.cos(th);
+    const sn = Math.sin(th);
+    const [pf, pz] = part.pivot ?? [0, 0];
+    const toWorld = (ls: number, lf: number, lz: number): V3 => {
+      if (th) {
+        const df = lf - pf;
+        const dz = lz - pz;
+        lf = pf + df * cs - dz * sn;
+        lz = pz + df * sn + dz * cs;
+      }
+      return [at.x + (lf * fx + ls * sx) * at.k, at.y + (lf * fy + ls * sy) * at.k, at.z + lz * (at.kz ?? at.k)];
+    };
+    const corner = (sg: V3) =>
+      toWorld(part.c[0] + sg[0] * part.h[0], part.c[1] + sg[1] * part.h[1], part.c[2] + sg[2] * part.h[2]);
+    for (const id of FACE_IDS) {
+      const f = FACES[id];
+      const nf = f.n[1] * cs - f.n[2] * sn;
+      const nz = f.n[1] * sn + f.n[2] * cs;
+      const N: V3 = [nf * fx + f.n[0] * sx, nf * fy + f.n[0] * sy, nz];
+      const tl = corner(f.tl);
+      const tr = corner(f.tr);
+      const bl = corner(f.bl);
+      const br: V3 = [tr[0] + bl[0] - tl[0], tr[1] + bl[1] - tl[1], tr[2] + bl[2] - tl[2]];
+      const light = 0.56 + 0.44 * Math.max(0, N[0] * LIGHT[0] + N[1] * LIGHT[1] + N[2] * LIGHT[2]);
+      out.push({ c: [tl, tr, br, bl], look: part.faces?.[id] ?? part.color, light });
+    }
+  }
+}
+
+/** A player as real 3D boxes in the world, posed exactly as drawAvatar draws them. */
+export function avatarModel(o: AvatarInput): AvatarModel {
+  const g = walkFor(o.id, o.x, o.y, o.now);
+  const walk = o.stunned ? 0 : Math.sin(g.phase) * 0.65 * g.amp;
+  const bob = Math.abs(Math.cos(g.phase)) * 1.2 * g.amp;
+  const angle = o.aim + (o.stunned ? Math.sin(o.now / 120) * 0.35 : 0);
+  const throwArm = 1.3 + Math.sin(o.now / 400 + o.x) * 0.05 - walk * 0.1;
+  const k = o.scale;
+  const kz = k * (o.crouch ? CROUCH_SCALE : 1);
+  const at: Placement = { x: o.x, y: o.y, z: o.lift + bob * k, angle, k, kz };
+  const quads: WorldQuad[] = [];
+  partQuads(quads, o.form ? characterParts(o.form, o.team, walk, throwArm) : figureParts(o.archetype, o.team, walk, throwArm), at);
+  let ball: AvatarModel["ball"] = null;
+  if (!o.form && o.instrument) {
+    partQuads(quads, instrumentParts(o.instrument), at);
+  } else if (!o.form) {
+    const reach = 17;
+    const hf = Math.sin(throwArm) * reach + 1.5;
+    const hz = 40 - Math.cos(throwArm) * reach + 3;
+    const fx = Math.cos(angle);
+    const fy = Math.sin(angle);
+    const bs = 12.5;
+    ball = { x: o.x + (hf * fx - bs * fy) * k, y: o.y + (hf * fy + bs * fx) * k, z: at.z + hz * kz, r: o.ballRadius * k, color: o.ballColor };
+  }
+  const tall =
+    o.form === "churchill" ? 31 : o.form ? 64 : o.archetype === "lemon" || o.archetype === "orangepeel" ? 64 : FIGURE_HEIGHT;
+  return { quads, ball, top: at.z + tall * kz };
+}

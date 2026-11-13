@@ -433,14 +433,14 @@ export function resetVrHud() {
 /** VR picture resolution. Auto starts sharp and drops only if the headset can't keep up. */
 export type VrQuality = "auto" | "low" | "medium" | "high" | "ultra";
 export const VR_QUALITIES: [VrQuality, string, string][] = [
-  ["auto", "Auto", "Sharp, and lower only if the headset can't keep up"],
-  ["low", "Low", "Smoothest on slower headsets"],
-  ["medium", "Medium", "In between"],
-  ["high", "High", "Sharp"],
-  ["ultra", "Ultra", "Sharpest; needs a fast headset or PC"],
+  ["auto", "Auto", "The headset's own resolution, lowered only if it keeps missing frames"],
+  ["low", "Low", "Softer, smoothest on slow headsets"],
+  ["medium", "Medium", "A bit softer than the headset's own"],
+  ["high", "High", "The headset's own resolution"],
+  ["ultra", "Ultra", "Extra sharp (drawn bigger than the screens); needs a fast headset or PC"],
 ];
-/** How big each eye's picture is drawn for each fixed setting (Auto adjusts between these). */
-export const VR_QUALITY_SCALE: Record<Exclude<VrQuality, "auto">, number> = { low: 0.5, medium: 0.75, high: 1, ultra: 1.3 };
+/** The headset resolution for each fixed setting, as a multiple of its own (Auto starts at 1). */
+export const VR_QUALITY_SCALE: Record<Exclude<VrQuality, "auto">, number> = { low: 0.6, medium: 0.8, high: 1, ultra: 1.4 };
 
 const VRQ_KEY = "mg.vrquality";
 
