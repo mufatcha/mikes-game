@@ -8,6 +8,10 @@ import Modal from "./Modal";
 import { OPEN_SETTINGS_EVENT } from "@/lib/gamepad";
 import { InstallButton, QuitButton } from "./AppInstall";
 import { LemonFighter, OrangeFighter, VsClash } from "./TitleArt";
+import { GameArrow, WrathwaterTitle } from "./GameSwitcher";
+
+/** Games you can flip between on the title screen with the side arrows. */
+const GAMES = ["schoolwars", "wrathwater"] as const;
 
 export default function Home() {
   const router = useRouter();
@@ -19,6 +23,20 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [gameIndex, setGameIndex] = useState(0);
+  const flipGame = (step: number) => setGameIndex((i) => (i + step + GAMES.length) % GAMES.length);
+
+  // Left/right arrow keys flip games too (but not while typing in a box).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "ArrowRight") setGameIndex((i) => (i + 1) % GAMES.length);
+      else if (e.key === "ArrowLeft") setGameIndex((i) => (i - 1 + GAMES.length) % GAMES.length);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // ☰ on a VR controller opens Settings too.
   useEffect(() => {
     const open = () => setShowSettings(true);
@@ -67,6 +85,22 @@ export default function Home() {
     router.push(`/play/${c}`);
   };
 
+  const arrows = (
+    <>
+      <GameArrow direction="left" label="Previous game" onClick={() => flipGame(-1)} />
+      <GameArrow direction="right" label="Next game" onClick={() => flipGame(1)} />
+    </>
+  );
+
+  if (GAMES[gameIndex] === "wrathwater") {
+    return (
+      <div className="relative">
+        <WrathwaterTitle />
+        {arrows}
+      </div>
+    );
+  }
+
   return (
     <main className="title-bg relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 py-12">
       {/* Lemons on the left, Orange Peels on the right, squaring up across the screen. */}
@@ -76,6 +110,7 @@ export default function Home() {
         <OrangeFighter className="absolute bottom-0 right-0 h-[92vh] max-w-[62vw] sm:max-w-[44vw]" />
       </div>
 
+      {arrows}
       <InstallButton className="absolute left-4 top-4 z-10 bg-black/40 text-white" />
       <QuitButton className="absolute left-4 top-4 z-10 bg-black/40 text-white" />
       <SettingsButton
