@@ -14,7 +14,7 @@ import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import LoadoutPicker, { LevelBar } from "./LoadoutPicker";
 import { CopyButton, inviteLink } from "./Lobby";
 import { getPadSettings, keyLabel, useClassXp, useKeybinds, useTouchControlsMode } from "@/lib/settings";
-import { connectedPad, setPadGameplay } from "@/lib/gamepad";
+import { OPEN_SETTINGS_EVENT, connectedPad, setPadGameplay } from "@/lib/gamepad";
 import Modal from "./Modal";
 import PrankMenu from "./PrankMenu";
 import { CHEAT_CODE } from "@/shared/pranks";
@@ -376,6 +376,13 @@ export default function GameView({
     // First person: give the mouse back whenever a menu or the results are up.
     if ((overlay !== "none" || results) && document.pointerLockElement) document.exitPointerLock();
   }, [overlay, results]);
+
+  // ☰ on a VR controller (browsing in a headset) opens Settings.
+  useEffect(() => {
+    const open = () => setOverlay("settings");
+    window.addEventListener(OPEN_SETTINGS_EVENT, open);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, open);
+  }, []);
 
   // Leaving the match hands the controller back to the menus.
   useEffect(() => () => setPadGameplay(false), []);

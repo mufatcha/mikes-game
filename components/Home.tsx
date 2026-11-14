@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { GAME_TITLE, gameServerUrl, saveName, useSavedName, wakeGameServer } from "@/lib/settings";
 import KeybindSettings, { SettingsButton } from "./KeybindSettings";
 import Modal from "./Modal";
+import { OPEN_SETTINGS_EVENT } from "@/lib/gamepad";
 import { InstallButton, QuitButton } from "./AppInstall";
 import { LemonFighter, OrangeFighter, VsClash } from "./TitleArt";
 
@@ -18,6 +19,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // ☰ on a VR controller opens Settings too.
+  useEffect(() => {
+    const open = () => setShowSettings(true);
+    window.addEventListener(OPEN_SETTINGS_EVENT, open);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, open);
+  }, []);
 
   // Start waking the game server as soon as someone opens the site.
   useEffect(() => {

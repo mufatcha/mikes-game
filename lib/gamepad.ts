@@ -3,10 +3,21 @@
  * controller drives either the match or the menu highlight, never both.
  */
 
-/** The first connected controller, if any. */
+/** A VR headset's hand controller (they point at the page themselves; they're not a game controller). */
+export function isVrController(pad: Gamepad) {
+  return pad.mapping === "xr-standard" || /oculus|meta|quest|touch|openxr|vive|index|knuckles|pico|wmr|mixed reality/i.test(pad.id);
+}
+
+/** The first connected game controller (an Xbox, PlayStation or similar pad), if any. */
 export function connectedPad(): Gamepad | null {
   if (typeof navigator === "undefined" || !navigator.getGamepads) return null;
-  return [...navigator.getGamepads()].find((p): p is Gamepad => !!p && p.connected) ?? null;
+  return [...navigator.getGamepads()].find((p): p is Gamepad => !!p && p.connected && !isVrController(p)) ?? null;
+}
+
+/** Every connected VR hand controller. */
+export function vrControllers(): Gamepad[] {
+  if (typeof navigator === "undefined" || !navigator.getGamepads) return [];
+  return [...navigator.getGamepads()].filter((p): p is Gamepad => !!p && p.connected && isVrController(p));
 }
 
 /** Whether a button is held (triggers count once pressed about halfway). */
@@ -40,3 +51,6 @@ export function padCapturing() {
 
 /** Fired on window when B is pressed in a menu; the open menu closes (or goes back). */
 export const PAD_BACK_EVENT = "pad-back";
+
+/** Fired on window when ☰ is pressed on a VR controller while browsing the site: open Settings. */
+export const OPEN_SETTINGS_EVENT = "open-settings";
