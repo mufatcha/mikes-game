@@ -2411,7 +2411,7 @@ export class Renderer {
 
   private drawFeed(now: number) {
     this.feed = this.feed.filter((f) => now - f.born < 6000);
-    let y = 24;
+    let y = 72; // below the Settings button in the corner
     for (const f of this.feed) {
       const { ctx } = this;
       ctx.font = "600 13px ui-sans-serif, system-ui, sans-serif";

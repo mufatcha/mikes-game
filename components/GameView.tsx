@@ -71,6 +71,8 @@ export default function GameView({
   // Playing with a game controller: no need to grab the mouse.
   const [padOn, setPadOn] = useState(false);
   const lastUnlockRef = useRef(0);
+  /** Settings was opened from the corner button: closing it goes straight back to the game. */
+  const settingsFromCorner = useRef(false);
   // VR headset: whether this browser has one, whether we're in it, and how to put it on.
   const [vrOk, setVrOk] = useState(false);
   const [inVr, setInVr] = useState(false);
@@ -379,7 +381,10 @@ export default function GameView({
 
   // ☰ on a VR controller (browsing in a headset) opens Settings.
   useEffect(() => {
-    const open = () => setOverlay("settings");
+    const open = () => {
+      settingsFromCorner.current = true;
+      setOverlay("settings");
+    };
     window.addEventListener(OPEN_SETTINGS_EVENT, open);
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, open);
   }, []);
@@ -458,7 +463,12 @@ export default function GameView({
         <Modal onClose={() => setOverlay("none")}>
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold text-white">Menu</h2>
-            <SettingsButton onClick={() => setOverlay("settings")} />
+            <SettingsButton
+              onClick={() => {
+                settingsFromCorner.current = false;
+                setOverlay("settings");
+              }}
+            />
           </div>
           <div className="flex flex-col gap-2">
             <MenuButton onClick={() => setOverlay("none")}>Resume</MenuButton>
@@ -541,9 +551,21 @@ export default function GameView({
         </Modal>
       )}
 
+      {/* Settings in the corner, always there while you play (easy to point at from a VR headset's browser). */}
+      {overlay === "none" && !results && !inVr && (
+        <SettingsButton
+          onClick={() => {
+            settingsFromCorner.current = true;
+            if (document.pointerLockElement) document.exitPointerLock();
+            setOverlay("settings");
+          }}
+          className="absolute right-3 top-3 z-20 bg-black/50 text-white"
+        />
+      )}
+
       {overlay === "settings" && !results && (
-        <Modal onClose={() => setOverlay("menu")}>
-          <KeybindSettings onDone={() => setOverlay("menu")} />
+        <Modal onClose={() => setOverlay(settingsFromCorner.current ? "none" : "menu")}>
+          <KeybindSettings onDone={() => setOverlay(settingsFromCorner.current ? "none" : "menu")} />
         </Modal>
       )}
 
