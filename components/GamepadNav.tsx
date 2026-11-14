@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect } from "react";
-import { OPEN_SETTINGS_EVENT, PAD_BACK_EVENT, connectedPad, padCapturing, padDown, padInGameplay, vrControllers } from "@/lib/gamepad";
+import {
+  OPEN_SETTINGS_EVENT,
+  PAD_BACK_EVENT,
+  connectedPad,
+  padCapturing,
+  padDown,
+  padInGameplay,
+  vrControllers,
+  vrMenuHeld,
+  type VrHand,
+} from "@/lib/gamepad";
+import { getVrMenuButton } from "@/lib/settings";
 
 /**
  * Menus on a game controller: whenever a match isn't being played (the title
@@ -120,29 +131,18 @@ export default function GamepadNav() {
     let prev: boolean[] = [];
     let held: Dir | null = null;
     let nextRepeat = 0;
-    let vrPrev = new Map<string, boolean>();
-    let vrSticks = false;
+    let vrMenuWas = false;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      // VR controllers (browsing the site in a headset): ☰ on the left one, or both sticks
-      // clicked together, opens Settings.
-      const vr = vrControllers();
-      let menu = false;
-      const vrSeen = new Map<string, boolean>();
-      for (const c of vr) {
-        const left = (c as Gamepad & { hand?: string }).hand === "left" || /left/i.test(c.id);
-        c.buttons.forEach((b, i) => {
-          const key = `${c.index}:${i}`;
-          vrSeen.set(key, b.pressed);
-          // Past the trigger, grip, touchpad, stick and the two face buttons: the menu button.
-          if (left && i >= 6 && b.pressed && !vrPrev.get(key)) menu = true;
-        });
-      }
-      const sticks = vr.length >= 2 && vr.every((c) => c.buttons[3]?.pressed);
-      if (sticks && !vrSticks) menu = true;
-      vrSticks = sticks;
-      vrPrev = vrSeen;
-      if (menu) window.dispatchEvent(new Event(OPEN_SETTINGS_EVENT));
+      // VR controllers (browsing the site in a headset): the Settings button picked in
+      // Settings (☰ to start with) opens Settings.
+      const hands: VrHand[] = vrControllers().map((c) => {
+        const hand = (c as Gamepad & { hand?: string }).hand ?? (/left/i.test(c.id) ? "left" : /right/i.test(c.id) ? "right" : "");
+        return { hand: hand === "left" || hand === "right" ? hand : "none", buttons: c.buttons };
+      });
+      const menuHeld = vrMenuHeld(getVrMenuButton(), hands);
+      if (menuHeld && !vrMenuWas) window.dispatchEvent(new Event(OPEN_SETTINGS_EVENT));
+      vrMenuWas = menuHeld;
       const pad = connectedPad();
       if (!pad) {
         prev = [];

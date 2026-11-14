@@ -19,6 +19,9 @@ import {
   useVrQuality,
   saveVrQuality,
   VR_QUALITIES,
+  VR_MENU_BUTTONS,
+  useVrMenuButton,
+  saveVrMenuButton,
   type AimAssist,
   type PadAction,
   RESERVED_KEY,
@@ -227,6 +230,7 @@ function Toggle({ label, hint, on, onChange }: { label: string; hint: string; on
 function VrHudSettings() {
   const hud = useVrHud();
   const quality = useVrQuality();
+  const menuButton = useVrMenuButton();
   return (
     <>
       <div className="mt-2 border-t border-white/10 pt-4">
@@ -235,6 +239,27 @@ function VrHudSettings() {
           In VR, your health and the rest are on screens on your arms; raise an arm to look. &quot;In front&quot; floats it
           in your view instead (the scoreboard there only shows while you hold the left grip).
         </p>
+      </div>
+      <div className="rounded-lg bg-white/5 px-4 py-2">
+        <span className="block text-zinc-200">Settings button</span>
+        <span className="text-xs text-zinc-500">
+          Which VR controller button opens Settings, on the site in your headset and inside VR:{" "}
+          {VR_MENU_BUTTONS.find(([b]) => b === menuButton)?.[2]}
+        </span>
+        <div className="mt-2 grid grid-cols-4 gap-1 rounded-lg bg-black/30 p-1">
+          {VR_MENU_BUTTONS.map(([b, name]) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => saveVrMenuButton(b)}
+              className={`rounded-md px-2 py-1.5 text-sm font-semibold transition ${
+                menuButton === b ? "bg-amber-400 text-black" : "text-zinc-300 hover:bg-white/10"
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="rounded-lg bg-white/5 px-4 py-2">
         <span className="block text-zinc-200">VR resolution</span>

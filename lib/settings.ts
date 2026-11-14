@@ -461,6 +461,38 @@ export function saveVrQuality(q: VrQuality) {
   write(VRQ_KEY, q);
 }
 
+/** Which VR controller button opens Settings (in the headset's browser, and inside VR). */
+export type VrMenuButton = "menu" | "sticks" | "leftstick" | "rightstick" | "x" | "y" | "a" | "b";
+export const VR_MENU_BUTTONS: [VrMenuButton, string, string][] = [
+  ["menu", "☰ Menu", "The ☰ button on the left controller (both sticks clicked together works too)"],
+  ["sticks", "Both sticks", "Click both thumbsticks together"],
+  ["leftstick", "Left stick", "Click the left thumbstick (instead of sprinting with it)"],
+  ["rightstick", "Right stick", "Click the right thumbstick (instead of the Principal's fourth power)"],
+  ["x", "X", "The X button (instead of reloading)"],
+  ["y", "Y", "The Y button (instead of switching weapon)"],
+  ["a", "A", "The A button (instead of jumping)"],
+  ["b", "B", "The B button (instead of crouching)"],
+];
+
+const VR_MENU_KEY = "mg.vrmenu";
+
+function readVrMenuButton(): VrMenuButton {
+  const raw = read(VR_MENU_KEY);
+  return VR_MENU_BUTTONS.some(([b]) => b === raw) ? (raw as VrMenuButton) : "menu";
+}
+
+export function useVrMenuButton() {
+  return useSyncExternalStore(subscribe, readVrMenuButton, () => "menu" as VrMenuButton);
+}
+
+export function getVrMenuButton() {
+  return readVrMenuButton();
+}
+
+export function saveVrMenuButton(b: VrMenuButton) {
+  write(VR_MENU_KEY, b);
+}
+
 const KEY_NAMES: Record<string, string> = {
   ArrowUp: "↑",
   ArrowDown: "↓",

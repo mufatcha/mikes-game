@@ -1,11 +1,15 @@
 import { EYE_HEIGHT, MAX_PITCH } from "@/shared/constants";
 import type { Renderer, VrArms } from "./renderer";
+import { vrMenuHeld, vrMenuTakes, type VrHand } from "@/lib/gamepad";
 import {
   VR_HUD_ITEMS,
+  VR_MENU_BUTTONS,
+  saveVrMenuButton,
   VR_QUALITIES,
   VR_QUALITY_SCALE,
   VR_SPOTS,
   getVrHud,
+  getVrMenuButton,
   getVrQuality,
   resetVrHud,
   saveVrQuality,
@@ -323,7 +327,8 @@ export class VrPlayer {
     center: [0, 0, 0] as V3,
     right: [1, 0, 0] as V3,
   };
-  private sticksWere = false;
+  /** The Settings button was held last frame (so holding it doesn't flicker the menu). */
+  private menuWas = false;
   /** 2D matches: the canvas the game draws on, shown on the arcade machine's screen (null in 3D). */
   private arcade: HTMLCanvasElement | null = null;
   private cabinet: { solid: WebGLBuffer; count: number; screen: WebGLBuffer; screenTex: WebGLTexture; marquee: WebGLBuffer; marqueeTex: WebGLTexture; floor: WebGLBuffer; floorTex: WebGLTexture } | null = null;
@@ -906,31 +911,26 @@ export class VrPlayer {
   private readControls(): VrControls {
     const c: VrControls = { moveX: 0, moveY: 0, fire: false, jump: false, sprint: false, crouch: false, scoreboard: false, pressed: [] };
     const seen = new Map<string, boolean>();
-    // The menu: the ☰ button on the left controller (where the headset passes it on), or both sticks clicked together.
-    let menuPress = false;
-    let sticksBoth = true;
+    // The menu: the Settings button picked in Settings (☰ on the left controller to start with).
+    const choice = getVrMenuButton();
+    const taken = vrMenuTakes(choice);
+    const hands: VrHand[] = [];
     let select = false;
     let back = false;
     for (const src of this.session.inputSources) {
       const pad = src.gamepad;
       if (!pad || src.handedness === "none") continue;
-      const hand = src.handedness;
-      const was = (i: number) => this.prevButtons.get(`${hand}${i}`) ?? false;
-      const now = (i: number) => {
-        const b = pad.buttons[i];
-        return !!b && (b.pressed || b.value > 0.5);
-      };
-      sticksBoth &&= now(3);
-      if (hand === "left") {
-        for (let i = 6; i < pad.buttons.length; i++) if (pad.buttons[i]?.pressed && !was(i)) menuPress = true;
-      } else {
+      hands.push({ hand: src.handedness, buttons: pad.buttons });
+      if (src.handedness === "right") {
+        const was = (i: number) => this.prevButtons.get(`right${i}`) ?? false;
+        const now = (i: number) => !!pad.buttons[i] && (pad.buttons[i].pressed || pad.buttons[i].value > 0.5);
         select = now(0) && !was(0);
-        back = now(5) && !was(5);
+        back = now(5) && !was(5) && !(taken?.hand === "right" && taken.index === 5);
       }
     }
-    const bothNow = sticksBoth && [...this.session.inputSources].filter((s) => s.gamepad && s.handedness !== "none").length === 2;
-    if (bothNow && !this.sticksWere) menuPress = true;
-    this.sticksWere = bothNow;
+    const menuHeld = vrMenuHeld(choice, hands);
+    const menuPress = menuHeld && !this.menuWas;
+    this.menuWas = menuHeld;
     if (menuPress) this.setMenu(!this.menu.open);
     if (this.menu.open) {
       // While the menu is up the controllers work it, not the game: point and pull the trigger, B to close.
@@ -949,6 +949,8 @@ export class VrPlayer {
       if (!pad || src.handedness === "none") continue;
       const hand = src.handedness;
       const down = (i: number) => {
+        // The button picked to open Settings does only that.
+        if (taken && taken.hand === hand && taken.index === i) return false;
         const b = pad.buttons[i];
         return !!b && (b.pressed || b.value > 0.5);
       };
@@ -1213,6 +1215,14 @@ export class VrPlayer {
           setVrSpot(id, VR_SPOTS[(i + 1) % VR_SPOTS.length][0]);
         },
       })),
+      {
+        label: "Settings button",
+        value: VR_MENU_BUTTONS.find(([b]) => b === getVrMenuButton())?.[1] ?? "☰ Menu",
+        act: () => {
+          const i = VR_MENU_BUTTONS.findIndex(([b]) => b === getVrMenuButton());
+          saveVrMenuButton(VR_MENU_BUTTONS[(i + 1) % VR_MENU_BUTTONS.length][0]);
+        },
+      },
       { label: "Reset VR layout", act: () => resetVrHud() },
       { label: "🚪 Leave VR", act: () => this.end() },
     ];
