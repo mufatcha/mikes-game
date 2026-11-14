@@ -61,7 +61,14 @@ export function SettingsButton({ onClick, className = "" }: { onClick: () => voi
 }
 
 /** Settings panel: click an action, then press the key you want for it. */
-export default function KeybindSettings({ onDone }: { onDone: () => void }) {
+export default function KeybindSettings({
+  onDone,
+  playVr,
+}: {
+  onDone: () => void;
+  /** In a match on a VR-ready browser: a button to put the headset on. */
+  playVr?: { label: string; start: () => void };
+}) {
   const binds = useKeybinds();
   const touchMode = useTouchControlsMode();
   const [listening, setListening] = useState<KeyAction | null>(null);
@@ -91,6 +98,15 @@ export default function KeybindSettings({ onDone }: { onDone: () => void }) {
           Done
         </button>
       </div>
+      {playVr && (
+        <button
+          type="button"
+          onClick={playVr.start}
+          className="rounded-lg bg-gradient-to-r from-fuchsia-500 to-cyan-500 px-4 py-3 text-lg font-bold text-white shadow-lg hover:brightness-110"
+        >
+          {playVr.label}
+        </button>
+      )}
       <div>
         <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Mobile controls</h3>
         <p className="mt-1 text-sm text-zinc-500">

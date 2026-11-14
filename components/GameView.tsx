@@ -565,7 +565,20 @@ export default function GameView({
 
       {overlay === "settings" && !results && (
         <Modal onClose={() => setOverlay(settingsFromCorner.current ? "none" : "menu")}>
-          <KeybindSettings onDone={() => setOverlay(settingsFromCorner.current ? "none" : "menu")} />
+          <KeybindSettings
+            onDone={() => setOverlay(settingsFromCorner.current ? "none" : "menu")}
+            playVr={
+              vrOk
+                ? {
+                    label: isFps ? "🥽 Play in VR" : "🕹️ Play on a VR arcade machine",
+                    start: () => {
+                      setOverlay("none");
+                      startVrRef.current?.();
+                    },
+                  }
+                : undefined
+            }
+          />
         </Modal>
       )}
 
