@@ -247,6 +247,14 @@ export class Shore {
   private heroAttack(h: Walker) {
     if (h.cooldown > 0) return;
     const wpn = WEAPONS[h.weapon];
+    if (wpn.kind === "gun") {
+      if (this.sim.save.ammo <= 0) {
+        h.cooldown = 0.6;
+        this.sim.events.push({ k: "noAmmo" });
+        return;
+      }
+      this.sim.save.ammo--;
+    }
     h.cooldown = wpn.cooldown;
     h.swing = 0;
     if (wpn.kind === "melee") {
@@ -620,7 +628,7 @@ export class Shore {
   private giveWeapon(chance: number) {
     if (Math.random() > chance) return null;
     const s = this.sim.save;
-    const missing = WEAPON_ORDER.filter((w) => w !== "fists" && !s.weapons.includes(w));
+    const missing = WEAPON_ORDER.filter((w) => w !== "fists" && w !== "dull_sword" && !s.weapons.includes(w));
     if (!missing.length) return null;
     const w = missing[Math.floor(Math.random() * missing.length)];
     s.weapons.push(w);
@@ -639,6 +647,7 @@ export class Shore {
   private lootSpot(s: LootSpot) {
     this.spentUntil.set(s.id, this.sim.time + SPOT_RESPAWN[s.kind]);
     const save = this.sim.save;
+    let ammo = 0;
     let gold = 0;
     let weapon: WeaponId | null = null;
     let mats = { wood: 0, iron: 0, powder: 0 };
@@ -646,9 +655,11 @@ export class Shore {
       gold = randInt(60, 170);
       mats = this.giveMaterials([1, 3], [0, 2], [0, 2]);
       weapon = this.giveWeapon(0.12);
+      ammo = randInt(2, 5);
       this.giveFruit(0.06);
     } else if (s.kind === "crate") {
       mats = this.giveMaterials([2, 4], [1, 3], [1, 3]);
+      ammo = randInt(3, 6);
     } else if (s.kind === "buried") {
       gold = randInt(220, 420);
       mats = this.giveMaterials([0, 2], [1, 3], [1, 2]);
@@ -657,7 +668,8 @@ export class Shore {
       this.giveFruit(1);
     }
     save.gold += gold;
-    this.sim.events.push({ k: "loot", x: s.x, z: s.z, gold, weapon, ...mats });
+    save.ammo += ammo;
+    this.sim.events.push({ k: "loot", x: s.x, z: s.z, gold, weapon, ...mats, ammo });
   }
 
   private rob(isl: Island, b: Building, key: string) {
@@ -668,19 +680,23 @@ export class Shore {
     let weapon: WeaponId | null = null;
     let mats = { wood: 0, iron: 0, powder: 0 };
     let gold = 0;
+    let ammo = 0;
     if (b.kind === "bank") {
       gold = randInt(700, 1300);
       this.sim.addBounty(35_000_000, gold, 2);
     } else if (b.kind === "shop") {
       gold = randInt(120, 240);
       mats = this.giveMaterials([1, 3], [1, 2], [0, 2]);
+      ammo = randInt(3, 6);
       this.sim.addBounty(6_000_000, gold, 0.8);
     } else {
       weapon = this.giveWeapon(1);
       mats = this.giveMaterials([0, 2], [2, 5], [3, 6]);
+      ammo = randInt(10, 16);
       this.sim.addBounty(12_000_000, 0, 1.3);
     }
-    this.sim.events.push({ k: "robbed", building: b.kind, town: isl.name, gold, weapon, ...mats });
+    save.ammo += ammo;
+    this.sim.events.push({ k: "robbed", building: b.kind, town: isl.name, gold, weapon, ...mats, ammo });
   }
 
   // ---------------------------------------------------------------- inventory

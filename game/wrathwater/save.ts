@@ -1,5 +1,5 @@
 import { NO_UPGRADES, type Upgrades } from "./data";
-import { FRUIT_IDS, NO_MATERIALS, WEAPON_ORDER, type FruitId, type Materials, type WeaponId } from "./items";
+import { FRUIT_IDS, NO_MATERIALS, STARTING_AMMO, STARTING_WEAPONS, WEAPON_ORDER, type FruitId, type Materials, type WeaponId } from "./items";
 
 /** Progress kept between visits, in this browser only. */
 export interface SaveData {
@@ -15,6 +15,8 @@ export interface SaveData {
   /** Weapons you own besides your fists. */
   weapons: WeaponId[];
   equipped: WeaponId;
+  /** Lead shot for your guns. */
+  ammo: number;
   /** The Devil Fruit you ate, if any. */
   fruit: FruitId | null;
   /** Fruits you're carrying but haven't eaten. */
@@ -36,8 +38,9 @@ export function newSave(captain: string): SaveData {
     deaths: 0,
     crowned: false,
     materials: { ...NO_MATERIALS },
-    weapons: [],
-    equipped: "fists",
+    weapons: [...STARTING_WEAPONS],
+    equipped: "dull_sword",
+    ammo: STARTING_AMMO,
     fruit: null,
     heldFruits: [],
     fruitsFound: [],
@@ -54,7 +57,10 @@ export function loadSave(): SaveData | null {
     if (!raw) return null;
     const s = JSON.parse(raw) as Partial<SaveData>;
     if (typeof s.captain !== "string") return null;
-    const weapons = Array.isArray(s.weapons) ? s.weapons.filter(isWeapon).filter((w) => w !== "fists") : [];
+    const weapons: WeaponId[] = Array.isArray(s.weapons) ? s.weapons.filter(isWeapon).filter((w) => w !== "fists") : [];
+    // Saves from before ammo existed get the starting kit too.
+    const oldSave = typeof s.ammo !== "number";
+    if (oldSave) for (const w of STARTING_WEAPONS) if (!weapons.includes(w)) weapons.push(w);
     const equipped = isWeapon(s.equipped) && (s.equipped === "fists" || weapons.includes(s.equipped)) ? s.equipped : "fists";
     return {
       captain: s.captain,
@@ -67,6 +73,7 @@ export function loadSave(): SaveData | null {
       materials: { ...NO_MATERIALS, ...(s.materials ?? {}) },
       weapons,
       equipped,
+      ammo: oldSave ? STARTING_AMMO : Math.max(0, Math.floor(Number(s.ammo) || 0)),
       fruit: isFruit(s.fruit) ? s.fruit : null,
       heldFruits: Array.isArray(s.heldFruits) ? s.heldFruits.filter(isFruit) : [],
       fruitsFound: Array.isArray(s.fruitsFound) ? s.fruitsFound.filter(isFruit) : [],

@@ -1,6 +1,6 @@
 /** On-foot gear for Wrathwater: weapons, Devil Fruits, crafting materials and recipes. */
 
-export type WeaponId = "fists" | "cutlass" | "axe" | "flintlock" | "musket" | "blunderbuss";
+export type WeaponId = "fists" | "dull_sword" | "cutlass" | "axe" | "flintlock" | "musket" | "blunderbuss";
 
 export interface WeaponDef {
   id: WeaponId;
@@ -19,6 +19,7 @@ export interface WeaponDef {
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   fists: { id: "fists", name: "Fists", kind: "melee", damage: 12, range: 26, cooldown: 0.45, pellets: 1, spread: 0, description: "Better than nothing." },
+  dull_sword: { id: "dull_sword", name: "Dull Sword", kind: "melee", damage: 18, range: 30, cooldown: 0.6, pellets: 1, spread: 0, description: "Rusty and chipped. Every pirate starts somewhere." },
   cutlass: { id: "cutlass", name: "Cutlass", kind: "melee", damage: 34, range: 34, cooldown: 0.55, pellets: 1, spread: 0, description: "A pirate's best friend." },
   axe: { id: "axe", name: "Boarding Axe", kind: "melee", damage: 55, range: 32, cooldown: 0.95, pellets: 1, spread: 0, description: "Slow, brutal swings." },
   flintlock: { id: "flintlock", name: "Flintlock Pistol", kind: "gun", damage: 42, range: 380, cooldown: 1.2, pellets: 1, spread: 0.03, description: "Quick shots at range." },
@@ -26,7 +27,13 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   blunderbuss: { id: "blunderbuss", name: "Blunderbuss", kind: "gun", damage: 17, range: 190, cooldown: 1.6, pellets: 7, spread: 0.22, description: "Point blank devastation." },
 };
 
-export const WEAPON_ORDER: WeaponId[] = ["fists", "cutlass", "axe", "flintlock", "musket", "blunderbuss"];
+export const WEAPON_ORDER: WeaponId[] = ["fists", "dull_sword", "cutlass", "axe", "flintlock", "musket", "blunderbuss"];
+
+/** Every gun fires the same lead shot. A blunderbuss blast uses one. */
+export const STARTING_AMMO = 10;
+export const STARTING_WEAPONS: WeaponId[] = ["dull_sword", "blunderbuss"];
+/** Pressing one shot at the blacksmith: this many rounds for these materials. */
+export const SHOT_RECIPE = { rounds: 5, materials: { iron: 1, powder: 2 } as Partial<Record<MaterialId, number>> };
 
 export type MaterialId = "wood" | "iron" | "powder";
 export type Materials = Record<MaterialId, number>;

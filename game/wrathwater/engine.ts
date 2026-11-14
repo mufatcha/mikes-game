@@ -6,6 +6,7 @@ import {
   FRUIT_SELL_PRICE,
   MATERIAL_NAMES,
   RECIPES,
+  SHOT_RECIPE,
   WEAPONS,
   WEAPON_ORDER,
   type FruitId,
@@ -49,7 +50,7 @@ export interface HudState {
   aimSide: Side | null;
   nearStorm: boolean;
   pointerLocked: boolean;
-  weapon: { id: WeaponId; name: string; ready: number };
+  weapon: { id: WeaponId; name: string; ready: number; ammo: number | null };
   fruit: { id: FruitId; name: string; power: string; ready: number } | null;
   prompt: { label: string; key: string; hold: number; progress: number } | null;
   hidden: boolean;
@@ -100,6 +101,7 @@ export class WrathwaterEngine {
   private saveTimer = 0;
   private stepTimer = 0;
   private noticeId = 0;
+  private lastNoAmmo = -99;
   private cleanup: (() => void) | null = null;
   private downReported = false;
 
@@ -180,6 +182,21 @@ export class WrathwaterEngine {
   equip(weapon: WeaponId) {
     this.sim.shore.equip(weapon);
     this.pushHud();
+  }
+
+  canMakeShot() {
+    const m = this.sim.save.materials;
+    return (Object.keys(SHOT_RECIPE.materials) as MaterialId[]).every((k) => m[k] >= (SHOT_RECIPE.materials[k] ?? 0));
+  }
+
+  /** Turn iron and gunpowder into lead shot for your guns. */
+  makeShot() {
+    if (!this.canMakeShot()) return false;
+    const s = this.sim.save;
+    for (const k of Object.keys(SHOT_RECIPE.materials) as MaterialId[]) s.materials[k] -= SHOT_RECIPE.materials[k] ?? 0;
+    s.ammo += SHOT_RECIPE.rounds;
+    this.afterPurchase();
+    return true;
   }
 
   /** Eat a Devil Fruit you're carrying. A second fruit would kill you, so that's refused. */
@@ -415,6 +432,13 @@ export class WrathwaterEngine {
       case "gunshot":
         this.audio.gun(e.byHero ? 0.7 : near(e.x, e.z) * 0.6, e.weapon === "musket");
         break;
+      case "noAmmo":
+        this.audio.thud(0.25);
+        if (this.sim.time - this.lastNoAmmo > 3) {
+          this.lastNoAmmo = this.sim.time;
+          this.notice("Out of shot! Loot crates, rob a shop or armory, or make more in the inventory (I).", "danger");
+        }
+        break;
       case "walkerHit":
         this.audio.thud(near(e.x, e.z) * 0.7);
         break;
@@ -439,7 +463,7 @@ export class WrathwaterEngine {
         break;
       case "loot": {
         this.audio.coin();
-        const parts = this.lootParts(e.gold, e.weapon, e);
+        const parts = this.lootParts(e.gold, e.weapon, e, e.ammo);
         if (parts) this.notice(parts, "gold");
         break;
       }
@@ -447,15 +471,16 @@ export class WrathwaterEngine {
         this.audio.coin();
         this.audio.alarm();
         const what = { bank: "the bank", shop: "a shop", armory: "the armory" }[e.building as "bank" | "shop" | "armory"] ?? "a building";
-        this.notice(`You robbed ${what} in ${e.town}! ${this.lootParts(e.gold, e.weapon, e)}`, "bounty");
+        this.notice(`You robbed ${what} in ${e.town}! ${this.lootParts(e.gold, e.weapon, e, e.ammo)}`, "bounty");
         break;
       }
     }
   }
 
-  private lootParts(gold: number, weapon: WeaponId | null, m: Record<MaterialId, number>) {
+  private lootParts(gold: number, weapon: WeaponId | null, m: Record<MaterialId, number>, ammo: number) {
     const parts: string[] = [];
     if (gold) parts.push(`+${gold} gold`);
+    if (ammo) parts.push(`+${ammo} shot`);
     for (const id of ["wood", "iron", "powder"] as MaterialId[]) if (m[id]) parts.push(`+${m[id]} ${MATERIAL_NAMES[id].toLowerCase()}`);
     if (weapon) parts.push(`a ${WEAPONS[weapon].name}!`);
     return parts.join(" · ");
@@ -517,6 +542,7 @@ export class WrathwaterEngine {
         id: weaponId,
         name: WEAPONS[weaponId].name,
         ready: hero ? 1 - hero.cooldown / WEAPONS[weaponId].cooldown : 1,
+        ammo: WEAPONS[weaponId].kind === "gun" ? sim.save.ammo : null,
       },
       fruit: fruit
         ? { id: fruit, name: FRUITS[fruit].name, power: FRUITS[fruit].power, ready: 1 - sim.fruitCooldown / FRUITS[fruit].cooldown }

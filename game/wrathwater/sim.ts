@@ -108,6 +108,7 @@ export type SimEvent =
   | { k: "ashore"; island: string }
   | { k: "board" }
   | { k: "swing"; x: number; z: number; byHero: boolean }
+  | { k: "noAmmo" }
   | { k: "gunshot"; x: number; z: number; byHero: boolean; weapon: WeaponId }
   | { k: "impact"; x: number; y: number; z: number; fire: boolean }
   | { k: "explosion"; x: number; z: number; radius: number }
@@ -118,9 +119,9 @@ export type SimEvent =
   | { k: "drowning" }
   | { k: "power"; fruit: FruitId; x: number; z: number; tx: number; tz: number; atSea?: boolean }
   | { k: "fruitFound"; fruit: FruitId }
-  | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number }
+  | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number }
   | { k: "service"; building: ServiceKind }
-  | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number };
+  | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
 
 export interface PlayerInput {
   /** Sail setting 0 (anchored) .. 3 (full sail). */

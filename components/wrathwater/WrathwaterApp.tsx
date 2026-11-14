@@ -19,6 +19,7 @@ import {
   FRUIT_SELL_PRICE,
   MATERIAL_NAMES,
   RECIPES,
+  SHOT_RECIPE,
   WEAPONS,
   WEAPON_ORDER,
   type FruitId,
@@ -205,7 +206,7 @@ function HowToPlay() {
     ["Click / Right-click", "Attack / aim"],
     ["E (hold)", "Loot chests, dig treasure, rob buildings"],
     ["F", "Board your ship"],
-    ["1-6 / Q", "Switch weapons"],
+    ["1-7 / Q", "Switch weapons"],
   ];
   const both: [string, string][] = [
     ["R", "Use your Devil Fruit power"],
@@ -616,7 +617,10 @@ function FootPanel({ hud }: { hud: HudState }) {
       <Bar frac={hpFrac} color={hpFrac > 0.5 ? "bg-emerald-400" : hpFrac > 0.25 ? "bg-amber-400" : "bg-red-500"} />
       <div className="mt-3 flex items-baseline justify-between text-xs uppercase tracking-widest text-zinc-400">
         <span>Weapon</span>
-        <span className="text-sm font-bold normal-case tracking-normal text-white">{hud.weapon.name}</span>
+        <span className="text-sm font-bold normal-case tracking-normal text-white">
+          {hud.weapon.name}
+          {hud.weapon.ammo !== null && <span className={hud.weapon.ammo > 0 ? "text-amber-300" : "text-red-400"}> · {hud.weapon.ammo} shot</span>}
+        </span>
       </div>
       <div className="mt-1 h-1.5 w-full rounded-full bg-white/10">
         <div className={`h-1.5 rounded-full ${hud.weapon.ready >= 0.999 ? "bg-amber-300" : "bg-zinc-500"}`} style={{ width: `${Math.min(1, hud.weapon.ready) * 100}%` }} />
@@ -708,13 +712,29 @@ function Inventory({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
 
       <section className="mt-4">
         <h3 className="text-xs font-bold uppercase tracking-widest text-red-300">Materials</h3>
-        <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className="mt-2 grid grid-cols-4 gap-2">
           {(Object.keys(MATERIAL_NAMES) as MaterialId[]).map((m) => (
             <div key={m} className="rounded-lg bg-white/5 p-3 text-center">
               <p className="text-2xl font-black">{save.materials[m]}</p>
               <p className="text-xs uppercase tracking-widest text-zinc-400">{MATERIAL_NAMES[m]}</p>
             </div>
           ))}
+          <div className="flex flex-col rounded-lg bg-white/5 p-3 text-center">
+            <p className="text-2xl font-black text-amber-300">{save.ammo}</p>
+            <p className="text-xs uppercase tracking-widest text-zinc-400">Shot</p>
+            <button
+              type="button"
+              disabled={!engine.canMakeShot()}
+              onClick={() => {
+                engine.makeShot();
+                refresh();
+              }}
+              className="mt-2 rounded-md bg-red-800 py-1 text-[11px] font-semibold text-white hover:bg-red-700 disabled:bg-white/5 disabled:text-zinc-500"
+              title="Make lead shot for your guns"
+            >
+              +{SHOT_RECIPE.rounds}: {Object.entries(SHOT_RECIPE.materials).map(([m, n]) => `${n} ${MATERIAL_NAMES[m as MaterialId].toLowerCase()}`).join(", ")}
+            </button>
+          </div>
         </div>
       </section>
 

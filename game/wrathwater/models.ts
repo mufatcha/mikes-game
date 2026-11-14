@@ -327,6 +327,7 @@ const skinMat = new THREE.MeshStandardMaterial({ color: "#d9a17a", roughness: 0.
 const steelMat = new THREE.MeshStandardMaterial({ color: "#cbd5e1", metalness: 0.85, roughness: 0.25 });
 const darkWoodMat = new THREE.MeshStandardMaterial({ color: "#3f2a1a", roughness: 0.8 });
 const ironMat = new THREE.MeshStandardMaterial({ color: "#27272a", metalness: 0.7, roughness: 0.4 });
+const rustMat = new THREE.MeshStandardMaterial({ color: "#7a6a5c", metalness: 0.3, roughness: 0.9 });
 
 function limb(w: number, h: number, d: number, mat: THREE.Material, pivotY: number) {
   const pivot = new THREE.Group();
@@ -419,6 +420,11 @@ function setWeapon(v: PersonVisual, id: WeaponId) {
     return m;
   };
   switch (id) {
+    case "dull_sword":
+      add(new THREE.BoxGeometry(0.5, 1.4, 0.5), darkWoodMat, 0, 0);
+      add(new THREE.BoxGeometry(1.4, 0.3, 0.9), rustMat, 0, -0.8);
+      add(new THREE.BoxGeometry(0.35, 6.5, 0.7), rustMat, 0.1, -4.3);
+      break;
     case "cutlass":
       add(new THREE.BoxGeometry(0.5, 1.4, 0.5), darkWoodMat, 0, 0);
       add(new THREE.BoxGeometry(1.8, 0.3, 1.2), ironMat, 0, -0.8);
