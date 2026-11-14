@@ -8,6 +8,7 @@ import {
   inSafeZone,
   inTardis,
   type FloorPattern,
+  type Room,
   type WallKind,
 } from "@/shared/map";
 
@@ -49,6 +50,14 @@ export const TEX_UNITS: Record<Surface, number> = {
   monitor: 58,
   couch: 40,
   beanbag: 34,
+  musicstand: 22,
+  podium: 30,
+  drumkit: 40,
+  xylophone: 40,
+  timpani: 26,
+  piano: 50,
+  harp: 26,
+  cubby: 36,
 };
 
 /** How tall each surface is, in world units (also the texture height). */
@@ -860,6 +869,135 @@ function furnitureCanvas(kind: "desk" | "table" | "bleacher" | "easel") {
   return c;
 }
 
+
+/** The music rooms' furniture, seen from the side (see-through where the real thing is). */
+function musicCanvas(kind: "musicstand" | "podium" | "drumkit" | "xylophone" | "timpani" | "piano" | "harp" | "cubby") {
+  const c = canvas(TEX_UNITS[kind], SURFACE_HEIGHT[kind]);
+  const g = c.getContext("2d")!;
+  const { width: w, height: h } = c;
+  const u = PPU;
+  if (kind === "musicstand") {
+    // A black stand: the pole and feet, and a sheet of music on the desk at the top.
+    g.fillStyle = "#18181b";
+    g.fillRect(w / 2 - u, h * 0.4, 2 * u, h * 0.55);
+    g.fillRect(w * 0.2, h - 2 * u, w * 0.6, 2 * u);
+    g.fillRect(0, 0, w, h * 0.42);
+    g.fillStyle = "#f8fafc";
+    g.fillRect(2 * u, 2 * u, w - 4 * u, h * 0.42 - 5 * u);
+    g.fillStyle = "#111827";
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 5; j++) g.fillRect(3 * u, 4 * u + i * 4 * u + j * 0.7 * u, w - 6 * u, 0.25 * u);
+  } else if (kind === "podium") {
+    g.fillStyle = "#7c4a1e";
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = "#a16207";
+    g.fillRect(0, 0, w, 2 * u);
+    g.fillStyle = "rgba(0,0,0,0.25)";
+    g.fillRect(0, h / 2, w, u);
+  } else if (kind === "drumkit") {
+    // Two red drums with chrome rims, and a gold cymbal on its stand above.
+    g.fillStyle = "#c0c0c0";
+    g.fillRect(w * 0.48, 0, u, h);
+    g.fillStyle = "#eab308";
+    g.fillRect(w * 0.25, 0, w * 0.5, 1.5 * u);
+    for (const [x0, bw, top] of [
+      [0, 0.45, 0.35],
+      [0.52, 0.46, 0.5],
+    ]) {
+      const x = w * x0;
+      g.fillStyle = "#991b1b";
+      g.fillRect(x, h * top, w * bw, h * (1 - top));
+      g.fillStyle = "#e5e7eb";
+      g.fillRect(x, h * top, w * bw, 1.5 * u);
+      g.fillRect(x, h - 1.5 * u, w * bw, 1.5 * u);
+      g.fillStyle = "rgba(255,255,255,0.18)";
+      g.fillRect(x + 2 * u, h * top + 3 * u, 2 * u, h * (1 - top) - 6 * u);
+    }
+  } else if (kind === "xylophone") {
+    // Wooden bars on a frame, legs below.
+    g.fillStyle = "#3f3f46";
+    g.fillRect(0, h * 0.35, w, 2 * u);
+    g.fillRect(2 * u, h * 0.35, 2 * u, h * 0.65);
+    g.fillRect(w - 4 * u, h * 0.35, 2 * u, h * 0.65);
+    for (let x = 0; x < w; x += 4 * u) {
+      g.fillStyle = (x / (4 * u)) % 2 ? "#b45309" : "#d97706";
+      g.fillRect(x + 0.5 * u, 0, 3 * u, h * 0.35);
+    }
+  } else if (kind === "timpani") {
+    // A big copper kettle drum on short legs, its white head at the top.
+    g.fillStyle = "#52525b";
+    g.fillRect(w * 0.2, h * 0.75, u * 1.5, h * 0.25);
+    g.fillRect(w * 0.75, h * 0.75, u * 1.5, h * 0.25);
+    const grad = g.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, "#92400e");
+    grad.addColorStop(0.45, "#f59e0b");
+    grad.addColorStop(1, "#78350f");
+    g.fillStyle = grad;
+    g.beginPath();
+    g.moveTo(0, 2 * u);
+    g.lineTo(w, 2 * u);
+    g.quadraticCurveTo(w, h * 0.85, w / 2, h * 0.85);
+    g.quadraticCurveTo(0, h * 0.85, 0, 2 * u);
+    g.fill();
+    g.fillStyle = "#f5f5f4";
+    g.fillRect(0, 0, w, 2 * u);
+  } else if (kind === "piano") {
+    // A glossy black grand piano: the keyboard along the top edge, gold lettering.
+    g.fillStyle = "#0a0a0a";
+    g.fillRect(0, 0, w, h * 0.75);
+    g.fillStyle = "#18181b";
+    g.fillRect(4 * u, h * 0.75, 3 * u, h * 0.25);
+    g.fillRect(w - 7 * u, h * 0.75, 3 * u, h * 0.25);
+    g.fillStyle = "#f8fafc";
+    g.fillRect(0, h * 0.18, w, 3 * u);
+    g.fillStyle = "#0a0a0a";
+    for (let x = u; x < w; x += 2.4 * u) if (Math.floor(x / (2.4 * u)) % 7 !== 2) g.fillRect(x, h * 0.18, 1.2 * u, 1.8 * u);
+    g.fillStyle = "rgba(255,255,255,0.08)";
+    g.fillRect(0, h * 0.45, w, 2 * u);
+    g.fillStyle = "#d4a017";
+    g.font = `${3 * u}px serif`;
+    g.fillText("GRAND", w / 2 - 6 * u, h * 0.6);
+  } else if (kind === "harp") {
+    // A gold harp frame with its strings: you can see through it.
+    g.strokeStyle = "#ca8a04";
+    g.lineWidth = 2 * u;
+    g.beginPath();
+    g.moveTo(3 * u, h - u);
+    g.lineTo(3 * u, 3 * u);
+    g.quadraticCurveTo(w * 0.6, 0, w - 3 * u, h * 0.3);
+    g.lineTo(w * 0.35, h - u);
+    g.lineTo(3 * u, h - u);
+    g.stroke();
+    g.strokeStyle = "rgba(255,255,255,0.75)";
+    g.lineWidth = 0.4 * u;
+    for (let i = 1; i < 9; i++) {
+      const x = 3 * u + (i / 9) * (w - 6 * u);
+      const top = 3 * u + (h * 0.3 - 3 * u) * (i / 9) * 0.9;
+      const bottom = h - u - (h - u - (h * 0.3)) * ((x - w * 0.35) / (w - 3 * u - w * 0.35));
+      g.beginPath();
+      g.moveTo(x, top);
+      g.lineTo(x, Math.min(h - u, Math.max(top, bottom)));
+      g.stroke();
+    }
+  } else {
+    // Instrument cubbies: wooden pigeonholes, each with a case in it.
+    g.fillStyle = "#6b4423";
+    g.fillRect(0, 0, w, h);
+    const cases = ["#111827", "#1e3a8a", "#7f1d1d", "#14532d", "#3f3f46", "#78350f"];
+    for (let r = 0; r < 4; r++) {
+      for (let col = 0; col < 2; col++) {
+        const x = 2 * u + col * (w / 2);
+        const y = 2 * u + r * (h / 4);
+        g.fillStyle = "#3b2414";
+        g.fillRect(x, y, w / 2 - 4 * u, h / 4 - 4 * u);
+        g.fillStyle = cases[(r * 2 + col) % cases.length];
+        g.fillRect(x + 1.5 * u, y + 2 * u, w / 2 - 7 * u, h / 4 - 7 * u);
+        g.fillStyle = "#c0c0c0";
+        g.fillRect(x + (w / 2 - 4 * u) / 2 - u, y + h / 8 - 2 * u, 2 * u, u);
+      }
+    }
+  }
+  return c;
+}
 /** The texture for a surface (cached after the first use). */
 export function wallTexture(surface: Surface, variant: WallVariant = "plain"): HTMLCanvasElement {
   const key = surface === "wall" ? `wall:${variant}` : surface;
@@ -883,7 +1021,8 @@ export function wallTexture(surface: Surface, variant: WallVariant = "plain"): H
     else if (surface === "monitor") c = monitorCanvas();
     else if (surface === "couch") c = couchCanvas();
     else if (surface === "beanbag") c = beanbagCanvas();
-    else c = furnitureCanvas(surface);
+    else if (surface === "desk" || surface === "table" || surface === "bleacher" || surface === "easel") c = furnitureCanvas(surface);
+    else c = musicCanvas(surface);
     cache.set(key, c);
   }
   return c;
@@ -1015,12 +1154,23 @@ export function floorTexel(x: number, y: number): number {
       return rgb(18, 10, 36);
     }
     case "stage": {
-      // The music rooms: dark polished stage boards, long and narrow.
-      const row = Math.floor(y / 14);
-      const off = hash(row, 11) * 120;
-      if (mod(y, 14) < 0.7 || mod(x + off, 120) < 0.7) return rgb(44, 28, 16);
-      const grain = hash(Math.floor(x / 6), row) * 16;
-      return rgb(120 - grain, 78 - grain * 0.7, 44 - grain * 0.4);
+      // The music rooms: carpeted risers stepping up in rings round the conductor's podium
+      // (blue for the band, deep red for the orchestra), with a wooden floor at the front.
+      const room = musicRoomAt(x, y);
+      const d = room?.focus ? Math.hypot(x - room.focus.x, y - room.focus.y) : 0;
+      if (!room?.focus || d < 64) {
+        const row = Math.floor(y / 14);
+        const off = hash(row, 11) * 120;
+        if (mod(y, 14) < 0.7 || mod(x + off, 120) < 0.7) return rgb(44, 28, 16);
+        const grain = hash(Math.floor(x / 6), row) * 16;
+        return rgb(120 - grain, 78 - grain * 0.7, 44 - grain * 0.4);
+      }
+      const tier = Math.floor((d - 64) / 72);
+      if (mod(d - 64, 72) < 3) return rgb(168, 162, 158); // the step's edge
+      if (mod(d - 64, 72) < 6) return rgb(28, 25, 23); // its shadow
+      const fuzz = hash(Math.floor(x / 3), Math.floor(y / 3)) * 10;
+      const lift = tier * 7 + fuzz;
+      return room.archetype === "bandkid" ? rgb(30 + lift, 58 + lift, 120 + lift) : rgb(112 + lift, 28 + lift * 0.5, 42 + lift * 0.5);
     }
     case "splatter": {
       const cell = hash(Math.floor(x / 18), Math.floor(y / 18));
@@ -1066,4 +1216,13 @@ export function ceilingTexel(x: number, y: number): number {
     return rgb(240, 247, 255) | GLOW;
   }
   return rgb(212, 210, 202);
+}
+
+/** Which music room (if any) a spot is in; remembers the last one, since neighbouring spots ask in a row. */
+let lastMusicRoom: Room | null = null;
+function musicRoomAt(x: number, y: number): Room | null {
+  const r = lastMusicRoom;
+  if (r && ROOMS.includes(r) && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r;
+  lastMusicRoom = ROOMS.find((m) => m.focus && x >= m.x && x <= m.x + m.w && y >= m.y && y <= m.y + m.h) ?? null;
+  return lastMusicRoom;
 }

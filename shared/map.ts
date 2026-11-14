@@ -1,5 +1,5 @@
 import type { ArchetypeId } from "./archetypes";
-import { T, TI_DOOR, TI_WALL, box, lockerWallH, lockerWallV, stripH, stripV, tardisRoom } from "./mapkit";
+import { T, TI_DOOR, TI_WALL, box, lockerWallH, lockerWallV, musicRoom, spawnsIn, stripH, stripV, tardisRoom } from "./mapkit";
 import { buildBigMap } from "./bigmap";
 
 export type WallKind =
@@ -25,7 +25,16 @@ export type WallKind =
   | "pcdesk"
   | "monitor"
   | "couch"
-  | "beanbag";
+  | "beanbag"
+  // The Band Room and Orchestra Room.
+  | "musicstand"
+  | "podium"
+  | "drumkit"
+  | "xylophone"
+  | "timpani"
+  | "piano"
+  | "harp"
+  | "cubby";
 
 /** How tall each kind of wall or furniture is, in world units. In 3D, throws can fly over the low ones. */
 export const WALL_HEIGHT: Record<WallKind, number> = {
@@ -50,6 +59,14 @@ export const WALL_HEIGHT: Record<WallKind, number> = {
   monitor: 50,
   couch: 24,
   beanbag: 14,
+  musicstand: 44,
+  podium: 12,
+  drumkit: 34,
+  xylophone: 28,
+  timpani: 30,
+  piano: 30,
+  harp: 62,
+  cubby: 64,
 };
 
 export interface Rect {
@@ -81,6 +98,8 @@ export interface Room extends Rect {
   pattern: FloorPattern;
   /** The class that spawns here. Both teams share every room. */
   archetype: ArchetypeId;
+  /** Music rooms: where the conductor stands; the floor's risers circle it. */
+  focus?: Point;
   /** Where the room name is painted on the floor, clear of furniture. */
   label: Point;
 }
@@ -113,7 +132,7 @@ const S_ROOMS: Room[] = [
   { name: "Game Room", archetype: "gamer", x: 1500, y: 1824, w: 600, h: 416, floor: "#0f0a1e", pattern: "neon", label: { x: 1800, y: 1975 } },
   // The music wing, below the school on the left.
   { name: "Band Room", archetype: "bandkid", x: 700, y: 1824, w: 600, h: 416, floor: "#3b2a1a", pattern: "stage", label: { x: 1000, y: 1880 } },
-  { name: "Orchestra Room", archetype: "orchestra", x: 24, y: 1824, w: 628, h: 416, floor: "#3b2a1a", pattern: "stage", label: { x: 338, y: 2190 } },
+  { name: "Orchestra Room", archetype: "orchestra", x: 24, y: 1824, w: 628, h: 416, floor: "#3b2a1a", pattern: "stage", label: { x: 338, y: 1872 } },
 ];
 
 /** Street-styled corridors, used for floor markings. */
@@ -215,32 +234,21 @@ const BAND_DOOR: [number, number] = [940, 1060];
 const ORCHESTRA_DOOR: [number, number] = [290, 410];
 const BR = BAND_ROOM;
 const OR = ORCHESTRA_ROOM;
-/** Music stands in a row, each a little stand with a chair behind it (see DECOR). */
-const BAND_STANDS = [
-  ...[780, 880, 1120, 1220].map((x) => ({ x, y: 1920 })),
-  ...[760, 860, 960, 1140, 1240].map((x) => ({ x, y: 2030 })),
-];
-const ORCHESTRA_STANDS = [0.12, 0.26, 0.4, 0.6, 0.74, 0.88].map((t) => {
-  // A half circle around the podium near the top of the room.
-  const a = Math.PI * (1 - t);
-  return { x: OR.x + OR.w / 2 + Math.cos(a) * 230 - 12, y: OR.y + 70 + Math.sin(a) * 200 - 10 };
-});
+/** The band and the orchestra, each set up round their conductor (see musicRoom). */
+const BAND = musicRoom(BR, "band");
+const ORCHESTRA = musicRoom(OR, "orchestra");
 const MUSIC_WALLS: Wall[] = [
-  // Band Room
+  // The Band Room's east wall; the Orchestra Room's west wall (the school's outside wall) and its east wall, shared with the Band Room.
   box("wall", BR.x + BR.w, BR.y, T, BR.h),
-  box("bleacher", BR.x + 40, BR.y + BR.h - 110, BR.w - 80, 30), // the back riser
-  box("table", BR.x + BR.w / 2 - 50, BR.y + BR.h - 70, 100, 50), // the drum set, up on the riser's edge
-  box("shelf", BR.x + 6, BR.y + 160, 26, 160), // instrument lockers
-  box("shelf", BR.x + BR.w - 32, BR.y + 160, 26, 160),
-  ...BAND_STANDS.map(({ x, y }) => box("easel", x, y, 26, 14)),
-  // Orchestra Room (the left wall is the school's outside wall; the right is shared with the Band Room)
   box("wall", 0, OR.y, T, OR.h),
   box("wall", OR.x + OR.w, OR.y, T * 2 + (BR.x - (OR.x + OR.w) - T * 2), OR.h),
-  box("desk", OR.x + OR.w / 2 - 30, OR.y + 40, 60, 40), // the conductor's podium
-  box("table", OR.x + OR.w - 150, OR.y + OR.h - 80, 130, 60), // the grand piano
-  box("shelf", OR.x + 20, OR.y + OR.h - 40, 200, 26), // the cello and bass rack
-  ...ORCHESTRA_STANDS.map(({ x, y }) => box("easel", x, y, 26, 14)),
+  ...BAND.walls,
+  ...ORCHESTRA.walls,
 ];
+for (const r of S_ROOMS) {
+  if (r.archetype === "bandkid") r.focus = BAND.focus;
+  if (r.archetype === "orchestra") r.focus = ORCHESTRA.focus;
+}
 const S_WALLS: Wall[] = [
   // Gym
   ...lockerWallV(0, MAIN_HALL.y1, HALL_A.x1 - T, "right", [[250, 370]]),
@@ -308,8 +316,9 @@ const S_DECOR: Decor[] = [
   ...[...CLASS_DESKS, ...DETENTION_DESKS].map(({ x, y }): Decor => ({ kind: "chair", x: x + 12, y: y + 40, w: 26, h: 22 })),
   { kind: "chair", x: 2235, y: 28, w: 30, h: 24 },
   { kind: "chair", x: 1385, y: 1748, w: 30, h: 24 },
-  // A chair behind every music stand.
-  ...[...BAND_STANDS, ...ORCHESTRA_STANDS].map(({ x, y }): Decor => ({ kind: "chair", x: x, y: y + 22, w: 26, h: 22 })),
+  // A chair behind every music stand in the music rooms.
+  ...BAND.decor,
+  ...ORCHESTRA.decor,
 ];
 
 /**
@@ -394,24 +403,9 @@ const S_SPAWNS: Record<ArchetypeId, Point[]> = {
     { x: 300, y: 1500 },
     { x: 600, y: 1260 },
   ],
-  // The Band Kid warms up in the Band Room.
-  bandkid: [
-    { x: 760, y: 1880 },
-    { x: 1240, y: 1880 },
-    { x: 830, y: 1990 },
-    { x: 1170, y: 1990 },
-    { x: 1000, y: 2000 },
-    { x: 1000, y: 1900 },
-  ],
-  // The Orchestra Kid rehearses in the Orchestra Room.
-  orchestra: [
-    { x: 338, y: 1950 },
-    { x: 150, y: 2120 },
-    { x: 430, y: 2150 },
-    { x: 100, y: 1900 },
-    { x: 580, y: 1900 },
-    { x: 338, y: 2100 },
-  ],
+  // Band and Orchestra Kids start in their rooms, clear of the stands and instruments.
+  bandkid: spawnsIn(BAND_ROOM, S_WALLS, 8),
+  orchestra: spawnsIn(ORCHESTRA_ROOM, S_WALLS, 8),
   // The Kindergartner plays among the Art Room easels.
   kindergartner: [
     { x: 2110, y: 1110 },

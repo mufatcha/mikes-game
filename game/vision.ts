@@ -34,6 +34,15 @@ const BLOCKS_SIGHT: Record<WallKind, boolean> = {
   monitor: false,
   couch: false,
   beanbag: false,
+  musicstand: false,
+  podium: false,
+  drumkit: false,
+  xylophone: false,
+  timpani: false,
+  piano: false,
+  // You can see through the strings.
+  harp: false,
+  cubby: true,
 };
 /** The walls you can't see through, worked out once per map. */
 const occluders = new Map<string, Wall[]>();

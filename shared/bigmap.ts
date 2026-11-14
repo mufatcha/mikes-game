@@ -1,6 +1,6 @@
 import type { ArchetypeId } from "./archetypes";
 import type { Decor, GameMap, Point, Rect, Room, School, Wall } from "./map";
-import { T, box, lockerWallH, lockerWallV, stripH, stripV, tardisRoom } from "./mapkit";
+import { T, box, lockerWallH, lockerWallV, musicRoom, spawnsIn, stripH, stripV, tardisRoom } from "./mapkit";
 
 /**
  * The big school, for 50 v 50: a whole campus under one roof. Twelve blocks
@@ -62,24 +62,6 @@ function walledRoom(b: Block, walls: Wall[]): Rect {
   return { x, y, w: b.x1 - (right ? T : 0) - x, h: b.y1 - (bottom ? T : 0) - y };
 }
 
-/** Free spots to spawn in a room: a grid over it, skipping anywhere too close to furniture or walls. */
-function spawnsIn(r: Rect, walls: Wall[], count = 16): Point[] {
-  const out: Point[] = [];
-  const clear = (x: number, y: number) =>
-    !walls.some((w) => x + 26 > w.x && x - 26 < w.x + w.w && y + 26 > w.y && y - 26 < w.y + w.h);
-  const cols = 6;
-  const rows = 5;
-  for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < cols; i++) {
-      const x = r.x + 50 + ((r.w - 100) * (i + 0.5)) / cols;
-      const y = r.y + 50 + ((r.h - 100) * (j + 0.5)) / rows;
-      if (clear(x, y)) out.push({ x: Math.round(x), y: Math.round(y) });
-    }
-  }
-  // Spread them round the room rather than bunching at the top.
-  const step = Math.max(1, Math.floor(out.length / count));
-  return out.filter((_, i) => i % step === 0).slice(0, count);
-}
 
 export function buildBigMap(): GameMap {
   const walls: Wall[] = [];
@@ -105,7 +87,9 @@ export function buildBigMap(): GameMap {
     pattern: Room["pattern"],
   ): Room => {
     const r = walledRoom(b, walls);
-    return { name, archetype, ...r, floor, pattern, label: { x: r.x + r.w / 2, y: r.y + r.h - 50 } };
+    // Music rooms have the podium at the front (the bottom), so their name goes at the back.
+    const labelY = pattern === "stage" ? r.y + 45 : r.y + r.h - 50;
+    return { name, archetype, ...r, floor, pattern, label: { x: r.x + r.w / 2, y: labelY } };
   };
   const gym = room("Gym", "jock", block(0, 0), "#283246", "court");
   const library = room("Library", "nerd", block(1, 0), "#1d2740", "carpet");
@@ -178,28 +162,16 @@ export function buildBigMap(): GameMap {
       decor.push({ kind: "chair", x: x + 12, y: y + 40, w: 26, h: 22 });
     }
   walls.push(box("desk", detention.x + detention.w / 2 - 70, detention.y + detention.h - 90, 140, 40));
-  // Band Room: risers, a drum set, rows of music stands and instrument lockers.
-  walls.push(box("bleacher", band.x + 60, band.y + band.h - 130, band.w - 120, 30));
-  walls.push(box("table", band.x + band.w / 2 - 50, band.y + band.h - 90, 100, 50));
-  walls.push(box("shelf", band.x + 6, band.y + 200, 26, 220), box("shelf", band.x + band.w - 32, band.y + 200, 26, 220));
-  for (let j = 0; j < 3; j++)
-    for (let i = 0; i < 6; i++) {
-      const x = band.x + 140 + i * ((band.w - 300) / 5);
-      const y = band.y + 140 + j * 150;
-      walls.push(box("easel", x, y, 26, 14));
-      decor.push({ kind: "chair", x, y: y + 22, w: 26, h: 22 });
-    }
-  // Orchestra Room: a half circle of stands round the podium, and a grand piano.
-  walls.push(box("desk", orchestra.x + orchestra.w / 2 - 30, orchestra.y + 60, 60, 40));
-  for (const radius of [220, 360])
-    for (let i = 0; i < 9; i++) {
-      const a = Math.PI * (0.1 + (0.8 * i) / 8);
-      const x = orchestra.x + orchestra.w / 2 + Math.cos(a) * radius - 13;
-      const y = orchestra.y + 80 + Math.sin(a) * radius - 7;
-      walls.push(box("easel", x, y, 26, 14));
-      decor.push({ kind: "chair", x, y: y + 22, w: 26, h: 22 });
-    }
-  walls.push(box("table", orchestra.x + orchestra.w - 180, orchestra.y + orchestra.h - 110, 140, 70));
+  // The Band Room and Orchestra Room, each set up round their conductor (see musicRoom).
+  for (const [r, kind] of [
+    [band, "band"],
+    [orchestra, "orchestra"],
+  ] as const) {
+    const m = musicRoom(r, kind);
+    walls.push(...m.walls);
+    decor.push(...m.decor);
+    r.focus = m.focus;
+  }
   // Game Room: arcade cabinets, a big TV with a couch and beanbags, and gaming PCs.
   for (let i = 0; i < 5; i++) walls.push(box("arcade", gameRoom.x + 6, gameRoom.y + 80 + i * 70, 26, 34));
   walls.push(box("tvscreen", gameRoom.x + gameRoom.w / 2 - 100, gameRoom.y + gameRoom.h - 8, 200, 8));

@@ -64,6 +64,12 @@ const TOP_COLORS: Partial<Record<Surface, [number, number, number]>> = {
   pcdesk: [39, 39, 42],
   couch: [82, 82, 91],
   beanbag: [147, 51, 234],
+  musicstand: [248, 250, 252],
+  podium: [161, 98, 7],
+  drumkit: [254, 243, 199],
+  xylophone: [180, 83, 9],
+  timpani: [245, 245, 244],
+  piano: [24, 24, 27],
 };
 /**
  * Every wall of the map in play, plus the outside of the building (walls

@@ -28,6 +28,7 @@ import {
   type Decor,
   type FloorPattern,
   type Room,
+  type Wall,
   type WallKind,
 } from "@/shared/map";
 import type { BulletSnap, GameEvent, PlayerSnap, RosterEntry, ZoneSnap } from "@/shared/protocol";
@@ -92,7 +93,17 @@ const WALL_STYLES: Record<WallKind, { fill: string; top: string }> = {
   monitor: { fill: "#0f172a", top: "#22c55e" },
   couch: { fill: "#3f3f46", top: "#52525b" },
   beanbag: { fill: "#7e22ce", top: "#a855f7" },
+  musicstand: { fill: "#18181b", top: "#f8fafc" },
+  podium: { fill: "#7c4a1e", top: "#a16207" },
+  drumkit: { fill: "#991b1b", top: "#fef3c7" },
+  xylophone: { fill: "#78350f", top: "#b45309" },
+  timpani: { fill: "#b45309", top: "#fde68a" },
+  piano: { fill: "#0a0a0a", top: "#27272a" },
+  harp: { fill: "#a16207", top: "#facc15" },
+  cubby: { fill: "#6b4423", top: "#8b5e34" },
 };
+/** Band and orchestra furniture, drawn as what it is rather than a plain block. */
+const MUSIC_KINDS = new Set<WallKind>(["musicstand", "podium", "drumkit", "xylophone", "timpani", "piano", "harp", "cubby"]);
 /** World area that fits on screen; bigger screens zoom in rather than see more. */
 const VIEW_AREA = 1500 * 860;
 const HEARING_RANGE = 1600;
@@ -1376,6 +1387,7 @@ export class Renderer {
       ctx.fillStyle = this.floorPattern(room) ?? room.floor;
       ctx.fillRect(room.x, room.y, room.w, room.h);
       if (room.pattern === "court") this.drawCourtLines(room);
+      if (room.focus) this.drawRisers(room);
 
       ctx.save();
       ctx.globalAlpha = 0.18;
@@ -1581,6 +1593,10 @@ export class Renderer {
         this.drawLockerDoors(w);
         continue;
       }
+      if (MUSIC_KINDS.has(w.kind)) {
+        this.drawMusicPiece(w);
+        continue;
+      }
       if (w.kind === "tardis") {
         this.drawTardisRoof(w);
         continue;
@@ -1592,6 +1608,182 @@ export class Renderer {
       ctx.strokeRect(w.x + 1, w.y + 1, w.w - 2, w.h - 2);
     }
     for (const t of SCHOOL_TABLES) this.drawSchoolTable(t);
+  }
+
+  /** A music room's carpeted risers: rings stepping up round the conductor's podium. */
+  private drawRisers(room: Room) {
+    const { ctx } = this;
+    const f = room.focus!;
+    const band = room.archetype === "bandkid";
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(room.x, room.y, room.w, room.h);
+    ctx.clip();
+    const far = Math.hypot(room.w, room.h);
+    // Outermost first, so each step up is drawn over the one below it.
+    const tiers = Math.ceil((far - 64) / 72);
+    for (let k = tiers; k >= 0; k--) {
+      const r = 64 + (k + 1) * 72;
+      const lift = k * 7;
+      ctx.fillStyle = band ? `rgb(${30 + lift},${58 + lift},${120 + lift})` : `rgb(${112 + lift},${28 + lift / 2},${42 + lift / 2})`;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      // The step's edge.
+      ctx.strokeStyle = "rgba(214,211,209,0.55)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r - 72, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // The wooden floor at the front, where the conductor stands.
+    ctx.fillStyle = "#6b4423";
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, 64, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Band and orchestra furniture seen from above. */
+  private drawMusicPiece(w: Wall) {
+    const { ctx } = this;
+    const cx = w.x + w.w / 2;
+    const cy = w.y + w.h / 2;
+    const disc = (x: number, y: number, r: number, fill: string, rim?: string) => {
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      if (rim) {
+        ctx.strokeStyle = rim;
+        ctx.lineWidth = Math.max(1.5, r * 0.18);
+        ctx.stroke();
+      }
+    };
+    switch (w.kind) {
+      case "musicstand": {
+        // The stand's desk with a sheet of music on it.
+        ctx.fillStyle = "#18181b";
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(w.x + 2, w.y + 2, w.w - 4, w.h - 4);
+        ctx.fillStyle = "#111827";
+        for (let i = 1; i <= 3; i++) ctx.fillRect(w.x + 4, w.y + (w.h * i) / 4, w.w - 8, 0.8);
+        break;
+      }
+      case "podium": {
+        ctx.fillStyle = "#7c4a1e";
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        ctx.fillStyle = "#a16207";
+        ctx.fillRect(w.x + 4, w.y + 4, w.w - 8, w.h - 8);
+        // The conductor's score open on the stand, and the baton.
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(cx - 9, w.y - 6, 18, 8);
+        ctx.strokeStyle = "#f5f5f4";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx + 6, cy);
+        ctx.lineTo(cx + 18, cy - 8);
+        ctx.stroke();
+        break;
+      }
+      case "drumkit": {
+        // On its rug: bass drum, two toms, the snare, a floor tom, and gold cymbals on stands.
+        ctx.fillStyle = "#3f3f46";
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        const s = Math.min(w.w, w.h);
+        disc(cx, cy + s * 0.12, s * 0.26, "#991b1b", "#e5e7eb");
+        disc(cx, cy + s * 0.12, s * 0.17, "#fef3c7");
+        disc(cx - s * 0.2, cy - s * 0.18, s * 0.13, "#991b1b", "#e5e7eb");
+        disc(cx + s * 0.2, cy - s * 0.18, s * 0.13, "#991b1b", "#e5e7eb");
+        disc(w.x + s * 0.18, cy + s * 0.15, s * 0.12, "#f5f5f4", "#9ca3af");
+        disc(w.x + w.w - s * 0.2, cy + s * 0.2, s * 0.16, "#991b1b", "#e5e7eb");
+        disc(w.x + s * 0.15, w.y + s * 0.15, s * 0.15, "rgba(234,179,8,0.85)", "#a16207");
+        disc(w.x + w.w - s * 0.15, w.y + s * 0.12, s * 0.17, "rgba(234,179,8,0.85)", "#a16207");
+        break;
+      }
+      case "xylophone": {
+        ctx.fillStyle = "#27272a";
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        const bars = Math.max(6, Math.floor(w.w / 6));
+        for (let i = 0; i < bars; i++) {
+          const bx = w.x + 2 + (i * (w.w - 4)) / bars;
+          const inset = (i / bars) * w.h * 0.25;
+          ctx.fillStyle = i % 2 ? "#b45309" : "#d97706";
+          ctx.fillRect(bx, w.y + 2 + inset / 2, (w.w - 4) / bars - 1, w.h - 4 - inset);
+        }
+        break;
+      }
+      case "timpani": {
+        // A copper kettle drum with its white head.
+        const r = Math.min(w.w, w.h) / 2;
+        disc(cx, cy, r, "#b45309", "#78350f");
+        disc(cx, cy, r * 0.8, "#f5f5f4", "#d6d3d1");
+        break;
+      }
+      case "piano": {
+        // A grand piano: the curved black body, the open lid, and the keyboard along the front.
+        ctx.fillStyle = "#0a0a0a";
+        ctx.beginPath();
+        ctx.moveTo(w.x, w.y);
+        ctx.lineTo(w.x + w.w * 0.55, w.y);
+        ctx.quadraticCurveTo(w.x + w.w, w.y, w.x + w.w, w.y + w.h * 0.45);
+        ctx.lineTo(w.x + w.w, w.y + w.h);
+        ctx.lineTo(w.x, w.y + w.h);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.18)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(w.x + 3, w.y + w.h - 9, w.w - 6, 7);
+        ctx.fillStyle = "#0a0a0a";
+        for (let x = w.x + 5; x < w.x + w.w - 6; x += 5) if (Math.floor((x - w.x) / 5) % 7 !== 2) ctx.fillRect(x, w.y + w.h - 9, 2, 4);
+        // The bench.
+        ctx.fillStyle = "#18181b";
+        ctx.fillRect(cx - 14, w.y + w.h + 4, 28, 8);
+        break;
+      }
+      case "harp": {
+        ctx.strokeStyle = "#ca8a04";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(w.x + 3, w.y + w.h - 3);
+        ctx.lineTo(w.x + 3, w.y + 3);
+        ctx.lineTo(w.x + w.w - 3, w.y + w.h * 0.3);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(255,255,255,0.7)";
+        ctx.lineWidth = 0.8;
+        for (let i = 1; i < 6; i++) {
+          const y = w.y + 3 + ((w.h - 6) * i) / 6;
+          ctx.beginPath();
+          ctx.moveTo(w.x + 4, y);
+          ctx.lineTo(w.x + 3 + (w.w - 6) * (1 - i / 7), y);
+          ctx.stroke();
+        }
+        break;
+      }
+      case "cubby": {
+        // Instrument storage: pigeonholes, each with a case in it.
+        ctx.fillStyle = "#6b4423";
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        const cases = ["#111827", "#1e3a8a", "#7f1d1d", "#14532d", "#3f3f46", "#78350f"];
+        const along = w.h > w.w;
+        const n = Math.max(2, Math.floor((along ? w.h : w.w) / 28));
+        for (let i = 0; i < n; i++) {
+          const x = along ? w.x + 3 : w.x + 3 + (i * (w.w - 6)) / n;
+          const y = along ? w.y + 3 + (i * (w.h - 6)) / n : w.y + 3;
+          const cw = along ? w.w - 6 : (w.w - 6) / n - 3;
+          const ch = along ? (w.h - 6) / n - 3 : w.h - 6;
+          ctx.fillStyle = "#3b2414";
+          ctx.fillRect(x, y, cw, ch);
+          ctx.fillStyle = cases[i % cases.length];
+          ctx.fillRect(x + 2, y + 2, cw - 4, ch - 4);
+        }
+        break;
+      }
+    }
   }
 
   /** The police box seen from above: a stepped blue roof with the lamp on top. */
