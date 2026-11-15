@@ -44,8 +44,8 @@ export interface CameraView {
   firstPerson: boolean;
   /** In VR: the map angle your play space faces (head turning is added on top). */
   vrYaw: number;
-  /** Your ship's wheel angle and the three sail levers' angles. */
-  helm: { wheel: number; levers: number[] };
+  /** Your ship's wheel angle, the three sail levers' angles, and the cannon buttons (how far pushed in, and loaded or not). */
+  helm: { wheel: number; levers: number[]; buttons: { pushed: number; ready: boolean }[] };
 }
 
 /** In VR, one real meter is this many world units (a person is about 18 units tall). */
@@ -821,6 +821,14 @@ export class SeaRenderer {
         setCannons(v, s);
         v.helm.wheel.rotation.x = view.helm.wheel;
         view.helm.levers.forEach((a, i) => (v.helm.levers[i].rotation.z = a));
+        // Cannon buttons glow when that side is loaded, and sink in when pressed.
+        view.helm.buttons.forEach((b, i) => {
+          const btn = v.helm.buttons[i];
+          const lay = helmLayout(s.cls).buttons[i];
+          btn.cap.position.y = lay.y - b.pushed * 0.5;
+          btn.mat.emissiveIntensity = b.ready ? 0.9 + 0.3 * Math.sin(t * 6) : 0.05;
+          btn.mat.color.set(b.ready ? "#ef4444" : "#4b1d1d");
+        });
       } else {
         // Other crews' wheels turn as they steer.
         v.helm.wheel.rotation.x += (s.rudder * WHEEL_LOCK * 0.5 - v.helm.wheel.rotation.x) * Math.min(1, dt * 3);

@@ -284,7 +284,7 @@ function HowToPlay() {
       ])}
       {table("VR", [
         ["Left stick", "Walk"],
-        ["At the helm", "Grab the wheel with a grip and turn it to steer (it stays where you let go). Grab a sail lever and pull it toward you to let out sails, push it away to take them in."],
+        ["At the helm", "Grab the wheel with a grip and turn it to steer (it stays where you let go). The sail levers are beside its left handles: squeeze one to flip it (or pull it toward you / push it away). Poke the PORT or STARBOARD button beside its right handles (or squeeze next to it) to fire that broadside."],
         ["Right stick", "Snap turn"],
         ["Right trigger", "Attack where your hand points, or fire the side you face"],
         ["Grips", "On foot: right uses (hold to rob), left sprints · At sea: grab the wheel and levers"],

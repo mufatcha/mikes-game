@@ -49,7 +49,7 @@ export type Action =
   | "view";
 
 /** A VR hand holding the wheel (and the angle it was at last frame), or a sail lever. */
-type HelmGrab = { kind: "wheel"; last: number } | { kind: "lever"; i: number };
+type HelmGrab = { kind: "wheel"; last: number } | { kind: "lever"; i: number; start: number };
 
 /** Held buttons from touch, gamepad or VR. */
 interface Held {
@@ -179,6 +179,9 @@ export class WrathwaterEngine {
   /** VR: what each hand is holding at the helm. */
   private vrGrab: { left: HelmGrab | null; right: HelmGrab | null } = { left: null, right: null };
   private vrSqueeze = { left: false, right: false };
+  /** The cannon buttons: how far each is pushed in (0..1), and whether a hand was touching it last frame. */
+  private buttonPush = [0, 0];
+  private buttonTouch = { left: [false, false], right: [false, false] };
   private mouseLeft = false;
   private mouseRight = false;
   private sails = 0;
@@ -498,7 +501,11 @@ export class WrathwaterEngine {
       aiming: this.sim.mode === "foot" && (this.mouseRight || this.anyHeld("aim") || (WEAPONS[this.sim.save.equipped].kind === "gun" && this.mouseLeft)),
       firstPerson: this.firstPerson,
       vrYaw: (this.sim.mode === "ship" ? this.sim.player.heading : 0) + this.vrTurn,
-      helm: { wheel: this.helmWheel, levers: this.leverAngle },
+      helm: {
+        wheel: this.helmWheel,
+        levers: this.leverAngle,
+        buttons: ([-1, 1] as const).map((side, i) => ({ pushed: this.buttonPush[i], ready: this.sim.player.reload[side] <= 0 })),
+      },
     };
   }
 
@@ -589,10 +596,16 @@ export class WrathwaterEngine {
         if (!foot && this.aimSide !== null) sim.input.fire = this.aimSide;
         break;
       case "firePort":
-        if (!foot) sim.input.fire = -1;
+        if (!foot) {
+          sim.input.fire = -1;
+          this.buttonPush[0] = 1;
+        }
         break;
       case "fireStarboard":
-        if (!foot) sim.input.fire = 1;
+        if (!foot) {
+          sim.input.fire = 1;
+          this.buttonPush[1] = 1;
+        }
         break;
       case "sailsUp":
         if (!foot) this.sails = Math.min(3, this.sails + 1);
@@ -760,7 +773,7 @@ export class WrathwaterEngine {
       this.releasePointer();
       this.inputMode = "vr";
       this.vrTurn = this.sim.mode === "foot" ? this.footYaw : 0;
-      this.notice("VR: at the helm, grab the wheel with a grip and turn it, and pull the sail levers on your left toward you. On foot: left stick walks, right stick turns, right trigger attacks. A boards, B uses your fruit, ☰ pauses.", "info");
+      this.notice("VR: at the helm, grab the wheel with a grip and turn it, squeeze the sail levers by its left handles, and poke the PORT / STARBOARD cannon buttons by its right handles. On foot: left stick walks, right stick turns, right trigger attacks. A boards, B uses your fruit, ☰ pauses.", "info");
       this.pushHud();
       return true;
     } catch {
@@ -842,6 +855,7 @@ export class WrathwaterEngine {
 
   /** Keep the wheel and levers in step with how you're sailing (unless a VR hand is holding them). */
   private updateHelm(dt: number) {
+    for (let i = 0; i < 2; i++) this.buttonPush[i] = Math.max(0, this.buttonPush[i] - dt * 4);
     const vr = this.renderer.inVr && this.sim.mode === "ship";
     if (!vr) {
       // The wheel turns as you steer, and spins back when you let go.
@@ -875,9 +889,21 @@ export class WrathwaterEngine {
       this.vrSqueeze[hand] = squeeze;
       const pos = this.renderer.vrHandOnShip(hand, this.sim);
       let g = this.vrGrab[hand];
+      // Cannon buttons: poke one with your hand, or squeeze a grip right next to it.
+      if (pos && !g) {
+        lay.buttons.forEach((b, i) => {
+          const d = pos.distanceTo(b);
+          const touching = d < 1.6;
+          if ((touching && !this.buttonTouch[hand][i]) || (fresh && d < 2.6)) this.pressCannonButton(i, hand);
+          this.buttonTouch[hand][i] = touching;
+        });
+        if (fresh && lay.buttons.some((b) => pos.distanceTo(b) < 2.6)) continue;
+      }
       if (!squeeze || !pos) {
         if (g?.kind === "lever") {
-          // Let go: it snaps to whichever end it's nearer.
+          // Let go: it snaps to whichever end it's nearer. A quick squeeze without pulling just flips it.
+          const moved = Math.abs(this.leverAngle[g.i] - g.start) > 0.15;
+          if (!moved) this.leverAngle[g.i] = g.start > 0 ? LEVER_IN : LEVER_OUT;
           this.leverOut[g.i] = this.leverAngle[g.i] > 0;
           this.sails = this.leverOut.filter(Boolean).length;
           this.renderer.vrBuzz(hand, 0.4, 30);
@@ -898,7 +924,7 @@ export class WrathwaterEngine {
           const d = knob.distanceTo(pos);
           if (d < best) {
             best = d;
-            g = { kind: "lever", i };
+            g = { kind: "lever", i, start: this.leverAngle[i] };
           }
         });
         if (!g && Math.abs(toWheel.x) < 3 && radial > lay.wheelRadius - 2.5 && radial < lay.wheelRadius + 3) g = { kind: "wheel", last: wheelAngle };
@@ -931,6 +957,13 @@ export class WrathwaterEngine {
         }
       }
     }
+  }
+
+  /** Fire a broadside from the helm's cannon buttons (0: port, 1: starboard). */
+  private pressCannonButton(i: number, hand: "left" | "right") {
+    this.buttonPush[i] = 1;
+    this.press(i === 0 ? "firePort" : "fireStarboard");
+    this.renderer.vrBuzz(hand, 0.8, 60);
   }
 
   /** The wrist screen in VR. */
