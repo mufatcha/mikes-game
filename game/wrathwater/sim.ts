@@ -151,6 +151,8 @@ export interface PlayerInput {
   attackHeld: boolean;
   aiming: boolean;
   interactHeld: boolean;
+  /** First-person view: you always face where you look. */
+  firstPerson: boolean;
 }
 
 /** The awakened form lasts this long, then needs a rest. */
@@ -198,7 +200,7 @@ export class Sim {
   heat = 0;
   input: PlayerInput = {
     sails: 0, rudder: 0, fire: null, moveX: 0, moveZ: 0, sprint: false, aimYaw: 0,
-    attack: false, interact: false, ability: false, attackHeld: false, aiming: false, interactHeld: false,
+    attack: false, interact: false, ability: false, attackHeld: false, aiming: false, interactHeld: false, firstPerson: false,
   };
   /** Sailing your ship, or ashore on foot. */
   mode: "ship" | "foot" = "ship";

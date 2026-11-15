@@ -229,9 +229,9 @@ export class Shore {
       const nz = h.z + (inp.moveZ / Math.max(1, len)) * speed * dt;
       h.x = nx;
       h.z = nz;
-      if (!inp.attackHeld) h.heading = Math.atan2(inp.moveZ, inp.moveX);
+      if (!inp.attackHeld && !inp.firstPerson) h.heading = Math.atan2(inp.moveZ, inp.moveX);
     }
-    if ((inp.attackHeld || inp.aiming) && !launching) h.heading = inp.aimYaw;
+    if ((inp.attackHeld || inp.aiming || inp.firstPerson) && !launching) h.heading = inp.aimYaw;
     this.collide(h);
     const g = groundHeight(h.x, h.z);
     h.swimming = g === null;

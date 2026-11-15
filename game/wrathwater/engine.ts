@@ -17,12 +17,43 @@ import {
   type WeaponId,
 } from "./items";
 import { SeaRenderer, type CameraView } from "./render";
+import { connectedPad, padDown } from "@/lib/gamepad";
 import { writeSave, type SaveData } from "./save";
 import { AWAKEN_COOLDOWN, AWAKEN_TIME, Sim, type Side, type SimEvent } from "./sim";
 import { FORTRESS, FORTRESS_NAME, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, type IslandKind, type ServiceKind } from "./world";
 
 const STEP = 1 / 60;
 const MOUSE_SENSITIVITY = 0.0026;
+/** Thumbstick look speed, radians per second at full tilt. */
+const STICK_LOOK = 2.8;
+const VIEW_KEY = "ww.view";
+
+/** Game actions any controller can trigger: keyboard, gamepad, touch buttons or VR hands. */
+export type Action =
+  | "power"
+  | "switchMove"
+  | "awaken"
+  | "interact"
+  | "board"
+  | "inventory"
+  | "pause"
+  | "weaponNext"
+  | "weaponPrev"
+  | "fireLook"
+  | "firePort"
+  | "fireStarboard"
+  | "sailsUp"
+  | "sailsDown"
+  | "view";
+
+/** Held buttons from touch, gamepad or VR. */
+interface Held {
+  attack: boolean;
+  aim: boolean;
+  interact: boolean;
+  sprint: boolean;
+}
+const NO_HELD: Held = { attack: false, aim: false, interact: false, sprint: false };
 
 export interface CompassMarker {
   label: string;
@@ -53,6 +84,11 @@ export interface HudState {
   aimSide: Side | null;
   nearStorm: boolean;
   pointerLocked: boolean;
+  /** Seen through your own eyes (P switches). */
+  firstPerson: boolean;
+  /** Playing with a controller, touch or VR, so no mouse capture is needed. */
+  noMouse: boolean;
+  inVr: boolean;
   weapon: { id: WeaponId; name: string; ready: number; ammo: number | null };
   fruit: {
     id: FruitId;
@@ -111,10 +147,29 @@ export class WrathwaterEngine {
   private footDistance = 55;
   private aimSide: Side | null = null;
   private keys = new Set<string>();
+  /** First person by default; P switches to the camera behind you. */
+  firstPerson = true;
+  /** What you last played with. Only the mouse needs capturing. */
+  private inputMode: "mouse" | "touch" | "pad" | "vr" = "mouse";
+  /** Touch controls: the move stick (x right, y forward), and held buttons. */
+  private touchMove = { x: 0, y: 0 };
+  private touchHeld: Held = { ...NO_HELD };
+  /** Gamepad state, read every frame. */
+  private padMove = { x: 0, y: 0 };
+  private padHeld: Held = { ...NO_HELD };
+  private padPrev: boolean[] = [];
+  private padSprint = false;
+  private padStickY = 0;
+  /** VR: turning with the right stick, and the hands' buttons last frame. */
+  private vrTurn = 0;
+  private vrPrev: { left: boolean[]; right: boolean[] } = { left: [], right: [] };
+  private vrSnapped = false;
+  private vrHudTimer = 0;
+  private lastHud: HudState | null = null;
+  private lastNotice = "";
   private mouseLeft = false;
   private mouseRight = false;
   private sails = 0;
-  private raf = 0;
   private last = 0;
   private acc = 0;
   private paused = false;
@@ -135,8 +190,15 @@ export class WrathwaterEngine {
     this.sim = new Sim(save);
     this.renderer = new SeaRenderer(container);
     this.attachInput();
+    try {
+      const v = localStorage.getItem(VIEW_KEY);
+      if (v) this.firstPerson = v !== "third";
+    } catch {
+      // Storage blocked: first person.
+    }
     this.last = performance.now();
-    this.raf = requestAnimationFrame(this.frame);
+    // The renderer runs the loop, so it keeps going inside a VR headset.
+    this.renderer.setLoop(this.frame);
     this.notice(`Welcome aboard, Captain ${save.captain}. Make a name for yourself.`, "info");
     // Handy for poking at the game from the browser console while developing.
     if (process.env.NODE_ENV === "development") {
@@ -145,7 +207,8 @@ export class WrathwaterEngine {
   }
 
   dispose() {
-    cancelAnimationFrame(this.raf);
+    this.renderer.setLoop(null);
+    this.renderer.endVr();
     this.cleanup?.();
     this.save();
     this.audio.dispose();
@@ -354,7 +417,13 @@ export class WrathwaterEngine {
 
   requestPointer() {
     this.audio.unlock();
-    if (document.pointerLockElement !== this.container) void this.container.requestPointerLock?.();
+    if (this.inputMode !== "mouse" || this.renderer.inVr || document.pointerLockElement === this.container) return;
+    try {
+      const r = this.container.requestPointerLock?.() as Promise<void> | undefined;
+      r?.catch?.(() => {});
+    } catch {
+      // No mouse capture here (phones): the touch controls look around instead.
+    }
   }
 
   private releasePointer() {
@@ -364,9 +433,10 @@ export class WrathwaterEngine {
   // ---------------------------------------------------------------- loop
 
   private frame = (now: number) => {
-    this.raf = requestAnimationFrame(this.frame);
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+    const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
     this.last = now;
+    this.pollPad(dt);
+    this.pollVr();
     if (!this.paused) {
       this.acc += dt;
       let steps = 0;
@@ -381,6 +451,11 @@ export class WrathwaterEngine {
       this.footsteps(dt);
     }
     this.renderer.render(this.sim, this.cameraView(), this.paused ? 0 : dt);
+    this.vrHudTimer += dt;
+    if (this.renderer.inVr && this.vrHudTimer > 0.2) {
+      this.vrHudTimer = 0;
+      this.drawVrHud();
+    }
     this.drawMinimap();
     this.hudTimer += dt;
     if (this.hudTimer > 0.08) {
@@ -407,7 +482,9 @@ export class WrathwaterEngine {
       pitch: this.pitch,
       distance: this.sim.mode === "foot" ? this.footDistance : this.shipDistance,
       aimSide: this.aimSide,
-      aiming: this.sim.mode === "foot" && (this.mouseRight || WEAPONS[this.sim.save.equipped].kind === "gun" && this.mouseLeft),
+      aiming: this.sim.mode === "foot" && (this.mouseRight || this.anyHeld("aim") || (WEAPONS[this.sim.save.equipped].kind === "gun" && this.mouseLeft)),
+      firstPerson: this.firstPerson,
+      vrYaw: (this.sim.mode === "ship" ? this.sim.player.heading : 0) + this.vrTurn,
     };
   }
 
@@ -416,15 +493,15 @@ export class WrathwaterEngine {
     const inp = this.sim.input;
     inp.aimYaw = this.camYaw;
     if (this.sim.mode === "ship") {
-      let rudder = 0;
+      let rudder = this.touchMove.x + this.padMove.x;
       if (k.has("KeyA") || k.has("ArrowLeft")) rudder -= 1;
       if (k.has("KeyD") || k.has("ArrowRight")) rudder += 1;
       inp.sails = this.sails;
-      inp.rudder = rudder;
+      inp.rudder = Math.max(-1, Math.min(1, rudder));
       inp.moveX = inp.moveZ = 0;
     } else {
-      let fwd = 0;
-      let side = 0;
+      let fwd = this.touchMove.y + this.padMove.y;
+      let side = this.touchMove.x + this.padMove.x;
       if (k.has("KeyW") || k.has("ArrowUp")) fwd += 1;
       if (k.has("KeyS") || k.has("ArrowDown")) fwd -= 1;
       if (k.has("KeyA") || k.has("ArrowLeft")) side -= 1;
@@ -433,12 +510,333 @@ export class WrathwaterEngine {
       const s = Math.sin(this.footYaw);
       inp.moveX = c * fwd - s * side;
       inp.moveZ = s * fwd + c * side;
-      inp.sprint = k.has("ShiftLeft") || k.has("ShiftRight");
-      inp.attackHeld = this.mouseLeft;
-      inp.aiming = this.mouseRight;
-      if (this.mouseLeft) inp.attack = true;
+      const len = Math.hypot(inp.moveX, inp.moveZ);
+      if (len > 1) {
+        inp.moveX /= len;
+        inp.moveZ /= len;
+      }
+      inp.sprint = k.has("ShiftLeft") || k.has("ShiftRight") || this.anyHeld("sprint");
+      inp.attackHeld = this.mouseLeft || this.anyHeld("attack");
+      inp.aiming = this.mouseRight || this.anyHeld("aim");
+      if (inp.attackHeld) inp.attack = true;
     }
-    inp.interactHeld = k.has("KeyE");
+    inp.interactHeld = k.has("KeyE") || this.anyHeld("interact");
+    inp.firstPerson = this.firstPerson || this.renderer.inVr;
+  }
+
+  private anyHeld(b: keyof Held) {
+    return this.touchHeld[b] || this.padHeld[b];
+  }
+
+  // ---------------------------------------------------------------- actions (keyboard, gamepad, touch, VR)
+
+  /** Do one game action, the same way its key would. */
+  press(a: Action) {
+    if (this.paused && a !== "pause") return;
+    const sim = this.sim;
+    const foot = sim.mode === "foot";
+    this.audio.unlock();
+    switch (a) {
+      case "power":
+        sim.input.ability = true;
+        break;
+      case "switchMove":
+        if (sim.save.fruit === "gomu") sim.cycleMove();
+        else this.press("weaponNext");
+        break;
+      case "awaken":
+        if (!sim.awaken() && sim.canAwaken && !sim.awakened) this.notice("The awakening is still resting.", "info");
+        break;
+      case "interact":
+        sim.input.interact = true;
+        break;
+      case "board":
+        if (foot) sim.shore.board();
+        else if (sim.shore.goAshore()) this.sails = 0;
+        break;
+      case "inventory":
+        this.releasePointer();
+        this.cb.onInventory();
+        break;
+      case "pause":
+        this.cb.onPauseRequest();
+        break;
+      case "weaponNext":
+      case "weaponPrev": {
+        if (!foot) break;
+        const owned = WEAPON_ORDER.filter((w) => w === "fists" || sim.save.weapons.includes(w));
+        const step = a === "weaponNext" ? 1 : owned.length - 1;
+        this.equip(owned[(owned.indexOf(sim.save.equipped) + step) % owned.length]);
+        break;
+      }
+      case "fireLook":
+        if (!foot && this.aimSide !== null) sim.input.fire = this.aimSide;
+        break;
+      case "firePort":
+        if (!foot) sim.input.fire = -1;
+        break;
+      case "fireStarboard":
+        if (!foot) sim.input.fire = 1;
+        break;
+      case "sailsUp":
+        if (!foot) this.sails = Math.min(3, this.sails + 1);
+        break;
+      case "sailsDown":
+        if (!foot) this.sails = Math.max(0, this.sails - 1);
+        break;
+      case "view":
+        this.toggleView();
+        break;
+    }
+  }
+
+  /** P: first person or the camera behind you. */
+  toggleView() {
+    this.firstPerson = !this.firstPerson;
+    this.pitch = this.firstPerson ? Math.min(this.pitch, 0.5) : Math.max(0.1, this.pitch);
+    try {
+      localStorage.setItem(VIEW_KEY, this.firstPerson ? "first" : "third");
+    } catch {
+      // Not saved.
+    }
+    this.notice(this.firstPerson ? "First person." : "Third person.", "info");
+    this.pushHud();
+  }
+
+  /** Turn the view by an amount (mouse, touch drag or stick). */
+  look(dx: number, dy: number) {
+    if (this.sim.mode === "foot") this.footYaw += dx;
+    else {
+      this.shipYaw += dx;
+      while (this.shipYaw > Math.PI) this.shipYaw -= Math.PI * 2;
+      while (this.shipYaw < -Math.PI) this.shipYaw += Math.PI * 2;
+    }
+    const lo = this.firstPerson ? -1.2 : -0.15;
+    this.pitch = Math.max(lo, Math.min(this.firstPerson ? 1.3 : 1.25, this.pitch + dy));
+  }
+
+  // ---------------------------------------------------------------- touch
+
+  /** Phones and tablets: the on-screen controls call these. */
+  useTouch() {
+    if (this.inputMode !== "touch") {
+      this.inputMode = "touch";
+      this.pushHud();
+    }
+  }
+  setTouchMove(x: number, y: number) {
+    this.useTouch();
+    this.touchMove = { x, y };
+  }
+  setTouchHeld(b: keyof Held, on: boolean) {
+    this.useTouch();
+    this.touchHeld[b] = on;
+    if (b === "attack" && on && this.sim.mode === "ship") this.press("fireLook");
+  }
+  touchLook(dxPixels: number, dyPixels: number) {
+    this.useTouch();
+    if (!this.paused) this.look(dxPixels * 0.006, dyPixels * 0.006);
+  }
+
+  // ---------------------------------------------------------------- gamepad
+
+  /**
+   * An Xbox / PlayStation style controller. Left stick moves (or steers, and
+   * pushes the sails up and down), right stick looks. RT attacks or fires the
+   * side you're looking at, LT aims. A: use / hold to rob. B: go ashore or
+   * board. X: Devil Fruit power. Y: switch Stretch move. LB / RB: switch
+   * weapon (fire port / starboard at sea). D-pad left: awaken. Left stick
+   * click: sprint. Right stick click: first / third person. Start: pause.
+   * Back / View: inventory.
+   */
+  private pollPad(dt: number) {
+    const pad = connectedPad();
+    if (!pad) {
+      this.padPrev = [];
+      this.padMove = { x: 0, y: 0 };
+      this.padHeld = { ...NO_HELD };
+      return;
+    }
+    const down = (i: number) => padDown(pad, i);
+    const pressed = (i: number) => down(i) && !this.padPrev[i];
+    const dz = (v: number) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
+    const lx = dz(pad.axes[0] ?? 0);
+    const ly = dz(pad.axes[1] ?? 0);
+    const rx = dz(pad.axes[2] ?? 0);
+    const ry = dz(pad.axes[3] ?? 0);
+    const any = pad.buttons.some((b) => b.pressed) || Math.abs(lx) + Math.abs(ly) + Math.abs(rx) + Math.abs(ry) > 0;
+    if (any && this.inputMode !== "pad" && !this.renderer.inVr) {
+      this.inputMode = "pad";
+      this.pushHud();
+    }
+    if (pressed(9)) this.press("pause");
+    if (this.paused) {
+      // Menus are driven by the site's own controller navigation.
+      this.padPrev = pad.buttons.map((b) => b.pressed || b.value > 0.4);
+      this.padHeld = { ...NO_HELD };
+      this.padMove = { x: 0, y: 0 };
+      return;
+    }
+    const foot = this.sim.mode === "foot";
+    if (foot) {
+      this.padMove = { x: lx, y: -ly };
+      if (pressed(10)) this.padSprint = !this.padSprint;
+      if (Math.hypot(lx, ly) < 0.2) this.padSprint = false;
+    } else {
+      this.padMove = { x: lx, y: 0 };
+      this.padSprint = false;
+      // Push the stick up or down to raise or lower the sails one step.
+      const stepY = ly < -0.7 ? -1 : ly > 0.7 ? 1 : 0;
+      if (stepY !== this.padStickY && stepY !== 0) this.press(stepY < 0 ? "sailsUp" : "sailsDown");
+      this.padStickY = stepY;
+    }
+    this.padHeld = { attack: foot && down(7), aim: foot && down(6), interact: foot && down(0), sprint: this.padSprint };
+    if (!this.paused && (rx || ry)) this.look(rx * STICK_LOOK * dt, ry * STICK_LOOK * 0.7 * dt);
+    if (pressed(0)) this.press("interact");
+    if (pressed(1)) this.press("board");
+    if (pressed(2)) this.press("power");
+    if (pressed(3)) this.press("switchMove");
+    if (pressed(14)) this.press("awaken");
+    if (pressed(11)) this.press("view");
+    if (pressed(8)) this.press("inventory");
+    if (pressed(12)) this.press("sailsUp");
+    if (pressed(13)) this.press("sailsDown");
+    if (foot) {
+      if (pressed(4)) this.press("weaponPrev");
+      if (pressed(5)) this.press("weaponNext");
+      if (pressed(15)) this.press("weaponNext");
+    } else {
+      if (pressed(7)) this.press("fireLook");
+      if (pressed(4)) this.press("firePort");
+      if (pressed(5)) this.press("fireStarboard");
+    }
+    this.padPrev = pad.buttons.map((b) => b.pressed || b.value > 0.4);
+  }
+
+  // ---------------------------------------------------------------- VR
+
+  /** Whether this browser can show the game in a VR headset. */
+  static async vrAvailable() {
+    try {
+      return !!navigator.xr && (await navigator.xr.isSessionSupported("immersive-vr"));
+    } catch {
+      return false;
+    }
+  }
+
+  get inVr() {
+    return this.renderer.inVr;
+  }
+
+  /** Put on the headset. Must be called from a click or tap. */
+  async enterVr() {
+    if (!navigator.xr || this.renderer.inVr) return false;
+    try {
+      const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor", "bounded-floor"] });
+      session.addEventListener("end", () => {
+        this.renderer.vrEnded();
+        this.inputMode = "mouse";
+        this.vrPrev = { left: [], right: [] };
+        this.pushHud();
+      });
+      await this.renderer.startVr(session);
+      this.audio.unlock();
+      this.releasePointer();
+      this.inputMode = "vr";
+      this.vrTurn = this.sim.mode === "foot" ? this.footYaw : 0;
+      this.notice("VR: left stick moves (or steers), right stick turns, right trigger attacks or fires, A boards, B uses your fruit, grips hold to use or sprint, ☰ pauses.", "info");
+      this.pushHud();
+      return true;
+    } catch {
+      this.notice("Couldn't start VR on this device.", "danger");
+      return false;
+    }
+  }
+
+  exitVr() {
+    this.renderer.endVr();
+  }
+
+  /**
+   * VR hands (Meta Quest and similar). Left stick: walk (or steer, and push
+   * up / down for the sails). Right stick: snap turn. Right trigger: attack
+   * (or fire the side you face). Left trigger: aim. Right grip: hold to use
+   * or rob. Left grip: sprint. A: go ashore / board. B: Devil Fruit power.
+   * X: switch Stretch move (or weapon). Y: awaken. ☰: pause.
+   */
+  private pollVr() {
+    if (!this.renderer.inVr) return;
+    const L = this.renderer.vrHand("left");
+    const R = this.renderer.vrHand("right");
+    const head = this.renderer.vrHeadYaw() ?? this.footYaw;
+    // Look where your head looks; aim where your right hand points.
+    if (this.sim.mode === "foot") this.footYaw = head;
+    else {
+      let rel = head - this.sim.player.heading;
+      while (rel > Math.PI) rel -= Math.PI * 2;
+      while (rel < -Math.PI) rel += Math.PI * 2;
+      this.shipYaw = rel;
+    }
+    const lb = L.gamepad?.buttons ?? [];
+    const rb = R.gamepad?.buttons ?? [];
+    const on = (b: readonly GamepadButton[], i: number) => !!b[i] && (b[i].pressed || b[i].value > 0.5);
+    const was = (hand: "left" | "right", i: number) => !!this.vrPrev[hand][i];
+    const pressed = (hand: "left" | "right", i: number) => on(hand === "left" ? lb : rb, i) && !was(hand, i);
+    const lax = L.gamepad?.axes ?? [];
+    const rax = R.gamepad?.axes ?? [];
+    const dz = (v: number | undefined) => (!v || Math.abs(v) < 0.2 ? 0 : v);
+    const lx = dz(lax[2]);
+    const ly = dz(lax[3]);
+    const rx = dz(rax[2]);
+    // Snap turn.
+    if (Math.abs(rx) > 0.7 && !this.vrSnapped) {
+      this.vrTurn += Math.sign(rx) * (Math.PI / 6);
+      this.vrSnapped = true;
+    } else if (Math.abs(rx) < 0.3) this.vrSnapped = false;
+    const menu = lb.slice(6).some((b) => b.pressed);
+    if (menu && !this.vrPrev.left.slice(6).some(Boolean)) {
+      this.exitVr();
+      this.press("pause");
+    }
+    if (!this.paused) {
+      const foot = this.sim.mode === "foot";
+      if (foot) {
+        // Walk relative to where you're looking.
+        this.padMove = { x: lx, y: -ly };
+        this.padHeld = { attack: on(rb, 0), aim: on(lb, 0), interact: on(rb, 1), sprint: on(lb, 1) };
+        if (on(rb, 0) || on(lb, 0)) this.footYaw = R.yaw;
+      } else {
+        this.padMove = { x: lx, y: 0 };
+        this.padHeld = { ...NO_HELD };
+        const stepY = ly < -0.7 ? -1 : ly > 0.7 ? 1 : 0;
+        if (stepY !== this.padStickY && stepY !== 0) this.press(stepY < 0 ? "sailsUp" : "sailsDown");
+        this.padStickY = stepY;
+        if (pressed("right", 0)) this.press("fireLook");
+      }
+      if (pressed("right", 1)) this.press("interact");
+      if (pressed("right", 4)) this.press("board");
+      if (pressed("right", 5)) this.press("power");
+      if (pressed("left", 4)) this.press("switchMove");
+      if (pressed("left", 5)) this.press("awaken");
+      if (pressed("left", 3)) this.press("inventory");
+    }
+    this.vrPrev = { left: lb.map((b) => b.pressed || b.value > 0.5), right: rb.map((b) => b.pressed || b.value > 0.5) };
+  }
+
+  /** The wrist screen in VR. */
+  private drawVrHud() {
+    const h = this.lastHud;
+    if (!h) return;
+    const lines: { text: string; color?: string; size?: number }[] = [];
+    lines.push({ text: `Captain ${h.captain} · ${h.rankTitle}`, color: "#fca5a5", size: 26 });
+    lines.push({ text: `Bounty ${shortBerries(h.bounty)} · ${h.gold.toLocaleString("en-US")} gold`, color: "#fcd34d" });
+    lines.push({ text: h.mode === "foot" ? `Health ${h.heroHp}/${h.heroMaxHp}` : `Hull ${h.hp}/${h.maxHp} · sails ${h.sails}/3`, color: "#86efac" });
+    lines.push({ text: h.stars > 0 ? `Wanted ${"★".repeat(h.stars)}` : "Not wanted", color: h.stars > 0 ? "#f87171" : "#a1a1aa" });
+    if (h.fruit) lines.push({ text: `${h.fruit.power}${h.fruit.ready >= 0.999 ? " · ready" : ""}`, color: h.fruit.ready >= 0.999 ? "#e9d5ff" : "#71717a", size: 26 });
+    if (h.prompt) lines.push({ text: `${h.prompt.label}${h.prompt.progress > 0 ? ` ${Math.round(h.prompt.progress * 100)}%` : ""}`, color: "#ffffff", size: 24 });
+    else if (h.landing) lines.push({ text: `A: dock at ${h.landing}`, color: "#ffffff", size: 24 });
+    if (this.lastNotice) lines.push({ text: this.lastNotice, color: "#d4d4d8", size: 20 });
+    this.renderer.drawVrHud(lines);
   }
 
   private footsteps(dt: number) {
@@ -647,6 +1045,7 @@ export class WrathwaterEngine {
   }
 
   private notice(text: string, tone: Notice["tone"]) {
+    this.lastNotice = text;
     this.cb.onNotice({ id: ++this.noticeId, text, tone });
   }
 
@@ -674,7 +1073,7 @@ export class WrathwaterEngine {
       // Nearest first, skipping any that would overlap one already shown.
       .filter((m, i, all) => all.slice(0, i).every((o) => Math.abs(o.bearing - m.bearing) > 0.32))
       .slice(0, 4);
-    this.cb.onHud({
+    const hud: HudState = {
       mode: sim.mode,
       captain: sim.save.captain,
       bounty: sim.save.bounty,
@@ -698,6 +1097,9 @@ export class WrathwaterEngine {
       aimSide: this.aimSide,
       nearStorm: edge > WORLD_HALF - 500,
       pointerLocked: document.pointerLockElement === this.container,
+      firstPerson: this.firstPerson,
+      noMouse: this.inputMode !== "mouse",
+      inVr: this.renderer.inVr,
       weapon: {
         id: weaponId,
         name: WEAPONS[weaponId].name,
@@ -734,7 +1136,9 @@ export class WrathwaterEngine {
       hidden: sim.hidden,
       compass: { heading: yaw, markers },
       night: this.renderer.night,
-    });
+    };
+    this.lastHud = hud;
+    this.cb.onHud(hud);
   }
 
   // ---------------------------------------------------------------- minimap
@@ -894,6 +1298,7 @@ export class WrathwaterEngine {
       const foot = sim.mode === "foot";
       if (e.code === "KeyR") sim.input.ability = true;
       else if (e.code === "KeyT") sim.cycleMove();
+      else if (e.code === "KeyP") this.toggleView();
       else if (e.code === "KeyV") {
         if (!sim.awaken() && sim.canAwaken && !sim.awakened) this.notice("The awakening is still resting.", "info");
       }
@@ -925,19 +1330,14 @@ export class WrathwaterEngine {
     const onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== el || this.paused) return;
-      const dx = e.movementX * MOUSE_SENSITIVITY;
-      if (this.sim.mode === "foot") this.footYaw += dx;
-      else {
-        this.shipYaw += dx;
-        while (this.shipYaw > Math.PI) this.shipYaw -= Math.PI * 2;
-        while (this.shipYaw < -Math.PI) this.shipYaw += Math.PI * 2;
-      }
-      this.pitch = Math.max(-0.15, Math.min(1.25, this.pitch + e.movementY * MOUSE_SENSITIVITY));
+      this.inputMode = "mouse";
+      this.look(e.movementX * MOUSE_SENSITIVITY, e.movementY * MOUSE_SENSITIVITY);
     };
     const onMouseDown = (e: MouseEvent) => {
       if (this.paused) return;
       this.audio.unlock();
       if (document.pointerLockElement !== el) {
+        this.inputMode = "mouse";
         this.requestPointer();
         return;
       }
@@ -956,7 +1356,7 @@ export class WrathwaterEngine {
       else this.shipDistance = Math.max(140, Math.min(800, this.shipDistance * f));
     };
     const onLockChange = () => {
-      if (document.pointerLockElement !== el && !this.paused && !this.downReported) this.cb.onPauseRequest();
+      if (document.pointerLockElement !== el && !this.paused && !this.downReported && this.inputMode === "mouse") this.cb.onPauseRequest();
       this.pushHud();
     };
     const onBlur = () => {

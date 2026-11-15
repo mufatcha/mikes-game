@@ -14,6 +14,8 @@ import {
   type UpgradeId,
 } from "@/game/wrathwater/data";
 import type { HudState, Notice, WrathwaterEngine } from "@/game/wrathwater/engine";
+import WrathwaterTouch from "./WrathwaterTouch";
+import { PAD_BACK_EVENT, setPadGameplay } from "@/lib/gamepad";
 import {
   FRUITS,
   FRUIT_SELL_PRICE,
@@ -230,6 +232,7 @@ function HowToPlay() {
   const both: [string, string][] = [
     ["R", "Use your Devil Fruit power"],
     ["T", "Switch Stretch Fruit move"],
+    ["P", "First person / third person"],
     ["V", "Awaken your fruit (if you know its real name)"],
     ["I / Tab", "Inventory and crafting"],
     ["W W S S A D A D", "Cheat menu"],
@@ -269,11 +272,37 @@ function HowToPlay() {
       {table("At sea", sea)}
       {table("On foot", land)}
       {table("Anywhere", both)}
+      {table("Controller", [
+        ["Left stick", "Walk (sprint: click it) / steer, push up or down for sails"],
+        ["Right stick", "Look (click: first / third person)"],
+        ["RT / LT", "Attack / aim, or fire the side you look at"],
+        ["A / B", "Use (hold to rob) / go ashore or board"],
+        ["X / Y", "Fruit power / switch Stretch move"],
+        ["LB / RB", "Switch weapon, or fire left / right at sea"],
+        ["D-pad left", "Awaken"],
+        ["Start / View", "Pause / inventory"],
+      ])}
+      {table("VR", [
+        ["Left stick", "Walk / steer, push up or down for sails"],
+        ["Right stick", "Snap turn"],
+        ["Right trigger", "Attack where your hand points, or fire the side you face"],
+        ["Grips", "Right: use (hold to rob) · Left: sprint"],
+        ["A / B", "Go ashore or board / fruit power"],
+        ["X / Y", "Switch Stretch move / awaken"],
+        ["☰", "Pause (takes you out of VR)"],
+      ])}
+      <p className="mt-3 text-xs text-zinc-400">On a phone or tablet: the stick on the left moves, drag anywhere to look, and the buttons on the right do the rest.</p>
     </div>
   );
 }
 
 function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose?: () => void; wide?: boolean }) {
+  // B on a controller closes the menu.
+  useEffect(() => {
+    if (!onClose) return;
+    window.addEventListener(PAD_BACK_EVENT, onClose);
+    return () => window.removeEventListener(PAD_BACK_EVENT, onClose);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onMouseDown={onClose}>
       <div
@@ -313,6 +342,30 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
   const [foundFruit, setFoundFruit] = useState<FruitId | null>(null);
   const [hurt, setHurt] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Phones and tablets get on-screen controls (also the moment anyone touches the screen).
+  const [touch, setTouch] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches);
+  const [vrOk, setVrOk] = useState(false);
+
+  useEffect(() => {
+    const onTouch = () => setTouch(true);
+    window.addEventListener("touchstart", onTouch, { passive: true, once: true });
+    return () => window.removeEventListener("touchstart", onTouch);
+  }, []);
+  // Offer VR when a headset is there.
+  useEffect(() => {
+    navigator.xr
+      ?.isSessionSupported("immersive-vr")
+      .then(setVrOk)
+      .catch(() => setVrOk(false));
+  }, []);
+  // A controller drives the menus while one is open, and the game otherwise.
+  useEffect(() => {
+    setPadGameplay(overlay === "none");
+    // Menus can't be seen inside the headset: take it off to use them.
+    if (overlay !== "none" && engine?.inVr) engine.exitVr();
+  }, [overlay, engine]);
+  useEffect(() => () => setPadGameplay(false), []);
+  const playVr = vrOk && engine ? () => void engine.enterVr() : null;
 
   useEffect(() => {
     let disposed = false;
@@ -385,8 +438,18 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       <div
         className={`pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(220,38,38,0.45))] transition-opacity duration-300 ${hurt ? "opacity-100" : "opacity-0"}`}
       />
-      {hud && <Hud hud={hud} />}
-      <canvas ref={minimapRef} className="pointer-events-none absolute bottom-4 right-4 h-44 w-44 sm:h-52 sm:w-52" />
+      {hud && <Hud hud={hud} touch={touch} />}
+      <canvas ref={minimapRef} className={`pointer-events-none absolute bottom-4 right-4 h-44 w-44 sm:h-52 sm:w-52 ${touch ? "hidden" : ""}`} />
+      {touch && engine && hud && overlay === "none" && <WrathwaterTouch engine={engine} hud={hud} onVr={playVr} />}
+      {!touch && playVr && hud && overlay === "none" && !hud.inVr && (
+        <button
+          type="button"
+          onClick={playVr}
+          className="absolute bottom-60 right-4 rounded-lg bg-black/60 px-3 py-1.5 text-xs font-bold text-white ring-1 ring-white/25 hover:ring-white/60"
+        >
+          Play in VR
+        </button>
+      )}
 
       <div className="pointer-events-none absolute left-1/2 top-24 flex w-full max-w-xl -translate-x-1/2 flex-col items-center gap-2 px-4">
         {notices.map((n) => (
@@ -406,7 +469,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
         ))}
       </div>
 
-      {hud && !hud.pointerLocked && overlay === "none" && (
+      {hud && !hud.pointerLocked && !hud.noMouse && !touch && overlay === "none" && (
         <button
           type="button"
           onClick={() => engine?.requestPointer()}
@@ -423,6 +486,17 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
             Resume
           </PanelButton>
           <PanelButton onClick={() => setOverlay("inventory")}>Inventory &amp; crafting</PanelButton>
+          <PanelButton onClick={() => engine?.toggleView()}>View: {hud?.firstPerson ? "first person" : "third person"} (P)</PanelButton>
+          {playVr && (
+            <PanelButton
+              onClick={() => {
+                setOverlay("none");
+                playVr();
+              }}
+            >
+              Play in VR
+            </PanelButton>
+          )}
           <PanelButton onClick={() => setOverlay("help")}>How to play</PanelButton>
           <PanelButton
             onClick={() => {
@@ -495,14 +569,14 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
 
 // ---------------------------------------------------------------- HUD
 
-function Hud({ hud }: { hud: HudState }) {
+function Hud({ hud, touch }: { hud: HudState; touch: boolean }) {
   const nextFrac = hud.nextRank ? Math.min(1, hud.bounty / hud.nextRank.bounty) : 1;
   return (
     <>
       <Compass hud={hud} />
 
       {/* Wanted poster */}
-      <div className="pointer-events-none absolute left-4 top-4 w-56 rotate-[-1.5deg] rounded-sm bg-[#e9dcc0] bg-[radial-gradient(ellipse_at_center,#efe3c8,#d8c39a)] px-4 py-3 text-center text-[#2b1d10] shadow-2xl ring-1 ring-black/40">
+      <div className={`pointer-events-none absolute left-4 top-4 w-56 ${touch ? "origin-top-left scale-[0.6]" : ""} rotate-[-1.5deg] rounded-sm bg-[#e9dcc0] bg-[radial-gradient(ellipse_at_center,#efe3c8,#d8c39a)] px-4 py-3 text-center text-[#2b1d10] shadow-2xl ring-1 ring-black/40`}>
         <p className="font-serif text-3xl font-black tracking-[0.15em]">WANTED</p>
         <p className="-mt-1 font-serif text-[10px] font-bold tracking-[0.3em]">DEAD OR ALIVE</p>
         <p className="mt-1 truncate font-serif text-lg font-bold">{hud.captain}</p>
@@ -535,9 +609,9 @@ function Hud({ hud }: { hud: HudState }) {
         <p className="mt-2 text-lg font-bold text-amber-300 drop-shadow">{hud.gold.toLocaleString("en-US")} gold</p>
       </div>
 
-      {hud.mode === "ship" ? <ShipPanel hud={hud} /> : <FootPanel hud={hud} />}
-      {hud.fruit && <PowerBadge fruit={hud.fruit} />}
-      {hud.awaken && <AwakenBadge awaken={hud.awaken} />}
+      {hud.mode === "ship" ? <ShipPanel hud={hud} touch={touch} /> : <FootPanel hud={hud} touch={touch} />}
+      {hud.fruit && !touch && <PowerBadge fruit={hud.fruit} />}
+      {hud.awaken && !touch && <AwakenBadge awaken={hud.awaken} />}
       {hud.awaken && hud.awaken.active > 0 && (
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_120px_40px_rgba(127,29,29,0.55)]" />
       )}
@@ -548,7 +622,7 @@ function Hud({ hud }: { hud: HudState }) {
           The storm wall drives you back. Wrathwater ends here.
         </div>
       )}
-      {((hud.mode === "ship" && hud.aimSide !== null && !hud.inHaven) || (hud.mode === "foot" && hud.pointerLocked)) && (
+      {((hud.mode === "ship" && hud.aimSide !== null && !hud.inHaven) || (hud.mode === "foot" && (hud.pointerLocked || hud.noMouse || touch))) && (
         <div className="pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2">
           <div className="absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 bg-white/80" />
           <div className="absolute left-0 top-1/2 h-0.5 w-full -translate-y-1/2 bg-white/80" />
@@ -608,10 +682,10 @@ function Bar({ frac, color }: { frac: number; color: string }) {
   );
 }
 
-function ShipPanel({ hud }: { hud: HudState }) {
+function ShipPanel({ hud, touch }: { hud: HudState; touch: boolean }) {
   const hpFrac = hud.maxHp ? hud.hp / hud.maxHp : 0;
   return (
-    <div className="pointer-events-none absolute bottom-4 left-4 w-64 rounded-xl bg-black/60 p-3 ring-1 ring-white/10 backdrop-blur">
+    <div className={`pointer-events-none absolute bottom-4 left-4 w-64 rounded-xl bg-black/60 p-3 ring-1 ring-white/10 backdrop-blur ${touch ? "origin-bottom-left scale-75" : ""}`}>
       <div className="flex items-baseline justify-between text-xs uppercase tracking-widest text-zinc-400">
         <span>Hull</span>
         <span className="text-sm font-bold text-white">
@@ -636,10 +710,10 @@ function ShipPanel({ hud }: { hud: HudState }) {
   );
 }
 
-function FootPanel({ hud }: { hud: HudState }) {
+function FootPanel({ hud, touch }: { hud: HudState; touch: boolean }) {
   const hpFrac = hud.heroMaxHp ? hud.heroHp / hud.heroMaxHp : 0;
   return (
-    <div className="pointer-events-none absolute bottom-4 left-4 w-64 rounded-xl bg-black/60 p-3 ring-1 ring-white/10 backdrop-blur">
+    <div className={`pointer-events-none absolute bottom-4 left-4 w-64 rounded-xl bg-black/60 p-3 ring-1 ring-white/10 backdrop-blur ${touch ? "origin-bottom-left scale-75" : ""}`}>
       <div className="flex items-baseline justify-between text-xs uppercase tracking-widest text-zinc-400">
         <span>Health</span>
         <span className="text-sm font-bold text-white">

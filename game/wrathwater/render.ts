@@ -38,6 +38,26 @@ export interface CameraView {
   aimSide: Side | null;
   /** On foot and aiming a gun or power. */
   aiming: boolean;
+  /** Seen through your own eyes (on foot) or from the helm (at sea). */
+  firstPerson: boolean;
+  /** In VR: the map angle your play space faces (head turning is added on top). */
+  vrYaw: number;
+}
+
+/** In VR, one real meter is this many world units (a person is about 18 units tall). */
+export const VR_SCALE = 10;
+
+/** One VR hand controller: where it is, what it's pointing at, and its buttons. */
+export interface VrHandState {
+  gamepad: Gamepad | null;
+  /** Map angle the controller points along. */
+  yaw: number;
+}
+
+/** Where your eyes are when you stand at the helm: on the stern castle roof. */
+function helmLocal(s: { cls: { length: number; beam: number } }, eye: number) {
+  // A little off the centerline so the mainmast isn't dead in front of you.
+  return new THREE.Vector3(-s.cls.length * 0.36, 5 + s.cls.beam * 0.14 + 22 + eye, s.cls.beam * 0.24);
 }
 
 // ---------------------------------------------------------------- shaders
@@ -231,6 +251,12 @@ export class SeaRenderer {
   private bloom: UnrealBloomPass;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(60, 1, 1, 3400);
+  /** Holds the camera (and, in VR, your hands): moved to where you stand. */
+  private rig = new THREE.Group();
+  private vrHands: { left: THREE.Group | null; right: THREE.Group | null } = { left: null, right: null };
+  private vrSources: { left: XRInputSource | null; right: XRInputSource | null } = { left: null, right: null };
+  private vrHud: { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture; mesh: THREE.Mesh } | null = null;
+  private firstPersonSails = false;
   private ocean: THREE.Mesh;
   private oceanUniforms: Record<string, THREE.IUniform>;
   private sky: THREE.Mesh;
@@ -344,6 +370,11 @@ export class SeaRenderer {
     this.aimMarker.visible = false;
     this.scene.add(this.aimMarker);
 
+    // VR: the camera and hands ride on a rig that's moved to where you stand.
+    this.rig.add(this.camera);
+    this.scene.add(this.rig);
+    this.setupVr();
+
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.5, 0.92);
@@ -388,9 +419,180 @@ export class SeaRenderer {
     this.smoke.update(dt);
     this.glow.update(dt);
     this.effects.update(dt);
+    this.updateFirstPersonSails(sim, view);
+    if (this.renderer.xr.isPresenting) {
+      this.placeVrRig(sim, view);
+      this.placeAimMarker(sim, view);
+      // No bloom in VR: the headset draws each eye directly.
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     this.placeCamera(sim, view, dt);
     this.placeAimMarker(sim, view);
     this.composer.render(dt);
+  }
+
+  /** Run the game loop through the renderer, so it keeps going inside a VR headset. */
+  setLoop(fn: ((time: number) => void) | null) {
+    this.renderer.setAnimationLoop(fn);
+  }
+
+  get inVr() {
+    return this.renderer.xr.isPresenting;
+  }
+
+  async startVr(session: XRSession) {
+    this.renderer.xr.setReferenceSpaceType("local-floor");
+    await this.renderer.xr.setSession(session);
+    this.camera.near = 0.1;
+    this.camera.updateProjectionMatrix();
+  }
+
+  endVr() {
+    this.renderer.xr.getSession()?.end().catch(() => {});
+  }
+
+  /** Called when the headset session ends. */
+  vrEnded() {
+    this.rig.position.set(0, 0, 0);
+    this.rig.rotation.set(0, 0, 0);
+    this.rig.scale.setScalar(1);
+    this.camera.near = 1;
+    this.camera.position.set(0, 0, 0);
+    this.camReady = false;
+    this.resize();
+  }
+
+  /** Map angle your head is facing in VR. */
+  vrHeadYaw(): number | null {
+    if (!this.renderer.xr.isPresenting) return null;
+    const d = new THREE.Vector3();
+    this.renderer.xr.getCamera().getWorldDirection(d);
+    return Math.atan2(d.z, d.x);
+  }
+
+  vrHand(hand: "left" | "right"): VrHandState {
+    const src = this.vrSources[hand];
+    const g = this.vrHands[hand];
+    let yaw = this.vrHeadYaw() ?? 0;
+    if (g) {
+      const d = new THREE.Vector3(0, 0, -1).applyQuaternion(g.getWorldQuaternion(new THREE.Quaternion()));
+      if (Math.hypot(d.x, d.z) > 0.2) yaw = Math.atan2(d.z, d.x);
+    }
+    return { gamepad: src?.gamepad ?? null, yaw };
+  }
+
+  private setupVr() {
+    this.renderer.xr.enabled = true;
+    this.renderer.xr.setFoveation(1);
+    const fistMat = new THREE.MeshStandardMaterial({ color: "#d9a17a", roughness: 0.7 });
+    for (const i of [0, 1]) {
+      const ray = this.renderer.xr.getController(i);
+      const grip = this.renderer.xr.getControllerGrip(i);
+      this.rig.add(ray, grip);
+      // A fist where your hand is.
+      const fist = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 10), fistMat);
+      fist.scale.set(1, 0.85, 1.3);
+      grip.add(fist);
+      ray.addEventListener("connected", (e) => {
+        const src = (e as unknown as { data: XRInputSource }).data;
+        const hand = src.handedness === "left" ? "left" : "right";
+        this.vrSources[hand] = src;
+        this.vrHands[hand] = ray;
+        if (hand === "right") {
+          // An aiming line from your right hand.
+          const line = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -2.5)]),
+            new THREE.LineBasicMaterial({ color: "#fde68a", transparent: true, opacity: 0.5 }),
+          );
+          line.name = "aim";
+          ray.add(line);
+        } else {
+          // Your health and the rest, on a screen strapped to your left wrist.
+          grip.add(this.makeVrHud());
+        }
+      });
+      ray.addEventListener("disconnected", () => {
+        for (const h of ["left", "right"] as const) if (this.vrHands[h] === ray) {
+          this.vrHands[h] = null;
+          this.vrSources[h] = null;
+        }
+        ray.getObjectByName("aim")?.removeFromParent();
+      });
+    }
+  }
+
+  private makeVrHud() {
+    if (this.vrHud) return this.vrHud.mesh;
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 384;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.2, 0.15),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false }),
+    );
+    mesh.renderOrder = 10;
+    mesh.position.set(0, 0.06, 0.06);
+    mesh.rotation.x = -Math.PI / 2.6;
+    this.vrHud = { canvas, tex, mesh };
+    return mesh;
+  }
+
+  /** Redraw the wrist screen: one line per entry, with an optional color. */
+  drawVrHud(lines: { text: string; color?: string; size?: number }[]) {
+    const h = this.vrHud;
+    if (!h || !this.renderer.xr.isPresenting) return;
+    const g = h.canvas.getContext("2d")!;
+    g.clearRect(0, 0, 512, 384);
+    g.fillStyle = "rgba(0,0,0,0.72)";
+    g.beginPath();
+    g.roundRect(4, 4, 504, 376, 24);
+    g.fill();
+    let y = 20;
+    for (const l of lines) {
+      const size = l.size ?? 30;
+      g.font = `bold ${size}px sans-serif`;
+      g.fillStyle = l.color ?? "#f4f4f5";
+      g.textBaseline = "top";
+      g.fillText(l.text, 22, y, 470);
+      y += size + 10;
+    }
+    h.tex.needsUpdate = true;
+  }
+
+  /** In VR you stand where your hero (or your helm) is, and the rig turns with your ship. */
+  private placeVrRig(sim: Sim, view: CameraView) {
+    const hero = sim.mode === "foot" ? sim.shore.hero : null;
+    let feet: THREE.Vector3;
+    if (hero) feet = new THREE.Vector3(hero.x, hero.y, hero.z);
+    else {
+      const v = this.ships.get(sim.player.id);
+      feet = v ? v.group.localToWorld(helmLocal(sim.player, 0)) : new THREE.Vector3(sim.player.x, 30, sim.player.z);
+    }
+    this.rig.position.copy(feet);
+    this.rig.rotation.set(0, -view.vrYaw - Math.PI / 2, 0);
+    this.rig.scale.setScalar(VR_SCALE);
+    this.rig.updateMatrixWorld(true);
+    this.camTarget.set(feet.x, feet.y, feet.z);
+    const cell = OCEAN_SIZE / OCEAN_SEGMENTS;
+    this.ocean.position.set(Math.round(feet.x / cell) * cell, 0, Math.round(feet.z / cell) * cell);
+    this.sky.position.copy(feet);
+  }
+
+  /** From the helm your own sails would fill the view, so they turn see-through. */
+  private updateFirstPersonSails(sim: Sim, view: CameraView) {
+    const want = (view.firstPerson || this.renderer.xr.isPresenting) && sim.mode === "ship";
+    const v = this.ships.get(sim.player.id);
+    if (!v || !v.sails.length) return;
+    if (want === this.firstPersonSails && (v.sails[0].material as THREE.Material).transparent === want) return;
+    this.firstPersonSails = want;
+    const mat = v.sails[0].material as THREE.MeshStandardMaterial;
+    mat.transparent = want;
+    mat.opacity = want ? 0.28 : 1;
+    mat.depthWrite = !want;
+    mat.needsUpdate = true;
   }
 
   // ---------------------------------------------------------------- sky
@@ -654,7 +856,7 @@ export class SeaRenderer {
       const isHero = w === shore.hero;
       posePerson(v, w, dt, isHero ? view.aiming : w.swing < 0.6);
       // Smoke-Smoke: you flicker in and out of sight. Also hide yourself if the camera is pressed right up against you.
-      const tooClose = isHero && this.camPos.distanceTo(v.group.position) < 22;
+      const tooClose = isHero && (view.firstPerson || this.renderer.xr.isPresenting || this.camPos.distanceTo(v.group.position) < 22);
       v.group.visible = !tooClose && !(isHero && sim.hidden && Math.sin(sim.time * 18) > 0.3);
       // Bounce Body: you puff up like a ball.
       const puffed = isHero && sim.bouncing ? 1 + 0.08 * Math.sin(sim.time * 14) : 0;
@@ -809,6 +1011,42 @@ export class SeaRenderer {
 
   private placeCamera(sim: Sim, view: CameraView, dt: number) {
     const hero = sim.mode === "foot" ? sim.shore.hero : null;
+    if (view.firstPerson) {
+      let eye: THREE.Vector3;
+      let fovBoost = 0;
+      if (hero) {
+        // Your eyes, with a little bob as you walk.
+        const bob = hero.moving && !hero.swimming ? Math.sin(sim.time * (sim.input.sprint ? 15 : 10)) * 0.6 : 0;
+        eye = new THREE.Vector3(hero.x, hero.y + 17 + bob, hero.z);
+        if (sim.input.sprint && hero.moving) fovBoost = 6;
+      } else {
+        const v = this.ships.get(sim.player.id);
+        eye = v ? v.group.localToWorld(helmLocal(sim.player, 17)) : new THREE.Vector3(sim.player.x, 45, sim.player.z);
+        fovBoost = (sim.player.speed / sim.player.stats.speed) * 5;
+      }
+      const cp = Math.cos(view.pitch);
+      const dir = new THREE.Vector3(Math.cos(view.yaw) * cp, -Math.sin(view.pitch), Math.sin(view.yaw) * cp);
+      const shook = eye.clone();
+      if (this.shake > 0.01) {
+        shook.x += (Math.random() - 0.5) * this.shake * 2;
+        shook.y += (Math.random() - 0.5) * this.shake * 2;
+        this.shake *= Math.exp(-dt * 5);
+      }
+      this.camera.position.copy(shook);
+      this.camera.lookAt(shook.clone().add(dir));
+      this.camPos.copy(eye);
+      this.camTarget.copy(eye);
+      this.camReady = false;
+      const fov = 72 + fovBoost;
+      if (Math.abs(this.camera.fov - fov) > 0.05) {
+        this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 3);
+        this.camera.updateProjectionMatrix();
+      }
+      const cell = OCEAN_SIZE / OCEAN_SEGMENTS;
+      this.ocean.position.set(Math.round(eye.x / cell) * cell, 0, Math.round(eye.z / cell) * cell);
+      this.sky.position.copy(eye);
+      return;
+    }
     let target: THREE.Vector3;
     let dist = view.distance;
     let fovBoost = 0;
