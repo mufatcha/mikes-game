@@ -9,6 +9,8 @@ import {
   SHOT_RECIPE,
   WEAPONS,
   WEAPON_ORDER,
+  STRETCH,
+  STRETCH_MOVES,
   fruitInfo,
   type FruitId,
   type MaterialId,
@@ -52,7 +54,15 @@ export interface HudState {
   nearStorm: boolean;
   pointerLocked: boolean;
   weapon: { id: WeaponId; name: string; ready: number; ammo: number | null };
-  fruit: { id: FruitId; name: string; power: string; ready: number } | null;
+  fruit: {
+    id: FruitId;
+    name: string;
+    power: string;
+    ready: number;
+    /** The Stretch Fruit's moves (T switches, R uses the selected one). */
+    moves?: { name: string; ready: number; selected: boolean }[];
+    bouncing?: boolean;
+  } | null;
   /** The Kill Order Fruit's awakened form, once you know its real name. */
   awaken: { active: number; ready: number } | null;
   prompt: { label: string; key: string; hold: number; progress: number } | null;
@@ -312,6 +322,7 @@ export class WrathwaterEngine {
     this.audio.fanfare();
     const info = fruitInfo(fruit, s.trueName);
     this.notice(`You ate the ${info.name}! Press R to use ${info.power}. You can never swim again.`, "bounty");
+    if (fruit === "gomu") this.notice("Five moves: press T to switch, R to use.", "info");
     if (this.sim.canAwaken) this.notice("Its true power is yours: press V to awaken it.", "bounty");
     this.save();
     return true;
@@ -590,7 +601,18 @@ export class WrathwaterEngine {
         break;
       case "awakened":
         this.audio.power("gomu");
-        this.notice(e.on ? "KILL ORDER AWAKENING! Nothing can touch you for 20 seconds." : "The awakening fades. It needs 2 minutes to rest.", e.on ? "bounty" : "info");
+        this.notice(
+          e.on
+            ? `KILL ORDER AWAKENING! The secret form: every move is monstrous for ${AWAKEN_TIME} seconds.`
+            : `The secret form fades. It rests for ${AWAKEN_COOLDOWN} seconds.`,
+          e.on ? "bounty" : "info",
+        );
+        break;
+      case "carrierSighted":
+        this.notice("A pirate brig with an odd purple lantern is on the horizon.", "info");
+        break;
+      case "switchMove":
+        this.audio.step();
         break;
       case "robbed": {
         this.audio.coin();
@@ -686,8 +708,16 @@ export class WrathwaterEngine {
         ? {
             id: fruit,
             name: fruitInfo(fruit, sim.save.trueName).name,
-            power: fruitInfo(fruit, sim.save.trueName).power,
-            ready: Math.max(0, 1 - sim.fruitCooldown / (FRUITS[fruit].cooldown * (sim.awakened ? 1 / 3 : 1))),
+            power: fruit === "gomu" ? STRETCH[sim.stretchMove].name : fruitInfo(fruit, sim.save.trueName).power,
+            ready:
+              fruit === "gomu"
+                ? sim.moveReady(sim.stretchMove)
+                : Math.max(0, 1 - sim.fruitCooldown / (FRUITS[fruit].cooldown * (sim.awakened ? 1 / 3 : 1))),
+            moves:
+              fruit === "gomu"
+                ? STRETCH_MOVES.map((m) => ({ name: STRETCH[m].name, ready: sim.moveReady(m), selected: m === sim.stretchMove }))
+                : undefined,
+            bouncing: sim.bouncing,
           }
         : null,
       awaken: sim.canAwaken
@@ -863,6 +893,7 @@ export class WrathwaterEngine {
       const sim = this.sim;
       const foot = sim.mode === "foot";
       if (e.code === "KeyR") sim.input.ability = true;
+      else if (e.code === "KeyT") sim.cycleMove();
       else if (e.code === "KeyV") {
         if (!sim.awaken() && sim.canAwaken && !sim.awakened) this.notice("The awakening is still resting.", "info");
       }

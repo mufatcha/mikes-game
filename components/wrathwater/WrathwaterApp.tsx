@@ -24,6 +24,8 @@ import {
   WEAPON_ORDER,
   fruitInfo,
   KILL_ORDER,
+  STRETCH,
+  STRETCH_MOVES,
   type FruitId,
   type MaterialId,
 } from "@/game/wrathwater/items";
@@ -227,6 +229,7 @@ function HowToPlay() {
   ];
   const both: [string, string][] = [
     ["R", "Use your Devil Fruit power"],
+    ["T", "Switch Stretch Fruit move"],
     ["V", "Awaken your fruit (if you know its real name)"],
     ["I / Tab", "Inventory and crafting"],
     ["W W S S A D A D", "Cheat menu"],
@@ -260,6 +263,7 @@ function HowToPlay() {
         <li>Towns have banks, shops and armories to rob, guarded by Marines.</li>
         <li>Craft weapons from timber, iron and gunpowder (I). Armories have weapons to steal.</li>
         <li>Devil Fruits grant a power, but fruit eaters can never swim again.</li>
+        <li>Sailors swear one pirate crew keeps something strange in a chest on deck, and that their lantern doesn&apos;t burn like the others.</li>
         <li>Three town captains, the Vault Wardens, each carry a key. Rumor says they open a vault somewhere no pirate has ever reached.</li>
       </ul>
       {table("At sea", sea)}
@@ -671,7 +675,27 @@ function PowerBadge({ fruit }: { fruit: NonNullable<HudState["fruit"]> }) {
       </div>
       <div>
         <p className="text-[10px] uppercase tracking-widest text-zinc-400">{fruit.name}</p>
-        <p className={`text-sm font-bold ${ready ? "text-white" : "text-zinc-500"}`}>{fruit.power}</p>
+        <p className={`text-sm font-bold ${ready ? "text-white" : "text-zinc-500"}`}>
+          {fruit.power}
+          {fruit.bouncing && <span className="ml-2 text-xs text-fuchsia-300">BOUNCING</span>}
+        </p>
+        {fruit.moves && (
+          <div className="mt-1 flex items-center gap-1">
+            <span className="mr-1 rounded bg-white/10 px-1 font-mono text-[10px] text-zinc-300">T</span>
+            {fruit.moves.map((m) => (
+              <span
+                key={m.name}
+                title={m.name}
+                className={`relative overflow-hidden rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                  m.selected ? "bg-white/25 text-white ring-1 ring-white/60" : "bg-white/5 text-zinc-400"
+                }`}
+              >
+                <span className="absolute inset-y-0 left-0 opacity-40" style={{ width: `${m.ready * 100}%`, background: def.color }} />
+                <span className="relative">{m.name.split(" ")[0]}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -917,6 +941,16 @@ function FruitCard({ fruit, note, trueName = false }: { fruit: FruitId; note: st
         <p className="text-sm text-zinc-300">
           <span className="font-semibold text-amber-200">{def.power}:</span> {def.description}
         </p>
+        {fruit === "gomu" && (
+          <ul className="mt-1 space-y-0.5 text-xs text-zinc-300">
+            {STRETCH_MOVES.map((m) => (
+              <li key={m}>
+                <span className="font-semibold text-amber-200">{STRETCH[m].name}:</span> {STRETCH[m].foot} At sea: {STRETCH[m].sea}
+                {trueName && <span className="text-red-400"> Awakened: {STRETCH[m].awakened}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
         <p className="mt-0.5 text-xs text-zinc-500">{note}</p>
       </div>
     </div>

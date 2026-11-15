@@ -84,7 +84,7 @@ export const FRUITS: Record<FruitId, FruitDef> = {
   },
   gomu: {
     id: "gomu", name: "Stretch Fruit", power: "Stretch Punch",
-    description: "Your body turns stretchy. On foot: a punch that reaches across the street. At sea: fire both broadsides at once. Bullets bounce off you (half damage). Some say \"Stretch\" isn't its real name...",
+    description: "Your body turns stretchy: five moves, switch with T and use with R. Bullets bounce off you (half damage). Some say \"Stretch\" isn't its real name...",
     cooldown: 7, color: "#a855f7", swirl: "#f0abfc",
   },
   moku: {
@@ -107,7 +107,43 @@ export const KILL_ORDER = {
   color: "#b91c1c",
   swirl: "#0a0a0a",
   description:
-    "Its real name, kept secret by the Marines: the Kill Order Fruit. Press V to awaken it for 20 seconds: a crimson-and-black aura, bullets and cannonballs bounce off, blades only scratch, the punch reaches twice as far and hits twice as hard, and it comes back three times as fast. Then it needs 2 minutes to rest.",
+    "Its real name, kept secret by the Marines: the Kill Order Fruit. Press V to awaken its secret form for 45 seconds: a crimson-and-black aura, bullets and cannonballs bounce off, blades only scratch, and every move becomes monstrous (far bigger, far harder, and back almost at once). Then it rests for 75 seconds.",
+};
+
+/** The Stretch Fruit's five moves. T switches between them, R uses the one selected. */
+export type StretchMove = "punch" | "sling" | "grab" | "bounce" | "flurry";
+export const STRETCH_MOVES: StretchMove[] = ["punch", "sling", "grab", "bounce", "flurry"];
+export const STRETCH: Record<StretchMove, { name: string; cooldown: number; foot: string; sea: string; awakened: string }> = {
+  punch: {
+    name: "Stretch Punch", cooldown: 6,
+    foot: "A punch that reaches across the street.",
+    sea: "Fire both broadsides at once, reloaded or not.",
+    awakened: "Reaches twice as far, hits five times as hard and ends in a shockwave. At sea it also smashes the ship you aim at.",
+  },
+  sling: {
+    name: "Slingshot Launch", cooldown: 8,
+    foot: "Stretch back and fling yourself forward, bowling over anyone in the way and slamming down where you land.",
+    sea: "Sling your ship forward at huge speed and ram anything in the way.",
+    awakened: "Twice the distance; the landing (or the ram) flattens everything around it.",
+  },
+  grab: {
+    name: "Grab and Swing", cooldown: 9,
+    foot: "Grab an enemy from far away, swing them through everyone around you and hurl them.",
+    sea: "Grab an enemy ship, spin it around and fling it away.",
+    awakened: "Grabs from twice as far and hurls them like a cannonball. Ships get torn apart.",
+  },
+  bounce: {
+    name: "Bounce Body", cooldown: 16,
+    foot: "Puff up for 6 seconds: bullets and blades bounce off and hit back the ones who threw them.",
+    sea: "For 6 seconds, cannonballs bounce off your hull.",
+    awakened: "Lasts 15 seconds and sends five times the damage back.",
+  },
+  flurry: {
+    name: "Spinning Punch Flurry", cooldown: 11,
+    foot: "A storm of fists for 1.5 seconds, pounding everything in front of you.",
+    sea: "Pound the ship you aim at with a rain of giant fists.",
+    awakened: "Spins all the way around you for 3 seconds, hitting everything in reach, three times as hard.",
+  },
 };
 
 /** A fruit's name and power as you know them (the Stretch Fruit's changes once you know its real name). */

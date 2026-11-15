@@ -212,18 +212,20 @@ export class Effects {
     });
   }
 
-  stretch(x: number, y: number, z: number, tx: number, tz: number) {
+  stretch(x: number, y: number, z: number, tx: number, tz: number, thick = 1, color = "#d9a17a", life = 0.28) {
     const len = Math.hypot(tx - x, tz - z);
-    const mat = new THREE.MeshStandardMaterial({ color: "#d9a17a" });
+    const mat = new THREE.MeshStandardMaterial({ color, emissive: new THREE.Color(color), emissiveIntensity: color === "#d9a17a" ? 0 : 0.6 });
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 6), mat);
     arm.rotation.z = Math.PI / 2;
     const pivot = new THREE.Group();
     pivot.add(arm);
     pivot.position.set(x, y, z);
     pivot.rotation.y = -Math.atan2(tz - z, tx - x);
+    pivot.scale.set(1, thick, thick);
     const fist = new THREE.Mesh(new THREE.SphereGeometry(2.4, 10, 8), mat);
+    fist.scale.set(thick, 1, 1);
     pivot.add(fist);
-    this.add(pivot, 0.28, (k) => {
+    this.add(pivot, life, (k) => {
       const ext = Math.sin(k * Math.PI) * len;
       arm.scale.set(1, Math.max(0.01, ext), 1);
       arm.position.x = ext / 2;

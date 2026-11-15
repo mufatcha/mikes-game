@@ -2,7 +2,7 @@
  * Wrathwater on foot: going ashore, walking/swimming, fighting Marines and
  * bandits, looting islands, robbing towns, and Devil Fruit powers.
  */
-import { FRUITS, FRUIT_IDS, PLAYER_FOOT_HP, WEAPONS, WEAPON_ORDER, type FruitId, type WeaponId } from "./items";
+import { FRUITS, FRUIT_IDS, PLAYER_FOOT_HP, WEAPONS, WEAPON_ORDER, type FruitId, type StretchMove, type WeaponId } from "./items";
 import type { Sim } from "./sim";
 import { BEACH_TOP, ISLANDS, groundHeight, islandAt, waveHeight, type Building, type BuildingKind, type Island, type LootSpot, type ServiceKind } from "./world";
 
@@ -173,6 +173,8 @@ export class Shore {
 
   /** After respawning at the haven. */
   reset() {
+    this.launch = null;
+    this.flurry = null;
     this.hero = null;
     this.hold = null;
     this.walkers = [];
@@ -204,6 +206,8 @@ export class Shore {
       if (h.dead >= 0) h.dead += dt;
       else if (this.sim.time - this.lastHeroHit > 7) h.hp = Math.min(h.maxHp, h.hp + 6 * dt);
     }
+    if (h && h.dead < 0) this.updateFlurry(h, dt);
+    else this.flurry = null;
     this.updateShots(dt);
     this.updateHold(dt);
   }
@@ -219,14 +223,15 @@ export class Shore {
     let speed = h.swimming ? SWIM : inp.sprint ? SPRINT : WALK;
     if (hidden) speed *= 1.35;
     h.moving = len > 0.1;
-    if (h.moving) {
+    const launching = this.updateLaunch(h, dt);
+    if (h.moving && !launching) {
       const nx = h.x + (inp.moveX / Math.max(1, len)) * speed * dt;
       const nz = h.z + (inp.moveZ / Math.max(1, len)) * speed * dt;
       h.x = nx;
       h.z = nz;
       if (!inp.attackHeld) h.heading = Math.atan2(inp.moveZ, inp.moveX);
     }
-    if (inp.attackHeld || inp.aiming) h.heading = inp.aimYaw;
+    if ((inp.attackHeld || inp.aiming) && !launching) h.heading = inp.aimYaw;
     this.collide(h);
     const g = groundHeight(h.x, h.z);
     h.swimming = g === null;
@@ -402,6 +407,12 @@ export class Shore {
     if (h.dead >= 0) return;
     // Rubber shrugs off bullets.
     const gun = from !== null && WEAPONS[from.weapon].kind === "gun";
+    // Bounce Body: bullets and blades bounce straight back at whoever sent them.
+    if (this.sim.bouncing && from) {
+      this.sim.events.push({ k: "power", fruit: "gomu", x: h.x, z: h.z, tx: from.x, tz: from.z, move: "bounce", awake: this.sim.awakened });
+      if (from.dead < 0) this.damageWalker(from, amount * (this.sim.awakened ? 5 : 1.5), true);
+      return;
+    }
     // Awakened: bullets do nothing and blades only scratch.
     if (this.sim.awakened && gun) return;
     const rubber = this.sim.save.fruit === "gomu" && gun;
@@ -426,6 +437,7 @@ export class Shore {
 
   private useFootPower(h: Walker) {
     const fruit = this.sim.save.fruit;
+    if (fruit === "gomu") return this.footStretch(h);
     if (!fruit || this.sim.fruitCooldown > 0) return;
     this.sim.fruitCooldown = FRUITS[fruit].cooldown * (this.sim.awakened ? 1 / 3 : 1);
     const aim = this.sim.input.aimYaw;
@@ -447,18 +459,6 @@ export class Shore {
         this.explode(tx, tz, 40, 95, true);
         break;
       }
-      case "gomu": {
-        // Awakened, the punch reaches twice as far, hits twice as hard and ends in a shockwave.
-        const awake = this.sim.awakened;
-        const reach = awake ? 280 : 140;
-        const tx = h.x + Math.cos(aim) * reach;
-        const tz = h.z + Math.sin(aim) * reach;
-        this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx, tz });
-        const t = this.nearestInFront(h, reach + 10, 0.85);
-        if (t) this.damageWalker(t, awake ? 150 : 75, true);
-        if (awake && t) this.explode(t.x, t.z, 45, 60, true);
-        break;
-      }
       case "moku":
         this.sim.smoke(8);
         this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx: h.x, tz: h.z });
@@ -468,6 +468,138 @@ export class Shore {
         this.explode(h.x, h.z, 170, 85, true);
         break;
     }
+  }
+
+  // ---------------------------------------------------------------- the Stretch Fruit on foot
+
+  private launch: { dir: number; t: number; speed: number; hit: Set<number> } | null = null;
+  private flurry: { t: number; tick: number } | null = null;
+
+  private stretchFx(h: Walker, move: StretchMove, tx: number, tz: number) {
+    this.sim.events.push({ k: "power", fruit: "gomu", x: h.x, z: h.z, tx, tz, move, awake: this.sim.awakened });
+  }
+
+  private footStretch(h: Walker) {
+    if (this.launch || this.flurry) return;
+    const m = this.sim.takeMove();
+    if (!m) return;
+    const aw = this.sim.awakened;
+    const aim = this.sim.input.aimYaw;
+    const cx = Math.cos(aim);
+    const cz = Math.sin(aim);
+    h.heading = aim;
+    h.swing = 0;
+    switch (m) {
+      case "punch": {
+        const reach = aw ? 300 : 140;
+        this.stretchFx(h, m, h.x + cx * reach, h.z + cz * reach);
+        const t = this.nearestInFront(h, reach + 10, 0.85);
+        if (t) this.damageWalker(t, aw ? 400 : 75, true);
+        if (aw && t) this.explode(t.x, t.z, 90, 150, true);
+        break;
+      }
+      case "sling":
+        // Arms stretch back, then you fly.
+        this.stretchFx(h, m, h.x - cx * 45, h.z - cz * 45);
+        this.launch = { dir: aim, t: aw ? 0.45 : 0.3, speed: aw ? 1300 : 900, hit: new Set() };
+        break;
+      case "grab": {
+        const reach = aw ? 340 : 170;
+        const t = this.nearestInFront(h, reach, 0.6);
+        if (!t) {
+          this.stretchFx(h, m, h.x + cx * reach, h.z + cz * reach);
+          this.sim.moveCd.grab = 1;
+          break;
+        }
+        this.stretchFx(h, m, t.x, t.z);
+        // Swing them round through everyone near you...
+        for (const w of this.walkers) {
+          if (w === t || w.dead >= 0) continue;
+          if (Math.hypot(w.x - h.x, w.z - h.z) < (aw ? 150 : 80)) this.damageWalker(w, aw ? 200 : 40, true);
+        }
+        this.damageWalker(t, aw ? 350 : 60, true);
+        // ...then hurl them.
+        const dist = aw ? 300 : 140;
+        const nx = h.x + cx * dist;
+        const nz = h.z + cz * dist;
+        if (groundHeight(nx, nz) !== null) {
+          t.x = nx;
+          t.z = nz;
+        }
+        this.explode(t.x, t.z, aw ? 120 : 45, aw ? 220 : 40, true);
+        break;
+      }
+      case "bounce":
+        this.sim.bounceUntil = this.sim.time + (aw ? 15 : 6);
+        this.stretchFx(h, m, h.x, h.z);
+        break;
+      case "flurry":
+        this.flurry = { t: aw ? 3 : 1.5, tick: 0 };
+        break;
+    }
+  }
+
+  /** Slingshot Launch in flight. Returns true while you're flying. */
+  private updateLaunch(h: Walker, dt: number) {
+    const L = this.launch;
+    if (!L) return false;
+    const aw = this.sim.awakened;
+    const nx = h.x + Math.cos(L.dir) * L.speed * dt;
+    const nz = h.z + Math.sin(L.dir) * L.speed * dt;
+    // Stop at the shore rather than flying into the sea.
+    if (groundHeight(nx, nz) === null) L.t = 0;
+    else {
+      const ox = h.x;
+      const oz = h.z;
+      h.x = nx;
+      h.z = nz;
+      this.collide(h);
+      // Hit a wall: slam down right there.
+      if (Math.hypot(h.x - ox, h.z - oz) < L.speed * dt * 0.3) L.t = 0;
+    }
+    h.heading = L.dir;
+    h.moving = true;
+    for (const w of this.walkers) {
+      if (w.dead >= 0 || L.hit.has(w.id) || Math.hypot(w.x - h.x, w.z - h.z) > (aw ? 40 : 24)) continue;
+      L.hit.add(w.id);
+      this.damageWalker(w, aw ? 150 : 35, true);
+    }
+    L.t -= dt;
+    if (L.t <= 0) {
+      this.launch = null;
+      this.explode(h.x, h.z, aw ? 160 : 55, aw ? 250 : 50, true);
+    }
+    return true;
+  }
+
+  /** Spinning Punch Flurry: a storm of fists. */
+  private updateFlurry(h: Walker, dt: number) {
+    const f = this.flurry;
+    if (!f) return;
+    const aw = this.sim.awakened;
+    f.t -= dt;
+    f.tick -= dt;
+    if (f.tick <= 0) {
+      f.tick = 0.08;
+      const aim = this.sim.input.aimYaw;
+      h.heading = aim;
+      h.swing = 0;
+      const reach = aw ? 230 : 110;
+      for (const w of this.walkers) {
+        if (w.dead >= 0) continue;
+        const dx = w.x - h.x;
+        const dz = w.z - h.z;
+        const d = Math.hypot(dx, dz);
+        if (d > reach || d < 1) continue;
+        if (!aw && (dx * Math.cos(aim) + dz * Math.sin(aim)) / d < 0.5) continue;
+        this.damageWalker(w, aw ? 30 : 9, true);
+      }
+      // Fists everywhere (all the way round when awakened).
+      const a = aw ? Math.random() * Math.PI * 2 : aim + (Math.random() - 0.5) * 1.1;
+      const r = reach * (0.6 + Math.random() * 0.4);
+      this.stretchFx(h, "flurry", h.x + Math.cos(a) * r, h.z + Math.sin(a) * r);
+    }
+    if (f.t <= 0) this.flurry = null;
   }
 
   private nearestInFront(h: Walker, range: number, cone: number) {
@@ -734,7 +866,8 @@ export class Shore {
 
   private unfoundFruit(): FruitId | null {
     const s = this.sim.save;
-    const left = FRUIT_IDS.filter((f) => !s.fruitsFound.includes(f));
+    // The Stretch Fruit isn't buried anywhere: one pirate brig carries it.
+    const left = FRUIT_IDS.filter((f) => f !== "gomu" && !s.fruitsFound.includes(f));
     return left.length ? left[Math.floor(Math.random() * left.length)] : null;
   }
 

@@ -197,9 +197,20 @@ export function buildShip(ship: Ship): ShipVisual {
   bowsprit.position.set(L * 0.58, freeboard + 4, 0);
   group.add(bowsprit);
   const lanternMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 2.4, 0.9) });
-  const lantern = new THREE.Mesh(new THREE.SphereGeometry(1.3, 8, 6), lanternMat);
+  const lantern = new THREE.Mesh(new THREE.SphereGeometry(ship.fruitCarrier ? 2.4 : 1.3, 8, 6), lanternMat);
   lantern.position.set(-L * 0.5, freeboard + 25, 0);
   group.add(lantern);
+  if (ship.fruitCarrier) {
+    // A chest on deck with something faintly glowing inside. You have to look for it.
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 6), new THREE.MeshStandardMaterial({ color: "#4a2c17", roughness: 0.8 }));
+    chest.position.set(L * 0.08, freeboard + 2.5, 0);
+    const glowBit = new THREE.Mesh(
+      new THREE.BoxGeometry(7, 0.8, 5),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.25, 1.8) }),
+    );
+    glowBit.position.set(L * 0.08, freeboard + 5.3, 0);
+    group.add(chest, glowBit);
+  }
 
   // Masts, yards, sails and rigging.
   const sailMat = new THREE.MeshStandardMaterial({ map: sailTexture(faction), side: THREE.DoubleSide, roughness: 0.95 });

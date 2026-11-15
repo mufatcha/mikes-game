@@ -544,9 +544,34 @@ export class SeaRenderer {
         this.shake = Math.max(this.shake, 0.6);
         break;
       }
-      case "gomu":
-        if (!e.atSea) this.effects.stretch(e.x, y0, e.z, e.tx, e.tz);
+      case "gomu": {
+        // Awakened, the arms burn crimson; at sea they're giant.
+        const color = e.awake ? "#dc2626" : "#d9a17a";
+        const thick = (e.atSea ? 4 : 1) * (e.awake ? 1.8 : 1);
+        const ground = e.atSea ? 4 : (sim.shore.hero?.y ?? 6) + 1;
+        switch (e.move) {
+          case "bounce":
+            this.effects.ring(e.x, ground + 2, e.z, e.atSea ? 140 : 45, e.awake ? "#ef4444" : "#c084fc", 0.5);
+            if (e.tx !== e.x || e.tz !== e.z) this.effects.stretch(e.tx, y0, e.tz, e.x, e.z, thick, "#c084fc", 0.2);
+            break;
+          case "sling":
+            this.effects.stretch(e.x, y0, e.z, e.tx, e.tz, thick * 1.3, color, 0.35);
+            this.effects.ring(e.x, ground + 2, e.z, e.atSea ? 200 : 60, color, 0.5);
+            this.shake = Math.max(this.shake, e.awake ? 1 : 0.4);
+            break;
+          case "flurry":
+            this.effects.stretch(e.x, y0 + (Math.random() - 0.5) * 6, e.z, e.tx, e.tz, thick, color, 0.14);
+            this.shake = Math.max(this.shake, e.awake ? 0.5 : 0.15);
+            break;
+          default:
+            this.effects.stretch(e.x, y0, e.z, e.tx, e.tz, thick, color);
+            if (e.awake) {
+              this.effects.ring(e.tx, ground + 2, e.tz, e.atSea ? 280 : 90, "#ef4444", 0.6);
+              this.shake = Math.max(this.shake, 0.9);
+            }
+        }
         break;
+      }
       case "moku":
         for (let i = 0; i < 40; i++) p("bigsmoke", e.x, y0, e.z);
         break;
@@ -599,7 +624,9 @@ export class SeaRenderer {
       }
       for (const side of [1, -1]) v.recoil[side] = Math.max(0, v.recoil[side] - dt * 2.5);
       const glow = 0.3 + this.night;
-      v.lanternMat.color.setRGB(4 * glow, 2.4 * glow, 0.9 * glow);
+      // The fruit brig's lantern burns purple.
+      if (s.fruitCarrier) v.lanternMat.color.setRGB(1.1 * (glow + 0.6), 0.2 * (glow + 0.6), 2.2 * (glow + 0.6));
+      else v.lanternMat.color.setRGB(4 * glow, 2.4 * glow, 0.9 * glow);
       v.group.visible = !(s === sim.player && sim.hidden && sim.mode === "ship" && Math.sin(t * 20) > 0.6);
     }
     for (const [id, v] of this.ships) {
@@ -629,6 +656,10 @@ export class SeaRenderer {
       // Smoke-Smoke: you flicker in and out of sight. Also hide yourself if the camera is pressed right up against you.
       const tooClose = isHero && this.camPos.distanceTo(v.group.position) < 22;
       v.group.visible = !tooClose && !(isHero && sim.hidden && Math.sin(sim.time * 18) > 0.3);
+      // Bounce Body: you puff up like a ball.
+      const puffed = isHero && sim.bouncing ? 1 + 0.08 * Math.sin(sim.time * 14) : 0;
+      if (puffed) v.group.scale.set(1.7 * puffed, 1.25, 1.7 * puffed);
+      else if (isHero) v.group.scale.set(1, 1, 1);
     }
     for (const [id, v] of this.people) {
       if (seen.has(id)) continue;
@@ -675,6 +706,13 @@ export class SeaRenderer {
       let g = this.crates.get(c.id);
       if (!g) {
         g = buildCrate();
+        // The fruit brig's chest: the fruit glows on top.
+        if (c.fruit) {
+          const f = buildFruit(c.fruit);
+          f.scale.setScalar(1.6);
+          f.position.y = 2;
+          g.add(f);
+        }
         this.crates.set(c.id, g);
         this.scene.add(g);
       }

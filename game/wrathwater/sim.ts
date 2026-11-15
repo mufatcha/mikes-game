@@ -16,7 +16,7 @@ import {
   type ShipClassId,
 } from "./data";
 import { Shore, type WalkerKind } from "./foot";
-import { FRUITS, type FruitId, type WeaponId } from "./items";
+import { FRUITS, STRETCH, STRETCH_MOVES, type FruitId, type StretchMove, type WeaponId } from "./items";
 import type { SaveData } from "./save";
 import { FORTRESS, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, groundHeight, islandAt, type BuildingKind, type ServiceKind } from "./world";
 
@@ -62,6 +62,8 @@ export interface Ship {
   /** Seconds since it started sinking, or -1 while afloat. */
   sinking: number;
   hitByPlayer: boolean;
+  /** The rare pirate brig carrying the Stretch Fruit (purple lantern, glowing chest on deck). */
+  fruitCarrier?: boolean;
   /** Seconds left burning (Flame-Flame Fruit). */
   burn: number;
   ai: {
@@ -91,6 +93,8 @@ export interface Crate {
   x: number;
   z: number;
   gold: number;
+  /** A floating chest with a Devil Fruit in it (from the fruit brig). */
+  fruit?: FruitId;
 }
 
 export type SimEvent =
@@ -117,12 +121,14 @@ export type SimEvent =
   | { k: "heroHit"; damage: number }
   | { k: "heroDown" }
   | { k: "drowning" }
-  | { k: "power"; fruit: FruitId; x: number; z: number; tx: number; tz: number; atSea?: boolean }
+  | { k: "power"; fruit: FruitId; x: number; z: number; tx: number; tz: number; atSea?: boolean; move?: StretchMove; awake?: boolean }
   | { k: "fruitFound"; fruit: FruitId }
   | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number }
   | { k: "service"; building: ServiceKind }
   | { k: "vaultKey"; keys: number; island: number }
   | { k: "vaultOpened" }
+  | { k: "carrierSighted" }
+  | { k: "switchMove"; move: StretchMove }
   | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
 
@@ -148,8 +154,10 @@ export interface PlayerInput {
 }
 
 /** The awakened form lasts this long, then needs a rest. */
-export const AWAKEN_TIME = 20;
-export const AWAKEN_COOLDOWN = 120;
+export const AWAKEN_TIME = 45;
+export const AWAKEN_COOLDOWN = 75;
+/** Awakened, every Stretch move recharges this much faster. */
+const AWAKE_CD = 0.15;
 /** Warships guarding the fortress at once. */
 const FORT_GUARDS = 7;
 
@@ -254,8 +262,42 @@ export class Sim {
     this.awakenReadyAt = this.time + AWAKEN_TIME + AWAKEN_COOLDOWN;
     this.wasAwakened = true;
     this.fruitCooldown = 0;
+    for (const m of STRETCH_MOVES) this.moveCd[m] = 0;
     this.events.push({ k: "awakened", on: true });
     return true;
+  }
+
+  /** The Stretch Fruit's selected move and each move's cooldown. */
+  stretchMove: StretchMove = "punch";
+  moveCd: Record<StretchMove, number> = { punch: 0, sling: 0, grab: 0, bounce: 0, flurry: 0 };
+  /** Bounce Body is on until this time. */
+  bounceUntil = 0;
+  /** Slingshot Launch at sea: the ship surges until this time. */
+  surgeUntil = 0;
+  private surgeHit = new Set<number>();
+  private seaFlurry: { t: number; tick: number; target: Ship | null } | null = null;
+  private nextCarrierCheck = 60;
+  private carrierSeen = new Set<number>();
+
+  get bouncing() {
+    return this.time < this.bounceUntil;
+  }
+  /** T: the next Stretch move. */
+  cycleMove() {
+    if (this.save.fruit !== "gomu") return;
+    this.stretchMove = STRETCH_MOVES[(STRETCH_MOVES.indexOf(this.stretchMove) + 1) % STRETCH_MOVES.length];
+    this.events.push({ k: "switchMove", move: this.stretchMove });
+  }
+  /** Start the selected Stretch move if it's ready; returns it, or null. */
+  takeMove(): StretchMove | null {
+    const m = this.stretchMove;
+    if (this.moveCd[m] > 0) return null;
+    this.moveCd[m] = STRETCH[m].cooldown * (this.awakened ? AWAKE_CD : 1);
+    return m;
+  }
+  /** How ready a move is, 0..1. */
+  moveReady(m: StretchMove) {
+    return Math.max(0, Math.min(1, 1 - this.moveCd[m] / (STRETCH[m].cooldown * (this.awakened ? AWAKE_CD : 1))));
   }
 
   /** You know where the fortress is: from a Warden's key, the vault itself, or a huge bounty. */
@@ -325,6 +367,7 @@ export class Sim {
     const p = this.player;
 
     this.fruitCooldown = Math.max(0, this.fruitCooldown - dt);
+    for (const m of STRETCH_MOVES) this.moveCd[m] = Math.max(0, this.moveCd[m] - dt);
     if (this.wasAwakened && !this.awakened) {
       this.wasAwakened = false;
       this.events.push({ k: "awakened", on: false });
@@ -340,6 +383,8 @@ export class Sim {
       p.throttle = 0;
       p.rudder = 0;
     }
+
+    this.updateStretchAtSea(dt);
 
     for (const s of this.ships) {
       if (s !== p && s.sinking < 0) this.think(s);
@@ -415,6 +460,7 @@ export class Sim {
       const grip = clamp(0.25 + s.speed / s.stats.speed, 0.25, 1);
       s.heading = wrap(s.heading + s.stats.turn * s.rudder * grip * dt);
     }
+    if (s === this.player && this.time < this.surgeUntil && s.sinking < 0) s.speed = s.stats.speed * (this.awakened ? 4.5 : 2.8);
     const f = forward(s.heading);
     s.x += f.x * s.speed * dt;
     s.z += f.z * s.speed * dt;
@@ -572,6 +618,7 @@ export class Sim {
 
   private seaPower() {
     const fruit = this.save.fruit;
+    if (fruit === "gomu" && !this.inHaven) return this.seaStretch();
     if (!fruit || this.fruitCooldown > 0 || this.inHaven) return;
     const p = this.player;
     // Awakened, the power comes back three times as fast.
@@ -595,13 +642,6 @@ export class Sim {
       case "goro":
         if (target) this.damage(target, 210, true, target.x, 10, target.z);
         break;
-      case "gomu":
-        // Both broadsides at once, reload or not.
-        p.reload[1] = 0;
-        p.reload[-1] = 0;
-        this.tryFire(p, 1);
-        this.tryFire(p, -1);
-        break;
       case "moku":
         this.smoke(8);
         break;
@@ -613,6 +653,117 @@ export class Sim {
         }
         break;
     }
+  }
+
+  // ---------------------------------------------------------------- the Stretch Fruit at sea
+
+  private stretchFx(m: StretchMove, tx: number, tz: number) {
+    const p = this.player;
+    this.events.push({ k: "power", fruit: "gomu", x: p.x, z: p.z, tx, tz, atSea: true, move: m, awake: this.awakened });
+  }
+
+  /** Damage every enemy ship within a radius (the awakened shockwaves). */
+  private seaBlast(x: number, z: number, radius: number, dmg: number) {
+    this.events.push({ k: "explosion", x, z, radius });
+    for (const s of this.ships) {
+      if (s === this.player || s.sinking >= 0) continue;
+      if (Math.hypot(s.x - x, s.z - z) < radius) this.damage(s, dmg, true, s.x, 8, s.z);
+    }
+  }
+
+  private seaStretch() {
+    const p = this.player;
+    const aw = this.awakened;
+    const aim = this.input.aimYaw;
+    const m = this.takeMove();
+    if (!m) return;
+    const target = this.shipInCone(aim, aw ? 1700 : 950, 0.55);
+    const tx = target ? target.x : p.x + Math.cos(aim) * 500;
+    const tz = target ? target.z : p.z + Math.sin(aim) * 500;
+    switch (m) {
+      case "punch":
+        this.stretchFx(m, tx, tz);
+        p.reload[1] = 0;
+        p.reload[-1] = 0;
+        this.tryFire(p, 1);
+        this.tryFire(p, -1);
+        if (aw && target) {
+          this.damage(target, 450, true, target.x, 10, target.z);
+          this.seaBlast(target.x, target.z, 280, 160);
+        }
+        break;
+      case "sling":
+        // Turn to where you're looking and fly.
+        p.heading = aim;
+        this.surgeUntil = this.time + (aw ? 2.6 : 1.5);
+        this.surgeHit.clear();
+        this.stretchFx(m, p.x + Math.cos(aim) * 260, p.z + Math.sin(aim) * 260);
+        break;
+      case "grab": {
+        if (!target) {
+          this.moveCd[m] = 1;
+          this.stretchFx(m, tx, tz);
+          return;
+        }
+        this.stretchFx(m, target.x, target.z);
+        const d = Math.max(1, Math.hypot(target.x - p.x, target.z - p.z));
+        const throwDist = aw ? 650 : 240;
+        target.x += ((target.x - p.x) / d) * throwDist;
+        target.z += ((target.z - p.z) / d) * throwDist;
+        target.heading = wrap(target.heading + Math.PI);
+        target.speed = 0;
+        this.damage(target, aw ? 900 : 180, true, target.x, 10, target.z);
+        this.seaBlast(target.x, target.z, aw ? 380 : 160, aw ? 300 : 70);
+        break;
+      }
+      case "bounce":
+        this.bounceUntil = this.time + (aw ? 15 : 6);
+        this.stretchFx(m, p.x, p.z);
+        break;
+      case "flurry":
+        this.seaFlurry = { t: aw ? 3 : 1.4, tick: 0, target };
+        break;
+    }
+  }
+
+  private updateStretchAtSea(dt: number) {
+    const p = this.player;
+    const aw = this.awakened;
+    // Slingshot ram: anything you plough into takes a beating.
+    if (this.time < this.surgeUntil && this.mode === "ship" && p.sinking < 0) {
+      for (const s of this.ships) {
+        if (s === p || s.sinking >= 0 || this.surgeHit.has(s.id)) continue;
+        if (Math.hypot(s.x - p.x, s.z - p.z) > (p.cls.length + s.cls.length) * 0.45) continue;
+        this.surgeHit.add(s.id);
+        this.damage(s, aw ? 800 : 160, true, s.x, 10, s.z);
+        if (aw) this.seaBlast(s.x, s.z, 320, 220);
+      }
+    }
+    const f = this.seaFlurry;
+    if (!f) return;
+    if (this.mode !== "ship" || p.sinking >= 0) {
+      this.seaFlurry = null;
+      return;
+    }
+    f.t -= dt;
+    f.tick -= dt;
+    if (f.tick <= 0) {
+      f.tick = 0.1;
+      const targets = aw
+        ? this.ships.filter((s) => s !== p && s.sinking < 0 && Math.hypot(s.x - p.x, s.z - p.z) < 850)
+        : f.target && f.target.sinking < 0 && Math.hypot(f.target.x - p.x, f.target.z - p.z) < 1200
+          ? [f.target]
+          : [];
+      for (const s of targets) {
+        this.stretchFx("flurry", s.x + (Math.random() - 0.5) * s.cls.length * 0.6, s.z + (Math.random() - 0.5) * s.cls.beam);
+        this.damage(s, aw ? 85 : 26, true, s.x, 10, s.z);
+      }
+      if (!targets.length) {
+        const a = this.input.aimYaw + (Math.random() - 0.5) * 0.5;
+        this.stretchFx("flurry", p.x + Math.cos(a) * 400, p.z + Math.sin(a) * 400);
+      }
+    }
+    if (f.t <= 0) this.seaFlurry = null;
   }
 
   private shipInCone(aim: number, range: number, cone: number) {
@@ -770,8 +921,8 @@ export class Sim {
   private damage(s: Ship, amount: number, byPlayer: boolean, x: number, y: number, z: number) {
     // Cheat: god mode, nothing hurts your ship.
     if (this.god && s === this.player) return;
-    // Awakened, cannonballs bounce off your ship.
-    if (this.awakened && s === this.player) {
+    // Awakened (or in Bounce Body), cannonballs bounce off your ship.
+    if ((this.awakened || this.bouncing) && s === this.player) {
       this.events.push({ k: "splash", x, z });
       return;
     }
@@ -790,6 +941,7 @@ export class Sim {
       this.events.push({ k: "playerSunk" });
       return;
     }
+    if (s.fruitCarrier && !this.save.fruitsFound.includes("gomu")) this.crates.push({ id: this.nextId++, x: s.x, z: s.z, gold: 250, fruit: "gomu" });
     const reward = s.hitByPlayer;
     const gold = reward ? Math.round(rand(s.cls.gold[0], s.cls.gold[1])) : 0;
     const bounty = reward ? s.cls.bounty : 0;
@@ -884,6 +1036,28 @@ export class Sim {
       }
     }
 
+    // Somewhere out there, one pirate brig carries the Stretch Fruit.
+    if (t >= this.nextCarrierCheck) {
+      this.nextCarrierCheck = t + 20;
+      const free = !this.save.fruitsFound.includes("gomu");
+      if (free && !this.ships.some((s) => s.fruitCarrier && s.sinking < 0) && Math.random() < 0.3) {
+        const pos = this.offscreenPoint(1900, 2600);
+        if (pos) {
+          const c = this.spawnNpc("pirate_brig", pos.x, pos.z);
+          c.fruitCarrier = true;
+          c.stats = { ...c.stats, hull: c.stats.hull * 1.8 };
+          c.hp = c.stats.hull;
+        }
+      }
+    }
+    for (const s of this.ships) {
+      if (!s.fruitCarrier || s.sinking >= 0 || this.carrierSeen.has(s.id)) continue;
+      if (Math.hypot(s.x - p.x, s.z - p.z) < 1300) {
+        this.carrierSeen.add(s.id);
+        this.events.push({ k: "carrierSighted" });
+      }
+    }
+
     if (t >= this.nextHunterSpawn && this.stars > 0 && !this.inHaven) {
       const want = [...HUNTERS_BY_STARS[this.stars]];
       for (const s of this.ships) {
@@ -937,13 +1111,20 @@ export class Sim {
   private updateCrates() {
     const p = this.player;
     if (p.sinking >= 0) return;
-    const before = this.crates.length;
+    let taken = 0;
     this.crates = this.crates.filter((c) => {
       if (Math.hypot(c.x - p.x, c.z - p.z) > PICKUP_RADIUS + p.cls.beam / 2) return true;
       this.save.gold += c.gold;
       this.events.push({ k: "crate", gold: c.gold, x: c.x, z: c.z });
+      if (c.fruit) {
+        if (!this.save.fruitsFound.includes(c.fruit)) {
+          this.save.fruitsFound.push(c.fruit);
+          this.save.heldFruits.push(c.fruit);
+          this.events.push({ k: "fruitFound", fruit: c.fruit });
+        }
+      } else taken++;
       return false;
     });
-    for (let i = this.crates.length; i < before; i++) this.spawnCrate();
+    for (let i = 0; i < taken; i++) this.spawnCrate();
   }
 }
