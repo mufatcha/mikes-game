@@ -169,7 +169,7 @@ export function buildShip(ship: Ship): ShipVisual {
   // Bulwark (the low wall around the deck).
   const rim = hullShape(L, B);
   rim.holes.push(hullShape(L * 0.95, B * 0.86) as unknown as THREE.Path);
-  const rimGeo = new THREE.ExtrudeGeometry(rim, { depth: 3.2, bevelEnabled: false, curveSegments: 10 });
+  const rimGeo = new THREE.ExtrudeGeometry(rim, { depth: 6, bevelEnabled: false, curveSegments: 10 });
   rimGeo.rotateX(-Math.PI / 2);
   rimGeo.translate(0, freeboard, 0);
   group.add(new THREE.Mesh(rimGeo, faction === "marine" ? new THREE.MeshStandardMaterial({ color: "#1d4ed8", roughness: 0.6 }) : hullMat));
@@ -181,13 +181,13 @@ export function buildShip(ship: Ship): ShipVisual {
   group.add(new THREE.Mesh(deckGeo, new THREE.MeshStandardMaterial({ map: deckMap, roughness: 0.9 })));
 
   // Stern castle, bowsprit and a stern lantern.
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(L * 0.2, 7, B * 0.78), hullMat);
-  cabin.position.set(-L * 0.38, freeboard + 3.5, 0);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(L * 0.2, 22, B * 0.78), hullMat); // a cabin a person can stand in
+  cabin.position.set(-L * 0.38, freeboard + 11, 0);
   group.add(cabin);
   const winMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.8, 0.7) });
   for (const zz of [-B * 0.2, B * 0.2]) {
-    const win = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2), winMat);
-    win.position.set(-L * 0.48 - 0.1, freeboard + 4, zz);
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 4), winMat);
+    win.position.set(-L * 0.48 - 0.1, freeboard + 13, zz);
     win.rotation.y = -Math.PI / 2;
     group.add(win);
   }
@@ -198,7 +198,7 @@ export function buildShip(ship: Ship): ShipVisual {
   group.add(bowsprit);
   const lanternMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 2.4, 0.9) });
   const lantern = new THREE.Mesh(new THREE.SphereGeometry(1.3, 8, 6), lanternMat);
-  lantern.position.set(-L * 0.5, freeboard + 9, 0);
+  lantern.position.set(-L * 0.5, freeboard + 25, 0);
   group.add(lantern);
 
   // Masts, yards, sails and rigging.

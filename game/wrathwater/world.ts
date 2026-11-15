@@ -94,7 +94,7 @@ export function hillProfile(h: number, r: number, dist: number) {
 function makeIslands(): Island[] {
   const r = rng(20261113);
   type Raw = { name: string; x: number; z: number; radius: number; seed: number; haven?: boolean };
-  const raw: Raw[] = [{ name: "Blackwater Cove", x: 0, z: 0, radius: 300, seed: 7, haven: true }];
+  const raw: Raw[] = [{ name: "Blackwater Cove", x: 0, z: 0, radius: 420, seed: 7, haven: true }];
   let tries = 0;
   while (raw.length < 19 && tries++ < 6000) {
     const radius = 140 + r() * 300;
@@ -115,7 +115,9 @@ function makeIslands(): Island[] {
     const kind: IslandKind = o.haven ? "haven" : towns.has(o) ? "town" : o === mystery ? "mystery" : "wild";
     const name =
       kind === "haven" ? o.name : kind === "town" ? TOWN_NAMES[townI++] : kind === "mystery" ? MYSTERY_NAME : WILD_NAMES[wildI++ % WILD_NAMES.length];
-    return decorate({ ...o, index, name, kind });
+    // Towns are bigger, so their person-sized houses fit.
+    const radius = kind === "town" ? Math.max(420, o.radius * 1.4) : o.radius;
+    return decorate({ ...o, radius, index, name, kind });
   });
 }
 
@@ -158,11 +160,12 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
     let a0 = r() * Math.PI * 2;
     for (const kind of kinds) {
       const big = kind === "bank" || kind === "tavern" || kind === "armory" || kind === "shipwright";
-      const w = big ? 46 + r() * 10 : 26 + r() * 12;
-      const dd = big ? 36 + r() * 8 : 22 + r() * 10;
-      for (let attempt = 0; attempt < 30; attempt++) {
+      // Sized for people: a person stands about 19 tall, so houses are two storeys and the big halls taller.
+      const w = big ? 90 + r() * 20 : 52 + r() * 24;
+      const dd = big ? 70 + r() * 16 : 44 + r() * 20;
+      for (let attempt = 0; attempt < 60; attempt++) {
         const a = a0 + attempt * 0.37;
-        const dist = R * (0.42 + r() * 0.3);
+        const dist = R * (0.38 + r() * 0.4);
         const x = o.x + Math.cos(a) * dist;
         const z = o.z + Math.sin(a) * dist;
         const rotated = Math.abs(Math.cos(a)) > Math.abs(Math.sin(a));
@@ -178,9 +181,9 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
           z,
           w: bw,
           d: bd,
-          h: big ? 26 : 16 + r() * 6,
+          h: big ? 50 : 34 + r() * 10,
           y,
-          door: { x: x + Math.cos(facing) * (half + 10), z: z + Math.sin(facing) * (half + 10) },
+          door: { x: x + Math.cos(facing) * (half + 14), z: z + Math.sin(facing) * (half + 14) },
           facing,
         });
         a0 = a + 0.9 + r() * 0.4;
@@ -232,7 +235,7 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
     for (let i = 0; i < posts; i++) {
       const b = isl.buildings[i % isl.buildings.length];
       const a = r() * Math.PI * 2;
-      isl.guards.push({ x: b.door.x + Math.cos(a) * 25, z: b.door.z + Math.sin(a) * 25 });
+      isl.guards.push({ x: b.door.x + Math.cos(a) * 35, z: b.door.z + Math.sin(a) * 35 });
     }
   }
   return isl;

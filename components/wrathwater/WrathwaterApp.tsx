@@ -28,7 +28,7 @@ import {
 import { deleteSave, loadSave, newSave, writeSave, type SaveData } from "@/game/wrathwater/save";
 
 type Screen = "menu" | "naming" | "playing";
-type Overlay = "none" | "pause" | "shop" | "market" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit";
+type Overlay = "none" | "pause" | "shop" | "market" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats";
 
 const SAVE_KEY = "ww.save.v1";
 
@@ -211,6 +211,7 @@ function HowToPlay() {
   const both: [string, string][] = [
     ["R", "Use your Devil Fruit power"],
     ["I / Tab", "Inventory and crafting"],
+    ["W W S S A D A D", "Cheat menu"],
     ["Esc", "Pause"],
   ];
   const table = (title: string, rows: [string, string][]) => (
@@ -312,6 +313,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
             setOverlay("fruit");
           },
           onInventory: () => setOverlay((o) => (o === "none" ? "inventory" : o)),
+          onCheatMenu: () => setOverlay((o) => (o === "none" ? "cheats" : o)),
           onHurt: () => {
             setHurt(true);
             window.clearTimeout(hurtTimer);
@@ -417,6 +419,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
         </Modal>
       )}
       {overlay === "inventory" && engine && <Inventory engine={engine} onClose={resume} />}
+      {overlay === "cheats" && engine && <CheatMenu engine={engine} onClose={resume} />}
       {overlay === "shop" && engine && <Shipwright engine={engine} onClose={resume} />}
       {overlay === "market" && engine && <BlackMarket engine={engine} onClose={resume} />}
       {overlay === "fruit" && engine && foundFruit && (
@@ -693,6 +696,48 @@ function ReloadBar({ label, frac, active }: { label: string; frac: number; activ
         <div className={`h-1.5 rounded-full ${ready ? "bg-amber-300" : "bg-zinc-500"}`} style={{ width: `${Math.min(1, frac) * 100}%` }} />
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- the cheat menu (W W S S A D A D)
+
+function CheatMenu({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => void }) {
+  const [god, setGod] = useState(engine.godMode);
+  const cheat = (run: () => void) => () => run();
+  return (
+    <Modal wide onClose={onClose}>
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-serif text-3xl font-black uppercase tracking-wide">Cheats</h2>
+        <span className="text-sm text-zinc-400">W W S S A D A D</span>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <PanelButton onClick={cheat(() => engine.cheatSupplies())}>💰 +1,000 gold, +50 shot, +20 materials</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatArmory())}>⚔️ Every weapon and every fruit</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatClearWanted())}>⭐ Clear wanted stars</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatBounty())}>🏴 +50,000,000 bounty</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatShip())}>⛵ Max ship upgrades and repair</PanelButton>
+        <PanelButton primary={god} onClick={() => setGod(engine.cheatGod())}>
+          🛡️ God mode: {god ? "ON" : "off"}
+        </PanelButton>
+      </div>
+      <h3 className="mt-5 text-xs font-bold uppercase tracking-widest text-red-300">Sail straight to</h3>
+      <div className="mt-1 grid grid-cols-2 gap-x-2 sm:grid-cols-3">
+        {engine.islandList.map((isl) => (
+          <PanelButton
+            key={isl.index}
+            onClick={() => {
+              engine.cheatTravel(isl.index);
+              onClose();
+            }}
+          >
+            {isl.kind === "haven" ? "🏝️" : isl.kind === "town" ? "🏘️" : isl.kind === "mystery" ? "❓" : "🌴"} {isl.name}
+          </PanelButton>
+        ))}
+      </div>
+      <PanelButton primary onClick={onClose}>
+        Back to the game
+      </PanelButton>
+    </Modal>
   );
 }
 

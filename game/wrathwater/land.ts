@@ -225,20 +225,25 @@ function buildBuilding(b: Building, isl: Island): THREE.Group {
     else mesh.position.set(b.x + lateral, b.y + y, b.z + sign * faceOffset);
     g.add(mesh);
   };
-  face(6, 10, doorMat, 0, 5);
+  // A door you can walk through: wider and taller than a person (who stands about 19).
+  face(11, 23, doorMat, 0, 11.5);
   const width = xFacing ? b.d : b.w;
-  for (const lat of [-width * 0.3, width * 0.3]) face(3.5, 3.5, windowMat, lat, b.h * 0.55);
+  // Windows on two floors.
+  for (const lat of [-width * 0.3, width * 0.3]) {
+    face(7, 7, windowMat, lat, 13);
+    if (b.h > 30) face(7, 7, windowMat, lat, b.h * 0.72);
+  }
   if (b.kind !== "house") {
     const label = { bank: "BANK", shop: "SHOP", armory: "ARMORY", tavern: "TAVERN", shipwright: "SHIPWRIGHT", blacksmith: "BLACKSMITH", market: "BLACK MARKET" }[b.kind];
     const bg = { bank: "#1e3a5f", shop: "#7c2d12", armory: "#27272a", tavern: "#4a2c17", shipwright: "#1f3d2b", blacksmith: "#3f1d1d", market: "#2e1065" }[b.kind];
-    face(label.length > 8 ? 22 : 16, 4, new THREE.MeshBasicMaterial({ map: signTexture(label, bg) }), 0, 12.5);
+    face(label.length > 8 ? 40 : 30, 7.5, new THREE.MeshBasicMaterial({ map: signTexture(label, bg) }), 0, 28);
   }
   if (b.kind === "bank") {
     // Columns either side of the vault door.
-    for (const lat of [-6, 6]) {
-      const col = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.4, b.h, 10), new THREE.MeshStandardMaterial({ color: "#e5e7eb" }));
-      if (xFacing) col.position.set(b.x + sign * (faceOffset + 2), b.y + b.h / 2, b.z + lat);
-      else col.position.set(b.x + lat, b.y + b.h / 2, b.z + sign * (faceOffset + 2));
+    for (const lat of [-11, 11]) {
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.6, b.h, 10), new THREE.MeshStandardMaterial({ color: "#e5e7eb" }));
+      if (xFacing) col.position.set(b.x + sign * (faceOffset + 3), b.y + b.h / 2, b.z + lat);
+      else col.position.set(b.x + lat, b.y + b.h / 2, b.z + sign * (faceOffset + 3));
       g.add(col);
     }
   }
@@ -248,10 +253,11 @@ function buildBuilding(b: Building, isl: Island): THREE.Group {
 
 function lampPost(x: number, y: number, z: number) {
   const g = new THREE.Group();
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 14, 6), new THREE.MeshStandardMaterial({ color: "#1f1f1f" }));
-  post.position.set(x, y + 7, z);
+  // A street lamp a bit taller than a person.
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.9, 26, 6), new THREE.MeshStandardMaterial({ color: "#1f1f1f" }));
+  post.position.set(x, y + 13, z);
   const lamp = new THREE.Mesh(new THREE.SphereGeometry(1.6, 8, 6), lampMat);
-  lamp.position.set(x, y + 14.5, z);
+  lamp.position.set(x, y + 26.5, z);
   g.add(post, lamp);
   return g;
 }
@@ -265,9 +271,9 @@ function buildTownExtras(isl: Island) {
   flag.position.set(isl.x + 14, BEACH_TOP + 62, isl.z);
   g.add(pole, flag);
   for (const b of isl.buildings) g.add(lampPost(b.door.x + 8, groundY(isl, b.door.x + 8, b.door.z), b.door.z));
-  // A small pier.
-  const pier = new THREE.Mesh(new THREE.BoxGeometry(90, 2, 14), new THREE.MeshStandardMaterial({ color: "#5a3f28", roughness: 1 }));
-  pier.position.set(isl.x + isl.radius + 30, 4, isl.z + 20);
+  // A pier, long enough to tie up a ship.
+  const pier = new THREE.Mesh(new THREE.BoxGeometry(170, 3, 26), new THREE.MeshStandardMaterial({ color: "#5a3f28", roughness: 1 }));
+  pier.position.set(isl.x + isl.radius + 70, 4, isl.z + 20);
   g.add(pier);
   return g;
 }

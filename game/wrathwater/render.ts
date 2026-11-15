@@ -772,7 +772,7 @@ export class SeaRenderer {
       if (sim.input.sprint && hero.moving) fovBoost = 6;
     } else {
       const s = sim.player;
-      target = new THREE.Vector3(s.x, 16, s.z);
+      target = new THREE.Vector3(s.x, 30, s.z);
       fovBoost = (s.speed / s.stats.speed) * 7;
     }
     const cosP = Math.cos(view.pitch);

@@ -39,42 +39,42 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
   player: {
     id: "player", name: "Your Ship", faction: "player",
     hull: 220, speed: 80, turn: 0.75, cannonsPerSide: 2, damage: 13, reload: 3.8, range: 520,
-    length: 44, beam: 14, masts: 2, bounty: 0, gold: [0, 0],
+    length: 97, beam: 31, masts: 2, bounty: 0, gold: [0, 0],
   },
   merchant_cog: {
     id: "merchant_cog", name: "Merchant Cog", faction: "merchant",
     hull: 120, speed: 52, turn: 0.55, cannonsPerSide: 1, damage: 7, reload: 5, range: 420,
-    length: 34, beam: 12, masts: 1, bounty: 2_000_000, gold: [60, 120],
+    length: 75, beam: 26, masts: 1, bounty: 2_000_000, gold: [60, 120],
   },
   treasure_galleon: {
     id: "treasure_galleon", name: "Treasure Galleon", faction: "merchant",
     hull: 360, speed: 46, turn: 0.35, cannonsPerSide: 3, damage: 9, reload: 5, range: 460,
-    length: 56, beam: 18, masts: 3, bounty: 14_000_000, gold: [320, 600],
+    length: 123, beam: 40, masts: 3, bounty: 14_000_000, gold: [320, 600],
   },
   pirate_brig: {
     id: "pirate_brig", name: "Rival Pirate Brig", faction: "pirate",
     hull: 230, speed: 70, turn: 0.62, cannonsPerSide: 3, damage: 11, reload: 4, range: 480,
-    length: 42, beam: 14, masts: 2, bounty: 9_000_000, gold: [130, 260],
+    length: 92, beam: 31, masts: 2, bounty: 9_000_000, gold: [130, 260],
   },
   marine_sloop: {
     id: "marine_sloop", name: "Marine Sloop", faction: "marine",
     hull: 170, speed: 78, turn: 0.72, cannonsPerSide: 2, damage: 10, reload: 3.6, range: 480,
-    length: 38, beam: 12, masts: 1, bounty: 15_000_000, gold: [80, 150],
+    length: 84, beam: 26, masts: 1, bounty: 15_000_000, gold: [80, 150],
   },
   marine_frigate: {
     id: "marine_frigate", name: "Marine Frigate", faction: "marine",
     hull: 360, speed: 72, turn: 0.52, cannonsPerSide: 4, damage: 12, reload: 3.5, range: 520,
-    length: 50, beam: 16, masts: 2, bounty: 45_000_000, gold: [200, 360],
+    length: 110, beam: 35, masts: 2, bounty: 45_000_000, gold: [200, 360],
   },
   marine_warship: {
     id: "marine_warship", name: "Marine Warship", faction: "marine",
     hull: 680, speed: 64, turn: 0.4, cannonsPerSide: 6, damage: 14, reload: 3.3, range: 560,
-    length: 62, beam: 20, masts: 3, bounty: 150_000_000, gold: [420, 700],
+    length: 136, beam: 44, masts: 3, bounty: 150_000_000, gold: [420, 700],
   },
   marine_flagship: {
     id: "marine_flagship", name: "Admiral's Flagship", faction: "marine",
     hull: 1500, speed: 70, turn: 0.42, cannonsPerSide: 8, damage: 17, reload: 2.9, range: 600,
-    length: 76, beam: 24, masts: 3, bounty: 650_000_000, gold: [1300, 2100],
+    length: 167, beam: 53, masts: 3, bounty: 650_000_000, gold: [1300, 2100],
   },
 };
 

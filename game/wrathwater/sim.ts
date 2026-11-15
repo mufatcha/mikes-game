@@ -221,7 +221,14 @@ export class Sim {
     if (!this.hidden) this.lastSeen = this.time;
   }
 
+  /** Robbing in Blackwater Cove makes it unsafe for you until this time. */
+  havenUnsafeUntil = 0;
+  /** Cheat: nothing can hurt you or your ship. */
+  god = false;
+
+  /** In the haven's safe waters (not while it's still angry about a robbery). */
   get inHaven() {
+    if (this.time < this.havenUnsafeUntil) return false;
     return Math.hypot(this.player.x - HAVEN.x, this.player.z - HAVEN.z) < HAVEN_SAFE_RADIUS;
   }
 
@@ -236,6 +243,30 @@ export class Sim {
 
   repairPlayer() {
     this.player.hp = this.player.stats.hull;
+  }
+
+  /** Cheat: the Marines forget you (no wanted stars, hunters called off). */
+  clearWanted() {
+    this.heat = 0;
+    this.havenUnsafeUntil = 0;
+    for (const s of this.ships) s.ai.hunter = false;
+    if (this.lastStars !== 0) this.events.push({ k: "stars", stars: 0, prev: this.lastStars });
+    this.lastStars = 0;
+  }
+
+  /** Cheat: put your ship just off an island's shore, stopped and facing out to sea. */
+  sailTo(index: number) {
+    const isl = ISLANDS[index];
+    if (!isl) return;
+    if (this.mode === "foot") {
+      this.shore.reset();
+      this.mode = "ship";
+    }
+    const p = this.player;
+    p.x = isl.x + isl.radius + p.cls.beam + 90;
+    p.z = isl.z;
+    p.heading = 0;
+    p.speed = 0;
   }
 
   /** Back to Blackwater Cove after sinking: a quarter of your gold is lost, the Marines lose your trail. */
@@ -272,7 +303,7 @@ export class Sim {
       if (s !== p && s.sinking < 0) this.think(s);
       this.move(s, dt);
       for (const side of [1, -1]) s.reload[side] = Math.max(0, s.reload[side] - dt);
-      if (s.burn > 0 && s.sinking < 0) {
+      if (s.burn > 0 && s.sinking < 0 && !(this.god && s === this.player)) {
         s.burn -= dt;
         s.hp -= 9 * dt;
         if (s.hp <= 0) this.damage(s, 0.01, true, s.x, 8, s.z);
@@ -461,7 +492,7 @@ export class Sim {
       const cross = f.x * (isl.z - s.z) - f.z * (isl.x - s.x);
       return s.heading - Math.sign(cross || 1) * 1.2;
     }
-    if (s.faction === "marine" && Math.hypot(ax - HAVEN.x, az - HAVEN.z) < HAVEN_SAFE_RADIUS + 150) {
+    if (s.faction === "marine" && this.time >= this.havenUnsafeUntil && Math.hypot(ax - HAVEN.x, az - HAVEN.z) < HAVEN_SAFE_RADIUS + 150) {
       return Math.atan2(s.z - HAVEN.z, s.x - HAVEN.x);
     }
     const lim = WORLD_HALF - 400;
@@ -689,6 +720,8 @@ export class Sim {
   }
 
   private damage(s: Ship, amount: number, byPlayer: boolean, x: number, y: number, z: number) {
+    // Cheat: god mode, nothing hurts your ship.
+    if (this.god && s === this.player) return;
     s.hp -= amount;
     this.events.push({ k: "hit", x, y, z, onPlayer: s === this.player, byPlayer, damage: amount });
     if (byPlayer && s !== this.player) {

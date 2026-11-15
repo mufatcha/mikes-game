@@ -64,6 +64,7 @@ export interface Notice {
   tone: "gold" | "bounty" | "danger" | "info";
 }
 
+/** Typing this (W W S S A D A D) opens the cheat menu. */const CHEAT_CODE = ["KeyW", "KeyW", "KeyS", "KeyS", "KeyA", "KeyD", "KeyA", "KeyD"];
 export interface EngineCallbacks {
   onHud(hud: HudState): void;
   onNotice(n: Notice): void;
@@ -75,6 +76,8 @@ export interface EngineCallbacks {
   onService(kind: ServiceKind): void;
   onFruit(fruit: FruitId): void;
   onInventory(): void;
+  /** W W S S A D A D was typed: open the cheat menu. */
+  onCheatMenu(): void;
   onHurt(): void;
 }
 
@@ -86,7 +89,9 @@ export class WrathwaterEngine {
   private shipYaw = 0;
   private footYaw = 0;
   private pitch = 0.26;
-  private shipDistance = 115;
+  private shipDistance = 240;
+  /** The last few keys pressed, to spot the cheat code. */
+  private typed: string[] = [];
   private footDistance = 55;
   private aimSide: Side | null = null;
   private keys = new Set<string>();
@@ -141,6 +146,77 @@ export class WrathwaterEngine {
 
   save() {
     writeSave(this.sim.save);
+  }
+
+  // ---------------------------------------------------------------- cheats (W W S S A D A D)
+
+  /** +1,000 gold, +50 shot and +20 of every material. */
+  cheatSupplies() {
+    const s = this.sim.save;
+    s.gold += 1000;
+    s.ammo += 50;
+    for (const m of Object.keys(s.materials) as MaterialId[]) s.materials[m] += 20;
+    this.notice("Cheat: +1,000 gold, +50 shot and +20 of every material.", "gold");
+    this.save();
+  }
+
+  /** Every weapon, and every fruit to carry. */
+  cheatArmory() {
+    const s = this.sim.save;
+    s.weapons = WEAPON_ORDER.filter((w) => w !== "fists");
+    for (const f of Object.keys(FRUITS) as FruitId[]) {
+      if (!s.fruitsFound.includes(f)) s.fruitsFound.push(f);
+      if (!s.heldFruits.includes(f) && s.fruit !== f) s.heldFruits.push(f);
+    }
+    this.notice("Cheat: every weapon unlocked, and every fruit in your bag.", "gold");
+    this.save();
+  }
+
+  /** No more wanted stars. */
+  cheatClearWanted() {
+    this.sim.clearWanted();
+    this.notice("Cheat: the Marines have forgotten all about you.", "info");
+  }
+
+  /** +50,000,000 bounty, to climb the ranks. */
+  cheatBounty() {
+    this.sim.addBounty(50_000_000, 0, 0);
+    this.notice("Cheat: +50,000,000 bounty.", "bounty");
+    this.save();
+  }
+
+  /** Nothing can hurt you or your ship (press again to turn it off). Returns whether it's on. */
+  cheatGod() {
+    this.sim.god = !this.sim.god;
+    this.notice(this.sim.god ? "Cheat: God mode on. Nothing can hurt you." : "Cheat: God mode off.", "info");
+    return this.sim.god;
+  }
+
+  get godMode() {
+    return this.sim.god;
+  }
+
+  /** Every ship upgrade at its top level, and the hull fully repaired. */
+  cheatShip() {
+    const s = this.sim.save;
+    for (const u of UPGRADES) s.upgrades[u.id] = u.maxLevel;
+    this.sim.refreshPlayerStats();
+    this.sim.repairPlayer();
+    this.notice("Cheat: your ship is fully upgraded and repaired.", "gold");
+    this.save();
+  }
+
+  /** Sail straight to an island. */
+  cheatTravel(index: number) {
+    const isl = ISLANDS[index];
+    if (!isl) return;
+    this.sim.sailTo(index);
+    this.notice(`Cheat: you're off the coast of ${isl.name}.`, "info");
+  }
+
+  /** The islands you can sail to, for the cheat menu. */
+  get islandList() {
+    return ISLANDS.map((i) => ({ index: i.index, name: i.name, kind: i.kind }));
   }
 
   // ---------------------------------------------------------------- actions from menus
@@ -470,8 +546,20 @@ export class WrathwaterEngine {
       case "robbed": {
         this.audio.coin();
         this.audio.alarm();
-        const what = { bank: "the bank", shop: "a shop", armory: "the armory" }[e.building as "bank" | "shop" | "armory"] ?? "a building";
+        const what = {
+          bank: "the bank",
+          shop: "a shop",
+          armory: "the armory",
+          house: "a house",
+          tavern: "the tavern",
+          shipwright: "the shipwright",
+          blacksmith: "the blacksmith",
+          market: "the black market",
+        }[e.building];
         this.notice(`You robbed ${what} in ${e.town}! ${this.lootParts(e.gold, e.weapon, e, e.ammo)}`, "bounty");
+        if (this.sim.time < this.sim.havenUnsafeUntil && e.town === HAVEN.name) {
+          this.notice("Blackwater Cove isn't safe for you right now. The Marines are coming in.", "danger");
+        }
         break;
       }
     }
@@ -548,7 +636,9 @@ export class WrathwaterEngine {
         ? { id: fruit, name: FRUITS[fruit].name, power: FRUITS[fruit].power, ready: 1 - sim.fruitCooldown / FRUITS[fruit].cooldown }
         : null,
       prompt: prompt
-        ? { label: prompt.label, key: prompt.key, hold: prompt.hold, progress: hold && hold.key === prompt.key ? hold.progress / hold.needed : 0 }
+        ? hold && prompt.robAlt && hold.key === prompt.robAlt.key
+          ? { label: hold.label, key: prompt.key, hold: hold.needed, progress: hold.progress / hold.needed }
+          : { label: prompt.label, key: prompt.key, hold: prompt.hold, progress: hold && hold.key === prompt.key ? hold.progress / hold.needed : 0 }
         : null,
       hidden: sim.hidden,
       compass: { heading: yaw, markers },
@@ -681,6 +771,17 @@ export class WrathwaterEngine {
     const onKeyDown = (e: KeyboardEvent) => {
       if (this.paused) return;
       this.audio.unlock();
+      // The cheat code: W W S S A D A D (the keys still move you as you type it).
+      if (!e.repeat) {
+        this.typed = [...this.typed, e.code].slice(-CHEAT_CODE.length);
+        if (this.typed.join() === CHEAT_CODE.join()) {
+          this.typed = [];
+          this.keys.clear();
+          this.releasePointer();
+          this.cb.onCheatMenu();
+          return;
+        }
+      }
       if (e.code === "Escape") {
         this.cb.onPauseRequest();
         return;
@@ -756,7 +857,7 @@ export class WrathwaterEngine {
     const onWheel = (e: WheelEvent) => {
       const f = e.deltaY > 0 ? 1.1 : 0.9;
       if (this.sim.mode === "foot") this.footDistance = Math.max(25, Math.min(120, this.footDistance * f));
-      else this.shipDistance = Math.max(70, Math.min(420, this.shipDistance * f));
+      else this.shipDistance = Math.max(140, Math.min(800, this.shipDistance * f));
     };
     const onLockChange = () => {
       if (document.pointerLockElement !== el && !this.paused && !this.downReported) this.cb.onPauseRequest();

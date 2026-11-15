@@ -4,7 +4,7 @@
  */
 import { FRUITS, FRUIT_IDS, PLAYER_FOOT_HP, WEAPONS, WEAPON_ORDER, type FruitId, type WeaponId } from "./items";
 import type { Sim } from "./sim";
-import { BEACH_TOP, ISLANDS, groundHeight, islandAt, waveHeight, type Building, type Island, type LootSpot, type ServiceKind } from "./world";
+import { BEACH_TOP, ISLANDS, groundHeight, islandAt, waveHeight, type Building, type BuildingKind, type Island, type LootSpot, type ServiceKind } from "./world";
 
 export type WalkerKind = "hero" | "marine" | "captain" | "bandit";
 
@@ -56,7 +56,25 @@ export interface Prompt {
   /** Seconds to hold E, or 0 for a single press. */
   hold: number;
   run: () => void;
+  /** A shop you visit with a tap of E can be robbed by holding E instead. */
+  robAlt?: { key: string; label: string; hold: number; run: () => void };
 }
+
+/** Robbing each kind of building: what the hold bar says and how long it takes. */
+const ROB: Record<BuildingKind, { label: string; hold: number }> = {
+  bank: { label: "Rob the bank vault", hold: 8 },
+  shop: { label: "Rob the shop", hold: 4 },
+  armory: { label: "Break into the armory", hold: 6 },
+  house: { label: "Rob the house", hold: 3 },
+  tavern: { label: "Rob the tavern's till", hold: 4 },
+  shipwright: { label: "Rob the shipwright's yard", hold: 6 },
+  blacksmith: { label: "Rob the blacksmith's forge", hold: 6 },
+  market: { label: "Rob the black market", hold: 6 },
+};
+/** Holding E this long at a shop you can visit means rob it, not visit. */
+const ROB_INSTEAD_AFTER = 0.5;
+/** Robbing in Blackwater Cove makes it unsafe for you for this long (seconds). */
+const HAVEN_ANGRY = 180;
 
 const WALK = 72;
 const SPRINT = 112;
@@ -64,6 +82,8 @@ const SWIM = 34;
 const HERO_RADIUS = 6;
 const SPOT_RESPAWN: Record<LootSpot["kind"], number> = { chest: 360, crate: 300, buried: 900, fruit: Infinity };
 const BUILDING_RESPAWN = 480;
+/** How close to a building's door you need to be to visit or rob it. */
+const DOOR_REACH = 34;
 const ACTIVE_RANGE = 1150;
 /** Enemy guns hit much softer than yours. */
 const NPC_GUN_DAMAGE: Partial<Record<WeaponId, number>> = { musket: 14, flintlock: 10, blunderbuss: 4 };
@@ -81,6 +101,8 @@ export class Shore {
   walkers: Walker[] = [];
   shots: Shot[] = [];
   hold: Hold | null = null;
+  /** A shop you can visit or rob: how long E has been held there. */
+  private tap = { key: "", time: 0 };
   /** Loot spots and buildings emptied this session, with when they refill. */
   spentUntil = new Map<string, number>();
   private nextId = 100000;
@@ -360,6 +382,7 @@ export class Shore {
   }
 
   private hurtHero(h: Walker, amount: number, from: Walker | null) {
+    if (this.sim.god) return; // cheat: god mode
     if (h.dead >= 0) return;
     // Rubber shrugs off bullets.
     const rubber = this.sim.save.fruit === "gomu" && from !== null && WEAPONS[from.weapon].kind === "gun";
@@ -569,21 +592,26 @@ export class Shore {
       const hold = { chest: 1.5, crate: 1, buried: 3.5, fruit: 0 }[s.kind];
       return { key: s.id, label, hold, run: () => this.lootSpot(s) };
     }
+    // Every building can be robbed; the shops you visit are robbed by holding E instead of tapping it.
     for (let i = 0; i < isl.buildings.length; i++) {
       const b = isl.buildings[i];
-      if (b.kind === "shipwright" || b.kind === "blacksmith" || b.kind === "market") {
-        if (Math.hypot(b.door.x - h.x, b.door.z - h.z) > 28) continue;
-        const kind: ServiceKind = b.kind;
-        const label = { shipwright: "Visit the Shipwright (upgrade your ship)", blacksmith: "Visit the Blacksmith (craft weapons)", market: "Visit the Black Market" }[kind];
-        return { key: `svc${i}`, label, hold: 0, run: () => this.sim.events.push({ k: "service", building: kind }) };
-      }
-      if (b.kind === "house" || b.kind === "tavern" || isl.kind === "haven") continue;
+      if (Math.hypot(b.door.x - h.x, b.door.z - h.z) > DOOR_REACH) continue;
       const key = `b${isl.index}:${i}`;
-      if ((this.spentUntil.get(key) ?? 0) > t) continue;
-      if (Math.hypot(b.door.x - h.x, b.door.z - h.z) > 28) continue;
-      const label = { bank: "Rob the bank vault", shop: "Rob the shop", armory: "Break into the armory" }[b.kind];
-      const hold = { bank: 8, shop: 4, armory: 6 }[b.kind];
-      return { key, label, hold, run: () => this.rob(isl, b, key) };
+      const robbed = (this.spentUntil.get(key) ?? 0) > t;
+      const rob = { key, label: ROB[b.kind].label, hold: ROB[b.kind].hold, run: () => this.rob(isl, b, key) };
+      if (b.kind === "shipwright" || b.kind === "blacksmith" || b.kind === "market") {
+        const kind: ServiceKind = b.kind;
+        const visit = { shipwright: "Visit the Shipwright (upgrade your ship)", blacksmith: "Visit the Blacksmith (craft weapons)", market: "Visit the Black Market" }[kind];
+        return {
+          key: `svc${i}`,
+          label: robbed ? visit : `${visit} · hold to rob`,
+          hold: 0,
+          run: () => this.sim.events.push({ k: "service", building: kind }),
+          ...(!robbed && { robAlt: rob }),
+        };
+      }
+      if (robbed) continue;
+      return rob;
     }
     return null;
   }
@@ -591,6 +619,28 @@ export class Shore {
   private updateHold(dt: number) {
     const inp = this.sim.input;
     const p = this.prompt();
+    // A shop you can visit or rob: a quick tap visits, holding on robs.
+    if (p?.robAlt) {
+      if (this.tap.key !== p.key) this.tap = { key: p.key, time: 0 };
+      if (inp.interactHeld) {
+        this.tap.time += dt;
+        if (this.tap.time < ROB_INSTEAD_AFTER) return;
+        const r = p.robAlt;
+        if (!this.hold || this.hold.key !== r.key) this.hold = { key: r.key, label: r.label, progress: 0, needed: r.hold };
+        this.hold.progress += dt;
+        if (this.hero) this.alertIsland(this.hero.island);
+        if (this.hold.progress >= this.hold.needed) {
+          this.hold = null;
+          this.tap.time = -Infinity; // don't also visit when you let go
+          r.run();
+        }
+        return;
+      }
+      if (this.tap.time > 0 && this.tap.time < ROB_INSTEAD_AFTER) p.run();
+      this.tap.time = 0;
+      this.hold = null;
+      return;
+    }
     if (!p || !inp.interactHeld) {
       this.hold = null;
       return;
@@ -681,20 +731,56 @@ export class Shore {
     let mats = { wood: 0, iron: 0, powder: 0 };
     let gold = 0;
     let ammo = 0;
-    if (b.kind === "bank") {
-      gold = randInt(700, 1300);
-      this.sim.addBounty(35_000_000, gold, 2);
-    } else if (b.kind === "shop") {
-      gold = randInt(120, 240);
-      mats = this.giveMaterials([1, 3], [1, 2], [0, 2]);
-      ammo = randInt(3, 6);
-      this.sim.addBounty(6_000_000, gold, 0.8);
-    } else {
-      weapon = this.giveWeapon(1);
-      mats = this.giveMaterials([0, 2], [2, 5], [3, 6]);
-      ammo = randInt(10, 16);
-      this.sim.addBounty(12_000_000, 0, 1.3);
+    switch (b.kind) {
+      case "bank":
+        gold = randInt(700, 1300);
+        this.sim.addBounty(35_000_000, gold, 2);
+        break;
+      case "shop":
+        gold = randInt(120, 240);
+        mats = this.giveMaterials([1, 3], [1, 2], [0, 2]);
+        ammo = randInt(3, 6);
+        this.sim.addBounty(6_000_000, gold, 0.8);
+        break;
+      case "armory":
+        weapon = this.giveWeapon(1);
+        mats = this.giveMaterials([0, 2], [2, 5], [3, 6]);
+        ammo = randInt(10, 16);
+        this.sim.addBounty(12_000_000, 0, 1.3);
+        break;
+      case "house":
+        // Someone's savings under the bed, and whatever's in the shed.
+        gold = randInt(30, 90);
+        mats = this.giveMaterials([1, 2], [0, 1], [0, 1]);
+        ammo = randInt(1, 3);
+        this.sim.addBounty(1_500_000, gold, 0.4);
+        break;
+      case "tavern":
+        gold = randInt(100, 220);
+        ammo = randInt(2, 5);
+        weapon = this.giveWeapon(0.25);
+        this.sim.addBounty(4_000_000, gold, 0.7);
+        break;
+      case "shipwright":
+        gold = randInt(150, 300);
+        mats = this.giveMaterials([6, 12], [1, 3], [0, 1]);
+        this.sim.addBounty(8_000_000, gold, 1);
+        break;
+      case "blacksmith":
+        weapon = this.giveWeapon(1);
+        mats = this.giveMaterials([0, 1], [4, 8], [1, 2]);
+        ammo = randInt(6, 12);
+        this.sim.addBounty(9_000_000, 0, 1.1);
+        break;
+      case "market":
+        gold = randInt(250, 450);
+        mats = this.giveMaterials([0, 1], [0, 2], [4, 8]);
+        this.giveFruit(0.15);
+        this.sim.addBounty(10_000_000, gold, 1.2);
+        break;
     }
+    // The haven doesn't take kindly to it: it isn't safe for you for a while.
+    if (isl.kind === "haven") this.sim.havenUnsafeUntil = this.sim.time + HAVEN_ANGRY;
     save.ammo += ammo;
     this.sim.events.push({ k: "robbed", building: b.kind, town: isl.name, gold, weapon, ...mats, ammo });
   }
