@@ -83,8 +83,8 @@ export const FRUITS: Record<FruitId, FruitDef> = {
     cooldown: 8, color: "#60a5fa", swirl: "#e0f2fe",
   },
   gomu: {
-    id: "gomu", name: "Gum-Gum Fruit", power: "Gum-Gum Pistol",
-    description: "On foot: a stretching punch with huge reach. At sea: fire both broadsides at once. Bullets bounce off rubber (half damage).",
+    id: "gomu", name: "Stretch Fruit", power: "Stretch Punch",
+    description: "Your body turns stretchy. On foot: a punch that reaches across the street. At sea: fire both broadsides at once. Bullets bounce off you (half damage). Some say \"Stretch\" isn't its real name...",
     cooldown: 7, color: "#a855f7", swirl: "#f0abfc",
   },
   moku: {
@@ -98,6 +98,22 @@ export const FRUITS: Record<FruitId, FruitDef> = {
     cooldown: 15, color: "#e5e7eb", swirl: "#a5b4fc",
   },
 };
+
+/** The Stretch Fruit's real name, read in the vault at Ironmaw Bastion. */
+export const KILL_ORDER = {
+  name: "Kill Order Fruit",
+  power: "Kill Order Punch",
+  awakened: "Kill Order Awakening",
+  color: "#b91c1c",
+  swirl: "#0a0a0a",
+  description:
+    "Its real name, kept secret by the Marines: the Kill Order Fruit. Press V to awaken it for 20 seconds: a crimson-and-black aura, bullets and cannonballs bounce off, blades only scratch, the punch reaches twice as far and hits twice as hard, and it comes back three times as fast. Then it needs 2 minutes to rest.",
+};
+
+/** A fruit's name and power as you know them (the Stretch Fruit's changes once you know its real name). */
+export function fruitInfo(id: FruitId, trueName: boolean): FruitDef {
+  return id === "gomu" && trueName ? { ...FRUITS.gomu, ...KILL_ORDER } : FRUITS[id];
+}
 
 export const FRUIT_IDS = Object.keys(FRUITS) as FruitId[];
 

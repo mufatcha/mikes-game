@@ -22,21 +22,29 @@ import {
   SHOT_RECIPE,
   WEAPONS,
   WEAPON_ORDER,
+  fruitInfo,
+  KILL_ORDER,
   type FruitId,
   type MaterialId,
 } from "@/game/wrathwater/items";
 import { deleteSave, loadSave, newSave, writeSave, type SaveData } from "@/game/wrathwater/save";
+import { ProfileButton, ProfileModal } from "@/components/ProfilePanel";
+import { useProfile } from "@/lib/profile";
 
 type Screen = "menu" | "naming" | "playing";
-type Overlay = "none" | "pause" | "shop" | "market" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats";
+type Overlay = "none" | "pause" | "shop" | "market" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename";
 
 const SAVE_KEY = "ww.save.v1";
 
 // The saved game, read from localStorage without a hydration mismatch.
-const noop = () => () => {};
+// Loading a save code on the account screen fires "storage", so the menu updates right away.
+const onStorage = (fn: () => void) => {
+  window.addEventListener("storage", fn);
+  return () => window.removeEventListener("storage", fn);
+};
 function useSavedRaw() {
   return useSyncExternalStore(
-    noop,
+    onStorage,
     () => {
       try {
         return localStorage.getItem(SAVE_KEY);
@@ -96,8 +104,10 @@ function TitleMenu({
   onCancelNew: () => void;
   onStart: (captain: string) => void;
 }) {
+  const profile = useProfile();
   const [name, setName] = useState("");
   const [help, setHelp] = useState(false);
+  const [account, setAccount] = useState(false);
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-black px-4 py-10">
       <div className="pointer-events-none absolute inset-0 animate-[pulse_8s_ease-in-out_infinite] opacity-70">
@@ -110,13 +120,20 @@ function TitleMenu({
       >
         ← School Wars
       </Link>
+      <ProfileButton onClick={() => setAccount(true)} className="absolute right-4 top-4 z-10 bg-black/60 text-zinc-200 ring-1 ring-white/15" />
+      {account && (
+        <div className="fixed inset-0 z-20">
+          <ProfileModal onClose={() => setAccount(false)} />
+        </div>
+      )}
       <div className="relative z-10 mt-[38vh] flex w-full max-w-sm flex-col gap-3">
         {naming ? (
           <form
             className="flex flex-col gap-3 rounded-xl bg-black/75 p-5 ring-1 ring-white/15 backdrop-blur"
             onSubmit={(e) => {
               e.preventDefault();
-              if (name.trim()) onStart(name.trim().slice(0, 20));
+              const captain = name.trim() || profile?.name || "";
+              if (captain) onStart(captain.slice(0, 20));
             }}
           >
             <label className="font-serif text-xs font-semibold uppercase tracking-[0.3em] text-zinc-400">Name your captain</label>
@@ -125,7 +142,7 @@ function TitleMenu({
               value={name}
               maxLength={20}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Captain ..."
+              placeholder={profile ? profile.name : "Captain ..."}
               className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 font-serif text-lg text-white outline-none focus:border-red-700"
             />
             {existing && (
@@ -139,7 +156,7 @@ function TitleMenu({
               </button>
               <button
                 type="submit"
-                disabled={!name.trim()}
+                disabled={!name.trim() && !profile}
                 className="flex-[2] rounded-lg bg-red-800 py-3 font-bold uppercase tracking-widest text-white hover:bg-red-700 disabled:opacity-40"
               >
                 Set sail
@@ -153,7 +170,7 @@ function TitleMenu({
                 Continue · Captain {existing.captain}
                 <span className="block text-xs font-normal normal-case tracking-normal text-red-100/80">
                   {rankFor(existing.bounty).title} · bounty {shortBerries(existing.bounty)}
-                  {existing.fruit ? ` · ${FRUITS[existing.fruit].name}` : ""}
+                  {existing.fruit ? ` · ${fruitInfo(existing.fruit, existing.trueName).name}` : ""}
                 </span>
               </MenuButton>
             )}
@@ -210,6 +227,7 @@ function HowToPlay() {
   ];
   const both: [string, string][] = [
     ["R", "Use your Devil Fruit power"],
+    ["V", "Awaken your fruit (if you know its real name)"],
     ["I / Tab", "Inventory and crafting"],
     ["W W S S A D A D", "Cheat menu"],
     ["Esc", "Pause"],
@@ -242,6 +260,7 @@ function HowToPlay() {
         <li>Towns have banks, shops and armories to rob, guarded by Marines.</li>
         <li>Craft weapons from timber, iron and gunpowder (I). Armories have weapons to steal.</li>
         <li>Devil Fruits grant a power, but fruit eaters can never swim again.</li>
+        <li>Three town captains, the Vault Wardens, each carry a key. Rumor says they open a vault somewhere no pirate has ever reached.</li>
       </ul>
       {table("At sea", sea)}
       {table("On foot", land)}
@@ -314,6 +333,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
           },
           onInventory: () => setOverlay((o) => (o === "none" ? "inventory" : o)),
           onCheatMenu: () => setOverlay((o) => (o === "none" ? "cheats" : o)),
+          onTrueName: () => setOverlay("truename"),
           onHurt: () => {
             setHurt(true);
             window.clearTimeout(hurtTimer);
@@ -422,6 +442,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       {overlay === "cheats" && engine && <CheatMenu engine={engine} onClose={resume} />}
       {overlay === "shop" && engine && <Shipwright engine={engine} onClose={resume} />}
       {overlay === "market" && engine && <BlackMarket engine={engine} onClose={resume} />}
+      {overlay === "truename" && engine && <TrueName engine={engine} onClose={resume} />}
       {overlay === "fruit" && engine && foundFruit && (
         <FruitFound
           engine={engine}
@@ -512,6 +533,10 @@ function Hud({ hud }: { hud: HudState }) {
 
       {hud.mode === "ship" ? <ShipPanel hud={hud} /> : <FootPanel hud={hud} />}
       {hud.fruit && <PowerBadge fruit={hud.fruit} />}
+      {hud.awaken && <AwakenBadge awaken={hud.awaken} />}
+      {hud.awaken && hud.awaken.active > 0 && (
+        <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_120px_40px_rgba(127,29,29,0.55)]" />
+      )}
 
       <Prompt hud={hud} />
       {hud.nearStorm && (
@@ -634,7 +659,7 @@ function FootPanel({ hud }: { hud: HudState }) {
 }
 
 function PowerBadge({ fruit }: { fruit: NonNullable<HudState["fruit"]> }) {
-  const def = FRUITS[fruit.id];
+  const def = fruit.id === "gomu" && fruit.name === KILL_ORDER.name ? { ...FRUITS.gomu, ...KILL_ORDER } : FRUITS[fruit.id];
   const ready = fruit.ready >= 0.999;
   return (
     <div className="pointer-events-none absolute bottom-4 left-72 flex items-center gap-3 rounded-xl bg-black/60 p-2 pr-4 ring-1 ring-white/10 backdrop-blur">
@@ -716,6 +741,8 @@ function CheatMenu({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
         <PanelButton onClick={cheat(() => engine.cheatClearWanted())}>⭐ Clear wanted stars</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatBounty())}>🏴 +50,000,000 bounty</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatShip())}>⛵ Max ship upgrades and repair</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatVaultKeys())}>🗝️ All 3 Vault Warden keys</PanelButton>
+        <PanelButton onClick={() => engine.cheatTrueName()}>📜 Learn the fruit&apos;s real name</PanelButton>
         <PanelButton primary={god} onClick={() => setGod(engine.cheatGod())}>
           🛡️ God mode: {god ? "ON" : "off"}
         </PanelButton>
@@ -730,7 +757,7 @@ function CheatMenu({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
               onClose();
             }}
           >
-            {isl.kind === "haven" ? "🏝️" : isl.kind === "town" ? "🏘️" : isl.kind === "mystery" ? "❓" : "🌴"} {isl.name}
+            {isl.kind === "haven" ? "🏝️" : isl.kind === "town" ? "🏘️" : isl.kind === "mystery" ? "❓" : isl.kind === "fortress" ? "🏰" : "🌴"} {isl.name}
           </PanelButton>
         ))}
       </div>
@@ -839,13 +866,13 @@ function Inventory({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
       <section className="mt-5">
         <h3 className="text-xs font-bold uppercase tracking-widest text-red-300">Devil Fruit</h3>
         {save.fruit ? (
-          <FruitCard fruit={save.fruit} note="Eaten. Press R to use its power. You can never swim." />
+          <FruitCard fruit={save.fruit} trueName={save.trueName} note="Eaten. Press R to use its power. You can never swim." />
         ) : (
           <p className="mt-1 text-sm text-zinc-400">You haven&apos;t eaten one. They hide in treasure, and one waits on Kraken&apos;s Tooth.</p>
         )}
         {save.heldFruits.map((f) => (
           <div key={f} className="mt-2">
-            <FruitCard fruit={f} note="Carried, not eaten." />
+            <FruitCard fruit={f} trueName={save.trueName} note="Carried, not eaten." />
             <div className="flex gap-2">
               <PanelButton
                 primary
@@ -877,8 +904,8 @@ function Inventory({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
   );
 }
 
-function FruitCard({ fruit, note }: { fruit: FruitId; note: string }) {
-  const def = FRUITS[fruit];
+function FruitCard({ fruit, note, trueName = false }: { fruit: FruitId; note: string; trueName?: boolean }) {
+  const def = fruitInfo(fruit, trueName);
   return (
     <div className="mt-2 flex items-center gap-4 rounded-xl bg-white/5 p-3">
       <div
@@ -901,7 +928,7 @@ function FruitFound({ engine, fruit, onClose }: { engine: WrathwaterEngine; frui
   return (
     <Modal>
       <p className="text-center text-xs font-bold uppercase tracking-[0.4em] text-fuchsia-300">You found a Devil Fruit!</p>
-      <FruitCard fruit={fruit} note="It tastes terrible, they say. And whoever eats one can never swim again." />
+      <FruitCard fruit={fruit} trueName={engine.sim.save.trueName} note="It tastes terrible, they say. And whoever eats one can never swim again." />
       <div className="flex gap-2">
         <PanelButton
           primary
@@ -917,6 +944,55 @@ function FruitFound({ engine, fruit, onClose }: { engine: WrathwaterEngine; frui
       </div>
       {has && <p className="mt-2 text-center text-xs text-zinc-400">A second Devil Fruit would kill you. Sell it at Blackwater Cove instead.</p>}
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- the vault's secret
+
+function TrueName({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => void }) {
+  const save = engine.sim.save;
+  const eaten = save.fruit === "gomu";
+  return (
+    <Modal>
+      <p className="text-center text-xs font-bold uppercase tracking-[0.4em] text-red-400">The vault is open</p>
+      <p className="mt-3 text-center text-sm text-zinc-300">
+        Under the gold lies one sealed Marine file, stamped TOP SECRET. Inside: everything they know about the Stretch Fruit.
+        &ldquo;Stretch&rdquo; was only ever a cover name.
+      </p>
+      <h2 className="mt-4 text-center font-serif text-4xl font-black uppercase tracking-wide text-red-500 drop-shadow-[0_0_18px_rgba(220,38,38,0.6)]">
+        The Kill Order Fruit
+      </h2>
+      <p className="mt-1 text-center text-xs uppercase tracking-widest text-zinc-500">Real name, as written in the file</p>
+      <FruitCard fruit="gomu" trueName note={eaten ? "You already ate it. Its true power is yours: press V." : "Eat it to wield the awakening (V)."} />
+      <p className="mt-3 text-center text-sm text-amber-300">
+        Every Marine in Wrathwater now wants you dead. Bounty +{formatBerries(500_000_000)}.
+      </p>
+      <PanelButton primary onClick={onClose}>
+        Escape the fortress
+      </PanelButton>
+    </Modal>
+  );
+}
+
+function AwakenBadge({ awaken }: { awaken: NonNullable<HudState["awaken"]> }) {
+  const on = awaken.active > 0;
+  const ready = !on && awaken.ready >= 0.999;
+  const fill = on ? awaken.active : awaken.ready;
+  return (
+    <div className="pointer-events-none absolute bottom-20 left-72 flex items-center gap-3 rounded-xl bg-black/70 p-2 pr-4 ring-1 ring-red-900/60 backdrop-blur">
+      <div
+        className="relative h-10 w-10 rounded-full"
+        style={{ background: `conic-gradient(${on ? "#ef4444" : "#7f1d1d"} ${fill * 360}deg, rgba(255,255,255,0.08) 0deg)` }}
+      >
+        <div className={`absolute inset-1 flex items-center justify-center rounded-full bg-black font-mono text-sm font-bold ${ready || on ? "text-red-400" : "text-zinc-600"}`}>V</div>
+      </div>
+      <div>
+        <p className="text-[10px] uppercase tracking-widest text-red-400/80">{KILL_ORDER.awakened}</p>
+        <p className={`text-sm font-bold ${on ? "text-red-400" : ready ? "text-white" : "text-zinc-500"}`}>
+          {on ? "AWAKENED" : ready ? "Ready" : "Resting..."}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -989,7 +1065,7 @@ function BlackMarket({ engine, onClose }: { engine: WrathwaterEngine; onClose: (
       {save.heldFruits.length === 0 && <p className="mt-4 text-sm text-zinc-500">You&apos;ve nothing the dealer wants. Spare Devil Fruits sell for {FRUIT_SELL_PRICE} gold each.</p>}
       {save.heldFruits.map((f) => (
         <div key={f} className="mt-3 flex items-center justify-between rounded-lg bg-white/5 p-3">
-          <span>{FRUITS[f].name}</span>
+          <span>{fruitInfo(f, save.trueName).name}</span>
           <button
             type="button"
             onClick={() => {

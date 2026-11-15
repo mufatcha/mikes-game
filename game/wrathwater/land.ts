@@ -118,6 +118,7 @@ export function buildIslands(): THREE.Group {
     }
     for (const b of isl.buildings) group.add(buildBuilding(b, isl));
     if (isl.kind === "town") group.add(buildTownExtras(isl));
+    if (isl.kind === "fortress") group.add(buildFortressExtras(isl));
     if (isl.haven) group.add(buildHavenExtras(isl));
   }
 
@@ -178,7 +179,9 @@ function buildBuilding(b: Building, isl: Island): THREE.Group {
   const g = new THREE.Group();
   const r = rng(Math.floor(b.x * 31 + b.z * 17));
   const wallColor =
-    b.kind === "bank"
+    b.kind === "vault"
+      ? "#3a3d42"
+      : b.kind === "bank"
       ? "#cfd2d6"
       : b.kind === "armory" || b.kind === "blacksmith"
         ? "#6b6f76"
@@ -193,6 +196,9 @@ function buildBuilding(b: Building, isl: Island): THREE.Group {
   );
   walls.position.set(b.x, b.y + (b.h - 10) / 2, b.z);
   g.add(walls);
+
+  // The vault is a stone keep: flat top, battlements, no gabled roof.
+  if (b.kind === "vault") return buildVault(b, g, walls);
 
   // Gabled roof along the longer side.
   const along = b.w >= b.d;
@@ -234,8 +240,8 @@ function buildBuilding(b: Building, isl: Island): THREE.Group {
     if (b.h > 30) face(7, 7, windowMat, lat, b.h * 0.72);
   }
   if (b.kind !== "house") {
-    const label = { bank: "BANK", shop: "SHOP", armory: "ARMORY", tavern: "TAVERN", shipwright: "SHIPWRIGHT", blacksmith: "BLACKSMITH", market: "BLACK MARKET" }[b.kind];
-    const bg = { bank: "#1e3a5f", shop: "#7c2d12", armory: "#27272a", tavern: "#4a2c17", shipwright: "#1f3d2b", blacksmith: "#3f1d1d", market: "#2e1065" }[b.kind];
+    const label = { bank: "BANK", shop: "SHOP", armory: "ARMORY", tavern: "TAVERN", shipwright: "SHIPWRIGHT", blacksmith: "BLACKSMITH", market: "BLACK MARKET", vault: "RESTRICTED" }[b.kind];
+    const bg = { bank: "#1e3a5f", shop: "#7c2d12", armory: "#27272a", tavern: "#4a2c17", shipwright: "#1f3d2b", blacksmith: "#3f1d1d", market: "#2e1065", vault: "#450a0a" }[b.kind];
     face(label.length > 8 ? 40 : 30, 7.5, new THREE.MeshBasicMaterial({ map: signTexture(label, bg) }), 0, 28);
   }
   if (b.kind === "bank") {
@@ -248,6 +254,93 @@ function buildBuilding(b: Building, isl: Island): THREE.Group {
     }
   }
   void isl;
+  return g;
+}
+
+const stoneMat = new THREE.MeshStandardMaterial({ color: "#45484e", roughness: 0.95 });
+const ironMat = new THREE.MeshStandardMaterial({ color: "#1c1c1f", metalness: 0.6, roughness: 0.5 });
+
+/** Battlements along the top edge of a box (crenels every few units). */
+function crenellate(g: THREE.Group, cx: number, top: number, cz: number, w: number, d: number) {
+  const block = new THREE.BoxGeometry(6, 7, 6);
+  const edge = (x0: number, z0: number, x1: number, z1: number) => {
+    const n = Math.max(2, Math.round(Math.hypot(x1 - x0, z1 - z0) / 12));
+    for (let i = 0; i <= n; i++) {
+      const m = new THREE.Mesh(block, stoneMat);
+      m.position.set(x0 + ((x1 - x0) * i) / n, top + 3.5, z0 + ((z1 - z0) * i) / n);
+      g.add(m);
+    }
+  };
+  const hw = w / 2 - 3, hd = d / 2 - 3;
+  edge(cx - hw, cz - hd, cx + hw, cz - hd);
+  edge(cx - hw, cz + hd, cx + hw, cz + hd);
+  edge(cx - hw, cz - hd, cx - hw, cz + hd);
+  edge(cx + hw, cz - hd, cx + hw, cz + hd);
+}
+
+/** The vault at Ironmaw Bastion: a squat stone keep with a barred iron door and corner towers. */
+function buildVault(b: Building, g: THREE.Group, walls: THREE.Mesh) {
+  walls.material = stoneMat;
+  const top = b.y + b.h;
+  crenellate(g, b.x, top, b.z, b.w, b.d);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const tx = b.x + (sx * b.w) / 2, tz = b.z + (sz * b.d) / 2;
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(11, 12, b.h + 26, 12), stoneMat);
+    tower.position.set(tx, b.y + (b.h + 26) / 2 - 5, tz);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(14, 18, 12), new THREE.MeshStandardMaterial({ color: "#450a0a", roughness: 0.8 }));
+    cap.position.set(tx, b.y + b.h + 30, tz);
+    g.add(tower, cap);
+  }
+  const fx = Math.cos(b.facing), fz = Math.sin(b.facing);
+  const xFacing = Math.abs(fx) > Math.abs(fz);
+  const sign = xFacing ? Math.sign(fx) : Math.sign(fz);
+  const off = (xFacing ? b.w : b.d) / 2 + 0.3;
+  const rotY = xFacing ? (sign > 0 ? Math.PI / 2 : -Math.PI / 2) : sign > 0 ? 0 : Math.PI;
+  const face = (w: number, h: number, mat: THREE.Material, lateral: number, y: number, out = 0) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    m.rotation.y = rotY;
+    if (xFacing) m.position.set(b.x + sign * (off + out), b.y + y, b.z + lateral);
+    else m.position.set(b.x + lateral, b.y + y, b.z + sign * (off + out));
+    g.add(m);
+  };
+  // A huge iron door with bars, and the warning sign above it.
+  face(18, 28, ironMat, 0, 14);
+  for (let i = -3; i <= 3; i++) face(1.2, 28, new THREE.MeshStandardMaterial({ color: "#71717a", metalness: 0.8 }), i * 2.6, 14, 0.2);
+  face(40, 7.5, new THREE.MeshBasicMaterial({ map: signTexture("RESTRICTED", "#450a0a") }), 0, 36);
+  return g;
+}
+
+/** Ironmaw Bastion: a stone wall ring with watchtowers and the Marine flag. */
+function buildFortressExtras(isl: Island) {
+  const g = new THREE.Group();
+  // Out at the island's edge, so you land inside it.
+  const R = isl.radius * 0.95;
+  const towers = 12;
+  for (let i = 0; i < towers; i++) {
+    const a = (i / towers) * Math.PI * 2;
+    const x = isl.x + Math.cos(a) * R, z = isl.z + Math.sin(a) * R;
+    const y = groundY(isl, x, z);
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(10, 12, 60, 10), stoneMat);
+    t.position.set(x, y + 25, z);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(3, 8, 6), lampMat);
+    lamp.position.set(x, y + 60, z);
+    g.add(t, lamp);
+    // Wall to the next tower, with two sea gates and nothing in front of a door.
+    if (i % 6 === 0) continue;
+    const a2 = ((i + 1) / towers) * Math.PI * 2;
+    const x2 = isl.x + Math.cos(a2) * R, z2 = isl.z + Math.sin(a2) * R;
+    if (isl.buildings.some((b) => Math.hypot(b.door.x - (x + x2) / 2, b.door.z - (z + z2) / 2) < 110)) continue;
+    const len = Math.hypot(x2 - x, z2 - z);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(len, 34, 6), stoneMat);
+    wall.position.set((x + x2) / 2, y + 12, (z + z2) / 2);
+    wall.rotation.y = -Math.atan2(z2 - z, x2 - x);
+    g.add(wall);
+  }
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.2, 110, 6), new THREE.MeshStandardMaterial({ color: "#d1d5db" }));
+  pole.position.set(isl.x, BEACH_TOP + 55, isl.z);
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(40, 22), new THREE.MeshStandardMaterial({ map: sailTexture("marine"), side: THREE.DoubleSide }));
+  flag.position.set(isl.x + 20, BEACH_TOP + 98, isl.z);
+  g.add(pole, flag);
   return g;
 }
 

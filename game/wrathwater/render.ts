@@ -747,6 +747,18 @@ export class SeaRenderer {
         p("bigsmoke", at.x, 10, at.z);
       }
     }
+    if (sim.awakened && Math.random() < dt * 60) {
+      const hero = sim.mode === "foot" ? sim.shore.hero : null;
+      if (hero) p("aura", hero.x, hero.y + 2, hero.z);
+      else {
+        // At sea the aura wraps the whole ship.
+        const s = sim.player;
+        const f = forward(s.heading);
+        const along = (Math.random() - 0.5) * s.cls.length;
+        p("aura", s.x + f.x * along, 12, s.z + f.z * along);
+        p("aura", s.x + f.x * along, 12, s.z + f.z * along);
+      }
+    }
     const h = sim.shore.hero;
     this.dustTimer += dt;
     if (h && h.moving && this.dustTimer > 0.18 && h.dead < 0) {

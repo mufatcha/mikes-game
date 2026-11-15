@@ -24,6 +24,10 @@ export interface SaveData {
   /** Fruits that have been found, so they never appear again. */
   fruitsFound: FruitId[];
   robberies: number;
+  /** Vault keys taken from the Vault Wardens (the island each came from). */
+  vaultKeys: number[];
+  /** Read the fruit's real name in the vault: the Stretch Fruit is really the Kill Order Fruit. */
+  trueName: boolean;
 }
 
 const KEY = "ww.save.v1";
@@ -45,6 +49,8 @@ export function newSave(captain: string): SaveData {
     heldFruits: [],
     fruitsFound: [],
     robberies: 0,
+    vaultKeys: [],
+    trueName: false,
   };
 }
 
@@ -78,6 +84,8 @@ export function loadSave(): SaveData | null {
       heldFruits: Array.isArray(s.heldFruits) ? s.heldFruits.filter(isFruit) : [],
       fruitsFound: Array.isArray(s.fruitsFound) ? s.fruitsFound.filter(isFruit) : [],
       robberies: Number(s.robberies) || 0,
+      vaultKeys: Array.isArray(s.vaultKeys) ? [...new Set(s.vaultKeys.map(Number).filter(Number.isInteger))] : [],
+      trueName: !!s.trueName,
     };
   } catch {
     return null;

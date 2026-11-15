@@ -28,6 +28,8 @@ export interface Walker {
   /** Seconds since death, or -1 while alive. */
   dead: number;
   hurt: number;
+  /** A Vault Warden: a tough captain carrying one of the vault's keys. */
+  warden?: boolean;
 }
 
 export interface Shot {
@@ -58,6 +60,8 @@ export interface Prompt {
   run: () => void;
   /** A shop you visit with a tap of E can be robbed by holding E instead. */
   robAlt?: { key: string; label: string; hold: number; run: () => void };
+  /** Cracking the vault: the alarm brings waves of elite Marines. */
+  vault?: boolean;
 }
 
 /** Robbing each kind of building: what the hold bar says and how long it takes. */
@@ -70,6 +74,7 @@ const ROB: Record<BuildingKind, { label: string; hold: number }> = {
   shipwright: { label: "Rob the shipwright's yard", hold: 6 },
   blacksmith: { label: "Rob the blacksmith's forge", hold: 6 },
   market: { label: "Rob the black market", hold: 6 },
+  vault: { label: "Crack the vault", hold: 30 },
 };
 /** Holding E this long at a shop you can visit means rob it, not visit. */
 const ROB_INSTEAD_AFTER = 0.5;
@@ -84,6 +89,10 @@ const SPOT_RESPAWN: Record<LootSpot["kind"], number> = { chest: 360, crate: 300,
 const BUILDING_RESPAWN = 480;
 /** How close to a building's door you need to be to visit or rob it. */
 const DOOR_REACH = 34;
+/** Vault Wardens are much tougher than other captains. */
+const WARDEN_HP = 650;
+/** Cracking the vault: elite Marines storm in every few seconds. */
+const VAULT_WAVE_EVERY = 6;
 const ACTIVE_RANGE = 1150;
 /** Enemy guns hit much softer than yours. */
 const NPC_GUN_DAMAGE: Partial<Record<WeaponId, number>> = { musket: 14, flintlock: 10, blunderbuss: 4 };
@@ -103,6 +112,8 @@ export class Shore {
   hold: Hold | null = null;
   /** A shop you can visit or rob: how long E has been held there. */
   private tap = { key: "", time: 0 };
+  /** Seconds until the next wave of guards while cracking the vault. */
+  private vaultWave = 0;
   /** Loot spots and buildings emptied this session, with when they refill. */
   spentUntil = new Map<string, number>();
   private nextId = 100000;
@@ -375,6 +386,11 @@ export class Shore {
     t.hp = 0;
     t.dead = 0;
     if (!byHero) return;
+    // A Vault Warden drops their key.
+    if (t.warden && !this.sim.save.vaultKeys.includes(t.island)) {
+      this.sim.save.vaultKeys.push(t.island);
+      this.sim.events.push({ k: "vaultKey", keys: this.sim.save.vaultKeys.length, island: t.island });
+    }
     const bounty = t.kind === "captain" ? 12_000_000 : t.kind === "marine" ? 2_000_000 : 1_000_000;
     const gold = t.kind === "bandit" ? randInt(15, 40) : randInt(5, 20);
     this.sim.addBounty(bounty, gold, t.kind === "bandit" ? 0 : 0.35);
@@ -385,8 +401,11 @@ export class Shore {
     if (this.sim.god) return; // cheat: god mode
     if (h.dead >= 0) return;
     // Rubber shrugs off bullets.
-    const rubber = this.sim.save.fruit === "gomu" && from !== null && WEAPONS[from.weapon].kind === "gun";
-    h.hp -= rubber ? amount * 0.5 : amount;
+    const gun = from !== null && WEAPONS[from.weapon].kind === "gun";
+    // Awakened: bullets do nothing and blades only scratch.
+    if (this.sim.awakened && gun) return;
+    const rubber = this.sim.save.fruit === "gomu" && gun;
+    h.hp -= rubber ? amount * 0.5 : this.sim.awakened ? amount * 0.5 : amount;
     h.hurt = 0.3;
     this.lastHeroHit = this.sim.time;
     this.sim.events.push({ k: "heroHit", damage: amount });
@@ -408,7 +427,7 @@ export class Shore {
   private useFootPower(h: Walker) {
     const fruit = this.sim.save.fruit;
     if (!fruit || this.sim.fruitCooldown > 0) return;
-    this.sim.fruitCooldown = FRUITS[fruit].cooldown;
+    this.sim.fruitCooldown = FRUITS[fruit].cooldown * (this.sim.awakened ? 1 / 3 : 1);
     const aim = this.sim.input.aimYaw;
     h.heading = aim;
     h.swing = 0;
@@ -429,9 +448,15 @@ export class Shore {
         break;
       }
       case "gomu": {
-        this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx: h.x + Math.cos(aim) * 140, tz: h.z + Math.sin(aim) * 140 });
-        const t = this.nearestInFront(h, 150, 0.85);
-        if (t) this.damageWalker(t, 75, true);
+        // Awakened, the punch reaches twice as far, hits twice as hard and ends in a shockwave.
+        const awake = this.sim.awakened;
+        const reach = awake ? 280 : 140;
+        const tx = h.x + Math.cos(aim) * reach;
+        const tz = h.z + Math.sin(aim) * reach;
+        this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx, tz });
+        const t = this.nearestInFront(h, reach + 10, 0.85);
+        if (t) this.damageWalker(t, awake ? 150 : 75, true);
+        if (awake && t) this.explode(t.x, t.z, 45, 60, true);
         break;
       }
       case "moku":
@@ -498,6 +523,22 @@ export class Shore {
         for (const g of isl.guards) {
           this.walkers.push(this.makeWalker("marine", isl.index, g.x, g.z, Math.random() < 0.55 ? "musket" : "cutlass"));
         }
+        // A Vault Warden, until you've taken their key.
+        if (isl.warden && !this.sim.save.vaultKeys.includes(isl.index)) {
+          const w = this.makeWalker("captain", isl.index, isl.warden.x, isl.warden.z, "cutlass");
+          w.warden = true;
+          w.hp = w.maxHp = WARDEN_HP;
+          this.walkers.push(w);
+        }
+        // The fortress: elite captains on top of the guards.
+        if (isl.kind === "fortress") {
+          for (const b of isl.buildings) {
+            for (let i = 0; i < 2; i++) {
+              const a = Math.random() * Math.PI * 2;
+              this.walkers.push(this.makeWalker("captain", isl.index, b.door.x + Math.cos(a) * 40, b.door.z + Math.sin(a) * 40, i ? "musket" : "cutlass"));
+            }
+          }
+        }
         if (isl.kind === "town" && this.sim.stars >= 3) {
           const b = isl.buildings[0];
           this.walkers.push(this.makeWalker("captain", isl.index, b.door.x, b.door.z, "cutlass"));
@@ -522,6 +563,9 @@ export class Shore {
     let hostile = false;
     if (heroHere) {
       if (w.kind === "bandit") hostile = d < 260 || (alerted && d < 600);
+      // The fortress and the Vault Wardens don't wait for you to be wanted.
+      else if (ISLANDS[w.island]?.kind === "fortress") hostile = d < 520;
+      else if (w.warden) hostile = d < 260 || ((this.sim.heat > 0 || alerted) && d < 420);
       else hostile = (this.sim.heat > 0 || alerted) && d < 420;
     }
     if (hostile && w.kind !== "bandit") this.sim.seenByMarines();
@@ -599,6 +643,20 @@ export class Shore {
       const key = `b${isl.index}:${i}`;
       const robbed = (this.spentUntil.get(key) ?? 0) > t;
       const rob = { key, label: ROB[b.kind].label, hold: ROB[b.kind].hold, run: () => this.rob(isl, b, key) };
+      // The vault: sealed until you hold all three Warden keys.
+      if (b.kind === "vault") {
+        const s = this.sim.save;
+        if (s.trueName) return { key: "vaultdone", label: "The vault stands empty. You know the fruit's real name now.", hold: 0, run: () => {} };
+        if (s.vaultKeys.length < 3) {
+          return {
+            key: "vaultlocked",
+            label: `The vault is sealed: it needs 3 Vault Warden keys (you have ${s.vaultKeys.length})`,
+            hold: 0,
+            run: () => {},
+          };
+        }
+        return { ...rob, vault: true };
+      }
       if (b.kind === "shipwright" || b.kind === "blacksmith" || b.kind === "market") {
         const kind: ServiceKind = b.kind;
         const visit = { shipwright: "Visit the Shipwright (upgrade your ship)", blacksmith: "Visit the Blacksmith (craft weapons)", market: "Visit the Black Market" }[kind];
@@ -654,6 +712,20 @@ export class Shore {
     this.hold.progress += dt;
     // Robbing makes noise: guards come running.
     if (p.key.startsWith("b") && this.hero) this.alertIsland(this.hero.island);
+    // The vault alarm: elite captains storm in every few seconds while you work.
+    if (p.vault && this.hero) {
+      this.vaultWave -= dt;
+      if (this.vaultWave <= 0) {
+        this.vaultWave = VAULT_WAVE_EVERY;
+        const h = this.hero;
+        for (let i = 0; i < 3; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const w = this.makeWalker("captain", h.island, h.x + Math.cos(a) * 160, h.z + Math.sin(a) * 160, i === 0 ? "musket" : "cutlass");
+          this.walkers.push(w);
+        }
+        this.sim.addHeat(1);
+      }
+    }
     if (this.hold.progress >= this.hold.needed) {
       this.hold = null;
       p.run();
@@ -772,6 +844,19 @@ export class Shore {
         ammo = randInt(6, 12);
         this.sim.addBounty(9_000_000, 0, 1.1);
         break;
+      case "vault": {
+        // Inside: a fortune, and the sealed file with the Stretch Fruit's real name.
+        gold = randInt(4000, 6000);
+        save.trueName = true;
+        // If you've never found the fruit, it's in here too.
+        if (!save.fruitsFound.includes("gomu")) {
+          save.fruitsFound.push("gomu");
+          save.heldFruits.push("gomu");
+        }
+        this.sim.addBounty(500_000_000, gold, 5);
+        this.sim.events.push({ k: "vaultOpened" });
+        break;
+      }
       case "market":
         gold = randInt(250, 450);
         mats = this.giveMaterials([0, 1], [0, 2], [4, 8]);

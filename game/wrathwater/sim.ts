@@ -18,7 +18,7 @@ import {
 import { Shore, type WalkerKind } from "./foot";
 import { FRUITS, type FruitId, type WeaponId } from "./items";
 import type { SaveData } from "./save";
-import { HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, groundHeight, islandAt, type BuildingKind, type ServiceKind } from "./world";
+import { FORTRESS, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, groundHeight, islandAt, type BuildingKind, type ServiceKind } from "./world";
 
 export const GRAVITY = 160;
 const BALL_SPEED = 390;
@@ -121,6 +121,9 @@ export type SimEvent =
   | { k: "fruitFound"; fruit: FruitId }
   | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number }
   | { k: "service"; building: ServiceKind }
+  | { k: "vaultKey"; keys: number; island: number }
+  | { k: "vaultOpened" }
+  | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
 
 export interface PlayerInput {
@@ -143,6 +146,12 @@ export interface PlayerInput {
   aiming: boolean;
   interactHeld: boolean;
 }
+
+/** The awakened form lasts this long, then needs a rest. */
+export const AWAKEN_TIME = 20;
+export const AWAKEN_COOLDOWN = 120;
+/** Warships guarding the fortress at once. */
+const FORT_GUARDS = 7;
 
 const wrap = (a: number) => {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -223,8 +232,36 @@ export class Sim {
 
   /** Robbing in Blackwater Cove makes it unsafe for you until this time. */
   havenUnsafeUntil = 0;
+  private nextFortGuard = 0;
   /** Cheat: nothing can hurt you or your ship. */
   god = false;
+
+  /** The Kill Order Fruit's awakened form: on until this time, ready again at awakenReadyAt. */
+  awakenedUntil = 0;
+  awakenReadyAt = 0;
+  private wasAwakened = false;
+  get awakened() {
+    return this.time < this.awakenedUntil;
+  }
+  /** Only once you've eaten the fruit and read its real name in the vault. */
+  get canAwaken() {
+    return this.save.trueName && this.save.fruit === "gomu";
+  }
+  /** Wake the fruit's true power for a while. Returns false if it isn't ready. */
+  awaken() {
+    if (!this.canAwaken || this.awakened || this.time < this.awakenReadyAt) return false;
+    this.awakenedUntil = this.time + AWAKEN_TIME;
+    this.awakenReadyAt = this.time + AWAKEN_TIME + AWAKEN_COOLDOWN;
+    this.wasAwakened = true;
+    this.fruitCooldown = 0;
+    this.events.push({ k: "awakened", on: true });
+    return true;
+  }
+
+  /** You know where the fortress is: from a Warden's key, the vault itself, or a huge bounty. */
+  get fortressKnown() {
+    return this.save.vaultKeys.length > 0 || this.save.trueName || this.save.bounty >= 300_000_000;
+  }
 
   /** In the haven's safe waters (not while it's still angry about a robbery). */
   get inHaven() {
@@ -263,7 +300,8 @@ export class Sim {
       this.mode = "ship";
     }
     const p = this.player;
-    p.x = isl.x + isl.radius + p.cls.beam + 90;
+    // Close enough to go ashore straight away (landing needs radius + beam + 80).
+    p.x = isl.x + isl.radius + p.cls.beam + 55;
     p.z = isl.z;
     p.heading = 0;
     p.speed = 0;
@@ -287,6 +325,10 @@ export class Sim {
     const p = this.player;
 
     this.fruitCooldown = Math.max(0, this.fruitCooldown - dt);
+    if (this.wasAwakened && !this.awakened) {
+      this.wasAwakened = false;
+      this.events.push({ k: "awakened", on: false });
+    }
 
     if (p.sinking < 0 && this.mode === "ship") {
       p.throttle = clamp(this.input.sails, 0, 3) / 3;
@@ -471,7 +513,12 @@ export class Sim {
       this.aiFire(s, cross > 0 ? 1 : -1, dPlayer);
     } else {
       if (t > s.ai.nextWaypoint || Math.hypot(s.ai.waypoint.x - s.x, s.ai.waypoint.z - s.z) < 150) {
-        s.ai.waypoint = this.randomSeaPoint(s.x, s.z, 900, 2200);
+        const fd = Math.hypot(s.x - FORTRESS.x, s.z - FORTRESS.z);
+        if (s.faction === "marine" && fd < FORTRESS.radius + 1400) {
+          const a = Math.atan2(s.z - FORTRESS.z, s.x - FORTRESS.x) + 0.9;
+          const r = FORTRESS.radius + 500 + Math.random() * 400;
+          s.ai.waypoint = { x: FORTRESS.x + Math.cos(a) * r, z: FORTRESS.z + Math.sin(a) * r };
+        } else s.ai.waypoint = this.randomSeaPoint(s.x, s.z, 900, 2200);
         s.ai.nextWaypoint = t + rand(25, 45);
       }
       desired = Math.atan2(s.ai.waypoint.z - s.z, s.ai.waypoint.x - s.x);
@@ -527,7 +574,8 @@ export class Sim {
     const fruit = this.save.fruit;
     if (!fruit || this.fruitCooldown > 0 || this.inHaven) return;
     const p = this.player;
-    this.fruitCooldown = FRUITS[fruit].cooldown;
+    // Awakened, the power comes back three times as fast.
+    this.fruitCooldown = FRUITS[fruit].cooldown * (this.awakened ? 1 / 3 : 1);
     const aim = this.input.aimYaw;
     const target = this.shipInCone(aim, 950, 0.55);
     const tx = target ? target.x : p.x + Math.cos(aim) * 500;
@@ -722,6 +770,11 @@ export class Sim {
   private damage(s: Ship, amount: number, byPlayer: boolean, x: number, y: number, z: number) {
     // Cheat: god mode, nothing hurts your ship.
     if (this.god && s === this.player) return;
+    // Awakened, cannonballs bounce off your ship.
+    if (this.awakened && s === this.player) {
+      this.events.push({ k: "splash", x, z });
+      return;
+    }
     s.hp -= amount;
     this.events.push({ k: "hit", x, y, z, onPlayer: s === this.player, byPlayer, damage: amount });
     if (byPlayer && s !== this.player) {
@@ -810,6 +863,26 @@ export class Sim {
     }
 
     if (p.sinking >= 0) return;
+
+    // The fortress is ringed by Marine warships that fire on anyone who comes close.
+    if (t >= this.nextFortGuard && Math.hypot(p.x - FORTRESS.x, p.z - FORTRESS.z) < 2800) {
+      this.nextFortGuard = t + 5;
+      const guards = this.ships.filter(
+        (s) => s.faction === "marine" && s.sinking < 0 && Math.hypot(s.x - FORTRESS.x, s.z - FORTRESS.z) < FORTRESS.radius + 1400,
+      );
+      if (guards.length < FORT_GUARDS) {
+        const a = Math.random() * Math.PI * 2;
+        const r = FORTRESS.radius + 450 + Math.random() * 450;
+        const x = FORTRESS.x + Math.cos(a) * r;
+        const z = FORTRESS.z + Math.sin(a) * r;
+        if (Math.hypot(x - p.x, z - p.z) > 600) {
+          const flag = !guards.some((s) => s.cls.id === "marine_flagship");
+          const g = this.spawnNpc(flag ? "marine_flagship" : "marine_warship", x, z);
+          g.ai.angered = true;
+          g.heading = a + Math.PI / 2;
+        }
+      }
+    }
 
     if (t >= this.nextHunterSpawn && this.stars > 0 && !this.inHaven) {
       const want = [...HUNTERS_BY_STARS[this.stars]];

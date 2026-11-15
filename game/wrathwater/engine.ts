@@ -9,14 +9,15 @@ import {
   SHOT_RECIPE,
   WEAPONS,
   WEAPON_ORDER,
+  fruitInfo,
   type FruitId,
   type MaterialId,
   type WeaponId,
 } from "./items";
 import { SeaRenderer, type CameraView } from "./render";
 import { writeSave, type SaveData } from "./save";
-import { Sim, type Side, type SimEvent } from "./sim";
-import { HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, type IslandKind, type ServiceKind } from "./world";
+import { AWAKEN_COOLDOWN, AWAKEN_TIME, Sim, type Side, type SimEvent } from "./sim";
+import { FORTRESS, FORTRESS_NAME, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, type IslandKind, type ServiceKind } from "./world";
 
 const STEP = 1 / 60;
 const MOUSE_SENSITIVITY = 0.0026;
@@ -52,6 +53,8 @@ export interface HudState {
   pointerLocked: boolean;
   weapon: { id: WeaponId; name: string; ready: number; ammo: number | null };
   fruit: { id: FruitId; name: string; power: string; ready: number } | null;
+  /** The Kill Order Fruit's awakened form, once you know its real name. */
+  awaken: { active: number; ready: number } | null;
   prompt: { label: string; key: string; hold: number; progress: number } | null;
   hidden: boolean;
   compass: { heading: number; markers: CompassMarker[] };
@@ -64,7 +67,8 @@ export interface Notice {
   tone: "gold" | "bounty" | "danger" | "info";
 }
 
-/** Typing this (W W S S A D A D) opens the cheat menu. */const CHEAT_CODE = ["KeyW", "KeyW", "KeyS", "KeyS", "KeyA", "KeyD", "KeyA", "KeyD"];
+/** Typing this (W W S S A D A D) opens the cheat menu. */
+const CHEAT_CODE = ["KeyW", "KeyW", "KeyS", "KeyS", "KeyA", "KeyD", "KeyA", "KeyD"];
 export interface EngineCallbacks {
   onHud(hud: HudState): void;
   onNotice(n: Notice): void;
@@ -79,6 +83,8 @@ export interface EngineCallbacks {
   /** W W S S A D A D was typed: open the cheat menu. */
   onCheatMenu(): void;
   onHurt(): void;
+  /** You opened the vault and read the fruit's real name. */
+  onTrueName(): void;
 }
 
 export class WrathwaterEngine {
@@ -185,6 +191,27 @@ export class WrathwaterEngine {
     this.save();
   }
 
+  /** All three Vault Warden keys, so the vault at the fortress will open. */
+  cheatVaultKeys() {
+    const towns = ISLANDS.filter((i) => i.warden).map((i) => i.index);
+    this.sim.save.vaultKeys = [...new Set([...this.sim.save.vaultKeys, ...towns])];
+    this.notice(`Cheat: all 3 Vault Warden keys. The vault is at ${FORTRESS_NAME}, far to the southeast.`, "bounty");
+    this.save();
+  }
+
+  /** Learn the Stretch Fruit's real name (and get the fruit) without cracking the vault. */
+  cheatTrueName() {
+    const s = this.sim.save;
+    s.trueName = true;
+    if (!s.fruitsFound.includes("gomu")) {
+      s.fruitsFound.push("gomu");
+      s.heldFruits.push("gomu");
+    }
+    this.save();
+    this.releasePointer();
+    this.cb.onTrueName();
+  }
+
   /** Nothing can hurt you or your ship (press again to turn it off). Returns whether it's on. */
   cheatGod() {
     this.sim.god = !this.sim.god;
@@ -283,7 +310,9 @@ export class WrathwaterEngine {
     s.fruit = fruit;
     this.sim.fruitCooldown = 0;
     this.audio.fanfare();
-    this.notice(`You ate the ${FRUITS[fruit].name}! Press R to use ${FRUITS[fruit].power}. You can never swim again.`, "bounty");
+    const info = fruitInfo(fruit, s.trueName);
+    this.notice(`You ate the ${info.name}! Press R to use ${info.power}. You can never swim again.`, "bounty");
+    if (this.sim.canAwaken) this.notice("Its true power is yours: press V to awaken it.", "bounty");
     this.save();
     return true;
   }
@@ -543,6 +572,26 @@ export class WrathwaterEngine {
         if (parts) this.notice(parts, "gold");
         break;
       }
+      case "vaultKey":
+        this.audio.fanfare();
+        this.save();
+        this.notice(
+          e.keys >= 3
+            ? `All 3 Vault Warden keys! The vault at ${FORTRESS_NAME}, far to the southeast, will open for you now.`
+            : `You took a Vault Warden's key (${e.keys} of 3)! It's stamped "${FORTRESS_NAME}", far to the southeast.`,
+          "bounty",
+        );
+        break;
+      case "vaultOpened":
+        this.audio.fanfare();
+        this.save();
+        this.releasePointer();
+        this.cb.onTrueName();
+        break;
+      case "awakened":
+        this.audio.power("gomu");
+        this.notice(e.on ? "KILL ORDER AWAKENING! Nothing can touch you for 20 seconds." : "The awakening fades. It needs 2 minutes to rest.", e.on ? "bounty" : "info");
+        break;
       case "robbed": {
         this.audio.coin();
         this.audio.alarm();
@@ -555,6 +604,7 @@ export class WrathwaterEngine {
           shipwright: "the shipwright",
           blacksmith: "the blacksmith",
           market: "the black market",
+          vault: "the vault",
         }[e.building];
         this.notice(`You robbed ${what} in ${e.town}! ${this.lootParts(e.gold, e.weapon, e, e.ammo)}`, "bounty");
         if (this.sim.time < this.sim.havenUnsafeUntil && e.town === HAVEN.name) {
@@ -591,7 +641,7 @@ export class WrathwaterEngine {
     const hold = sim.shore.hold;
     const landing = sim.mode === "ship" ? sim.shore.landingIsland() : null;
     const yaw = this.camYaw;
-    const markers: CompassMarker[] = ISLANDS.map((i) => {
+    const markers: CompassMarker[] = ISLANDS.filter((i) => i !== FORTRESS || sim.fortressKnown).map((i) => {
       let b = Math.atan2(i.z - at.z, i.x - at.x) - yaw;
       while (b > Math.PI) b -= Math.PI * 2;
       while (b < -Math.PI) b += Math.PI * 2;
@@ -633,7 +683,18 @@ export class WrathwaterEngine {
         ammo: WEAPONS[weaponId].kind === "gun" ? sim.save.ammo : null,
       },
       fruit: fruit
-        ? { id: fruit, name: FRUITS[fruit].name, power: FRUITS[fruit].power, ready: 1 - sim.fruitCooldown / FRUITS[fruit].cooldown }
+        ? {
+            id: fruit,
+            name: fruitInfo(fruit, sim.save.trueName).name,
+            power: fruitInfo(fruit, sim.save.trueName).power,
+            ready: Math.max(0, 1 - sim.fruitCooldown / (FRUITS[fruit].cooldown * (sim.awakened ? 1 / 3 : 1))),
+          }
+        : null,
+      awaken: sim.canAwaken
+        ? {
+            active: sim.awakened ? (sim.awakenedUntil - sim.time) / AWAKEN_TIME : 0,
+            ready: sim.awakened ? 1 : Math.min(1, 1 - (sim.awakenReadyAt - sim.time) / (AWAKEN_TIME + AWAKEN_COOLDOWN)),
+          }
         : null,
       prompt: prompt
         ? hold && prompt.robAlt && hold.key === prompt.robAlt.key
@@ -682,8 +743,9 @@ export class WrathwaterEngine {
     g.stroke();
     g.setLineDash([]);
     for (const isl of ISLANDS) {
+      if (isl === FORTRESS && !sim.fortressKnown) continue;
       const [x, z] = toMap(isl.x, isl.z);
-      g.fillStyle = isl.haven ? "#a16207" : isl.kind === "town" ? "#8b7355" : isl.kind === "mystery" ? "#6b4f8a" : "#7c6a48";
+      g.fillStyle = isl.haven ? "#a16207" : isl.kind === "town" ? "#8b7355" : isl.kind === "mystery" ? "#6b4f8a" : isl.kind === "fortress" ? "#7f1d1d" : "#7c6a48";
       g.beginPath();
       g.arc(x, z, Math.max(2, isl.radius * k), 0, Math.PI * 2);
       g.fill();
@@ -801,6 +863,9 @@ export class WrathwaterEngine {
       const sim = this.sim;
       const foot = sim.mode === "foot";
       if (e.code === "KeyR") sim.input.ability = true;
+      else if (e.code === "KeyV") {
+        if (!sim.awaken() && sim.canAwaken && !sim.awakened) this.notice("The awakening is still resting.", "info");
+      }
       else if (e.code === "KeyE") sim.input.interact = true;
       if (!foot) {
         if (e.code === "KeyW" || e.code === "ArrowUp") this.sails = Math.min(3, this.sails + 1);

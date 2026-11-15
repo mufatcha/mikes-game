@@ -9,6 +9,7 @@ import { OPEN_SETTINGS_EVENT } from "@/lib/gamepad";
 import { InstallButton, QuitButton } from "./AppInstall";
 import { LemonFighter, OrangeFighter, VsClash } from "./TitleArt";
 import { GameArrow, WrathwaterTitle } from "./GameSwitcher";
+import { ProfileButton, ProfileModal } from "./ProfilePanel";
 
 /** Games you can flip between on the title screen with the side arrows. */
 const GAMES = ["schoolwars", "wrathwater"] as const;
@@ -23,6 +24,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [gameIndex, setGameIndex] = useState(0);
   const flipGame = (step: number) => setGameIndex((i) => (i + step + GAMES.length) % GAMES.length);
 
@@ -91,12 +93,27 @@ export default function Home() {
       <GameArrow direction="right" label="Next game" onClick={() => flipGame(1)} />
     </>
   );
+  // One account for both games, on both title screens.
+  const account = (
+    <>
+      <ProfileButton
+        onClick={() => setShowProfile(true)}
+        className={`absolute top-4 z-10 bg-black/40 text-white ${GAMES[gameIndex] === "wrathwater" ? "right-4" : "right-16"}`}
+      />
+      {showProfile && (
+        <div className="fixed inset-0 z-20">
+          <ProfileModal onClose={() => setShowProfile(false)} />
+        </div>
+      )}
+    </>
+  );
 
   if (GAMES[gameIndex] === "wrathwater") {
     return (
       <div className="relative">
         <WrathwaterTitle />
         {arrows}
+        {account}
       </div>
     );
   }
@@ -111,6 +128,7 @@ export default function Home() {
       </div>
 
       {arrows}
+      {account}
       <InstallButton className="absolute left-4 top-4 z-10 bg-black/40 text-white" />
       <QuitButton className="absolute left-4 top-4 z-10 bg-black/40 text-white" />
       <SettingsButton

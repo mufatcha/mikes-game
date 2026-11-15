@@ -1,4 +1,4 @@
-/** Visual effects for Wrathwater: particles, lightning, shockwaves, the Gum-Gum arm. */
+/** Visual effects for Wrathwater: particles, lightning, shockwaves, the Stretch Fruit's arm. */
 import * as THREE from "three";
 
 const MAX_PARTICLES = 3000;
@@ -111,6 +111,7 @@ export class ParticleLayer {
 }
 
 export type PuffKind =
+  | "aura"
   | "smoke"
   | "flash"
   | "splash"
@@ -129,6 +130,14 @@ export type PuffKind =
 export function puff(smoke: ParticleLayer, glow: ParticleLayer, kind: PuffKind, x: number, y: number, z: number, vx = 0, vz = 0) {
   const r = Math.random;
   switch (kind) {
+    case "aura": {
+      // The Kill Order awakening: crimson flames licking up through black smoke.
+      const a = r() * Math.PI * 2;
+      const d = 4 + r() * 6;
+      if (r() < 0.55) glow.add({ x: x + Math.cos(a) * d, y: y + r() * 10, z: z + Math.sin(a) * d, vx: Math.cos(a) * 6, vy: 18 + r() * 16, vz: Math.sin(a) * 6, life: 0.6 + r() * 0.4, size: 5 + r() * 4, grow: 4, r: 1.6, g: 0.08, b: 0.08, a: 0.9, gravity: -8 });
+      else smoke.add({ x: x + Math.cos(a) * d, y: y + r() * 8, z: z + Math.sin(a) * d, vx: Math.cos(a) * 4, vy: 10 + r() * 10, vz: Math.sin(a) * 4, life: 0.9 + r() * 0.4, size: 5, grow: 8, r: 0.05, g: 0.02, b: 0.02, a: 0.7, gravity: -3, drag: 0.6 });
+      break;
+    }
     case "smoke":
       smoke.add({ x, y, z, vx: vx + (r() - 0.5) * 8, vy: 6 + r() * 6, vz: vz + (r() - 0.5) * 8, life: 2.4 + r(), size: 10, grow: 15, r: 0.75, g: 0.75, b: 0.75, a: 0.5, gravity: -1, drag: 0.8 });
       break;

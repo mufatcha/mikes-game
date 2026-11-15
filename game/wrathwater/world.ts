@@ -8,8 +8,8 @@ export const WORLD_HALF = 6000;
 /** Height of a beach above the water. */
 export const BEACH_TOP = 6;
 
-export type IslandKind = "haven" | "town" | "wild" | "mystery";
-export type BuildingKind = "house" | "bank" | "shop" | "armory" | "tavern" | "shipwright" | "blacksmith" | "market";
+export type IslandKind = "haven" | "town" | "wild" | "mystery" | "fortress";
+export type BuildingKind = "house" | "bank" | "shop" | "armory" | "tavern" | "shipwright" | "blacksmith" | "market" | "vault";
 /** Blackwater Cove's stores: you walk in to use them (they can't be robbed). */
 export type ServiceKind = "shipwright" | "blacksmith" | "market";
 
@@ -55,6 +55,8 @@ export interface Island {
   /** Where Marine guards (towns) or bandits (camps) stand. */
   guards: { x: number; z: number }[];
   bandits: { x: number; z: number }[];
+  /** Towns: where the Vault Warden stands, a tough Marine captain carrying one of the three vault keys. */
+  warden?: { x: number; z: number };
 }
 
 /** Inside this radius around the haven nobody can fire, Marines turn back, and your wanted level drops fast. */
@@ -66,6 +68,8 @@ const WILD_NAMES = [
 ];
 const TOWN_NAMES = ["Port Sterling", "Gildhaven", "Saint Marrow", "Brightwater"];
 const MYSTERY_NAME = "Kraken's Tooth";
+/** The secret island fortress, far out in the southeast, where the vault is. */
+export const FORTRESS_NAME = "Ironmaw Bastion";
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -93,8 +97,12 @@ export function hillProfile(h: number, r: number, dist: number) {
 
 function makeIslands(): Island[] {
   const r = rng(20261113);
-  type Raw = { name: string; x: number; z: number; radius: number; seed: number; haven?: boolean };
-  const raw: Raw[] = [{ name: "Blackwater Cove", x: 0, z: 0, radius: 420, seed: 7, haven: true }];
+  type Raw = { name: string; x: number; z: number; radius: number; seed: number; haven?: boolean; fortress?: boolean };
+  const raw: Raw[] = [
+    { name: "Blackwater Cove", x: 0, z: 0, radius: 420, seed: 7, haven: true },
+    // The secret fortress, out in the far southeast corner of the sea.
+    { name: FORTRESS_NAME, x: WORLD_HALF - 1100, z: WORLD_HALF - 1100, radius: 400, seed: 666, fortress: true },
+  ];
   let tries = 0;
   while (raw.length < 19 && tries++ < 6000) {
     const radius = 140 + r() * 300;
@@ -104,7 +112,7 @@ function makeIslands(): Island[] {
     if (clear) raw.push({ name: "", x, z, radius, seed: Math.floor(r() * 1e9) });
   }
   // The four biggest islands (besides the haven) become towns; the farthest wild one hides a Devil Fruit.
-  const others = raw.slice(1);
+  const others = raw.filter((o) => !o.haven && !o.fortress);
   const towns = new Set([...others].sort((a, b) => b.radius - a.radius).slice(0, 4));
   const wild = others.filter((o) => !towns.has(o));
   const mystery = [...wild].sort((a, b) => Math.hypot(b.x, b.z) - Math.hypot(a.x, a.z))[0];
@@ -112,9 +120,9 @@ function makeIslands(): Island[] {
   let wildI = 0;
 
   return raw.map((o, index) => {
-    const kind: IslandKind = o.haven ? "haven" : towns.has(o) ? "town" : o === mystery ? "mystery" : "wild";
+    const kind: IslandKind = o.haven ? "haven" : o.fortress ? "fortress" : towns.has(o) ? "town" : o === mystery ? "mystery" : "wild";
     const name =
-      kind === "haven" ? o.name : kind === "town" ? TOWN_NAMES[townI++] : kind === "mystery" ? MYSTERY_NAME : WILD_NAMES[wildI++ % WILD_NAMES.length];
+      kind === "haven" || kind === "fortress" ? o.name : kind === "town" ? TOWN_NAMES[townI++] : kind === "mystery" ? MYSTERY_NAME : WILD_NAMES[wildI++ % WILD_NAMES.length];
     // Towns are bigger, so their person-sized houses fit.
     const radius = kind === "town" ? Math.max(420, o.radius * 1.4) : o.radius;
     return decorate({ ...o, radius, index, name, kind });
@@ -125,7 +133,7 @@ function makeIslands(): Island[] {
 function decorate(o: { index: number; name: string; kind: IslandKind; x: number; z: number; radius: number; seed: number; haven?: boolean }): Island {
   const r = rng(o.seed);
   const R = o.radius;
-  const flat = o.kind === "town" || o.kind === "haven";
+  const flat = o.kind === "town" || o.kind === "haven" || o.kind === "fortress";
   const ha = r() * Math.PI * 2;
   const hd = r() * R * 0.15;
   const hill = {
@@ -154,15 +162,17 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
   // Buildings (towns and the haven), placed in a ring facing the shore.
   if (flat) {
     const kinds: BuildingKind[] =
-      o.kind === "town"
+      o.kind === "fortress"
+        ? ["vault", "armory", "armory"]
+        : o.kind === "town"
         ? ["bank", "armory", "shop", "shop", "tavern", ...Array<BuildingKind>(Math.round(R / 60)).fill("house")]
         : ["shipwright", "blacksmith", "market", "tavern", ...Array<BuildingKind>(5).fill("house")];
     let a0 = r() * Math.PI * 2;
     for (const kind of kinds) {
-      const big = kind === "bank" || kind === "tavern" || kind === "armory" || kind === "shipwright";
+      const big = kind === "bank" || kind === "tavern" || kind === "armory" || kind === "shipwright" || kind === "vault";
       // Sized for people: a person stands about 19 tall, so houses are two storeys and the big halls taller.
-      const w = big ? 90 + r() * 20 : 52 + r() * 24;
-      const dd = big ? 70 + r() * 16 : 44 + r() * 20;
+      const w = kind === "vault" ? 130 : big ? 90 + r() * 20 : 52 + r() * 24;
+      const dd = kind === "vault" ? 110 : big ? 70 + r() * 16 : 44 + r() * 20;
       for (let attempt = 0; attempt < 60; attempt++) {
         const a = a0 + attempt * 0.37;
         const dist = R * (0.38 + r() * 0.4);
@@ -181,7 +191,7 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
           z,
           w: bw,
           d: bd,
-          h: big ? 50 : 34 + r() * 10,
+          h: kind === "vault" ? 64 : big ? 50 : 34 + r() * 10,
           y,
           door: { x: x + Math.cos(facing) * (half + 14), z: z + Math.sin(facing) * (half + 14) },
           facing,
@@ -238,11 +248,26 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
       isl.guards.push({ x: b.door.x + Math.cos(a) * 35, z: b.door.z + Math.sin(a) * 35 });
     }
   }
+  // Three towns each have a Vault Warden guarding one of the vault's three keys.
+  if (o.kind === "town" && TOWN_NAMES.slice(0, 3).includes(o.name) && isl.buildings[0]) {
+    const b = isl.buildings[0];
+    isl.warden = { x: b.door.x + Math.cos(b.facing) * 30, z: b.door.z + Math.sin(b.facing) * 30 };
+  }
+  // The fortress: Marines everywhere, all round the vault and its armories.
+  if (o.kind === "fortress") {
+    for (let i = 0; i < 16; i++) {
+      const b = isl.buildings[i % isl.buildings.length];
+      const a = (i / 16) * Math.PI * 2;
+      if (b) isl.guards.push({ x: b.x + Math.cos(a) * (b.w / 2 + 50), z: b.z + Math.sin(a) * (b.d / 2 + 50) });
+    }
+  }
   return isl;
 }
 
 export const ISLANDS = makeIslands();
 export const HAVEN = ISLANDS[0];
+/** The secret fortress island that holds the vault. */
+export const FORTRESS = ISLANDS.find((i) => i.kind === "fortress")!;
 
 /** The island under or nearest this point, if you're within `pad` of its shore. */
 export function islandAt(x: number, z: number, pad = 0): Island | null {
