@@ -125,8 +125,40 @@ function hullShape(length: number, beam: number) {
   return s;
 }
 
+/**
+ * The helm on the stern castle roof, in the ship's own coordinates (x toward
+ * the bow, y up, z to starboard): where you stand, the wheel in front of you,
+ * and three sail levers on your left. Each lever pulled toward you lets out
+ * one more set of sails.
+ */
+export function helmLayout(cls: { length: number; beam: number }) {
+  const L = cls.length;
+  const B = cls.beam;
+  const roof = 5 + B * 0.14 + 22;
+  // A little off the centerline so the mainmast isn't dead in front of you.
+  const side = B * 0.2;
+  const standX = -L * 0.42;
+  return {
+    /** Where your feet are. */
+    stand: new THREE.Vector3(standX, roof, side),
+    roof,
+    wheel: new THREE.Vector3(standX + 7.5, roof + 10, side),
+    wheelRadius: 4,
+    /** Each lever's pivot at its base; the handle is LEVER_LENGTH above. */
+    levers: [10.5, 13.5, 16.5].map((dz) => new THREE.Vector3(standX + 4, roof + 3, side - dz)),
+  };
+}
+export const LEVER_LENGTH = 9;
+/** Lever angles (about the ship's z axis): sails in (pushed forward) and let out (pulled back toward you). */
+export const LEVER_IN = -0.55;
+export const LEVER_OUT = 0.55;
+/** Wheel turns from straight ahead to hard over (radians). */
+export const WHEEL_LOCK = Math.PI * 1.25;
+
 export interface ShipVisual {
   group: THREE.Group;
+  /** The ship's wheel (spins about the ship's x axis) and its three sail levers (tilt about z). */
+  helm: { wheel: THREE.Object3D; levers: THREE.Object3D[] };
   sails: THREE.Mesh[];
   flag: THREE.Mesh;
   cannons: THREE.Mesh[];
@@ -139,6 +171,61 @@ const cannonGeo = new THREE.CylinderGeometry(0.9, 1.15, 6, 8);
 cannonGeo.rotateX(Math.PI / 2);
 const cannonMat = new THREE.MeshStandardMaterial({ color: "#151515", metalness: 0.7, roughness: 0.35 });
 const ropeMat = new THREE.LineBasicMaterial({ color: "#2b2118", transparent: true, opacity: 0.8 });
+
+/** The ship's wheel on a post, and the sail levers. */
+function buildHelm(cls: { length: number; beam: number }, group: THREE.Group) {
+  const h = helmLayout(cls);
+  const wood = new THREE.MeshStandardMaterial({ color: "#6b4423", roughness: 0.7 });
+  const brass = new THREE.MeshStandardMaterial({ color: "#b8860b", metalness: 0.7, roughness: 0.35 });
+  // The post holding the wheel up.
+  const post = new THREE.Mesh(new THREE.BoxGeometry(2, h.wheel.y - h.roof, 2.4), wood);
+  post.position.set(h.wheel.x + 1.6, (h.wheel.y + h.roof) / 2, h.wheel.z);
+  group.add(post);
+  // The wheel: a rim, a brass hub and eight spokes that stick out as handles.
+  const wheel = new THREE.Group();
+  wheel.position.copy(h.wheel);
+  const R = h.wheelRadius;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(R, 0.45, 8, 32), wood);
+  rim.rotation.y = Math.PI / 2;
+  wheel.add(rim);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1.6, 12), brass);
+  hub.rotation.z = Math.PI / 2;
+  wheel.add(hub);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, R + 1.6, 6), wood);
+    spoke.position.set(0, Math.cos(a) * ((R + 1.6) / 2), Math.sin(a) * ((R + 1.6) / 2));
+    spoke.rotation.x = -a;
+    wheel.add(spoke);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), wood);
+    knob.position.set(0, Math.cos(a) * (R + 1.6), Math.sin(a) * (R + 1.6));
+    wheel.add(knob);
+  }
+  // A brass marker on the top spoke shows which way is straight ahead.
+  const mark = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.4, 0.8), brass);
+  mark.position.set(-0.3, R + 1.4, 0);
+  wheel.add(mark);
+  group.add(wheel);
+  // Three sail levers, each on a little iron base.
+  const iron = new THREE.MeshStandardMaterial({ color: "#2b2b30", metalness: 0.6, roughness: 0.5 });
+  const knobMats = ["#dc2626", "#f59e0b", "#16a34a"].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 }));
+  const levers = h.levers.map((p, i) => {
+    const base = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 2), iron);
+    base.position.set(p.x, h.roof + 1.5, p.z);
+    group.add(base);
+    const lever = new THREE.Group();
+    lever.position.copy(p);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, LEVER_LENGTH, 6), iron);
+    arm.position.y = LEVER_LENGTH / 2;
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.85, 10, 8), knobMats[i]);
+    knob.position.y = LEVER_LENGTH;
+    lever.add(arm, knob);
+    lever.rotation.z = LEVER_IN;
+    group.add(lever);
+    return lever;
+  });
+  return { wheel, levers };
+}
 
 export function buildShip(ship: Ship): ShipVisual {
   const { cls, faction } = ship;
@@ -274,7 +361,8 @@ export function buildShip(ship: Ship): ShipVisual {
   rigGeo.setAttribute("position", new THREE.Float32BufferAttribute(rigging, 3));
   group.add(new THREE.LineSegments(rigGeo, ropeMat));
 
-  const visual: ShipVisual = { group, sails, flag: flag!, cannons: [], cannonCount: 0, recoil: { 1: 0, [-1]: 0 }, lanternMat };
+  const helm = buildHelm(cls, group);
+  const visual: ShipVisual = { group, helm, sails, flag: flag!, cannons: [], cannonCount: 0, recoil: { 1: 0, [-1]: 0 }, lanternMat };
   setCannons(visual, ship);
   return visual;
 }

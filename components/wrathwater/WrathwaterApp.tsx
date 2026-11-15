@@ -283,10 +283,11 @@ function HowToPlay() {
         ["Start / View", "Pause / inventory"],
       ])}
       {table("VR", [
-        ["Left stick", "Walk / steer, push up or down for sails"],
+        ["Left stick", "Walk"],
+        ["At the helm", "Grab the wheel with a grip and turn it to steer (it stays where you let go). Grab a sail lever and pull it toward you to let out sails, push it away to take them in."],
         ["Right stick", "Snap turn"],
         ["Right trigger", "Attack where your hand points, or fire the side you face"],
-        ["Grips", "Right: use (hold to rob) · Left: sprint"],
+        ["Grips", "On foot: right uses (hold to rob), left sprints · At sea: grab the wheel and levers"],
         ["A / B", "Go ashore or board / fruit power"],
         ["X / Y", "Switch Stretch move / awaken"],
         ["☰", "Pause (takes you out of VR)"],

@@ -14,6 +14,8 @@ import {
   buildPerson,
   buildShip,
   buildSupplyCrate,
+  helmLayout,
+  WHEEL_LOCK,
   disposePerson,
   disposeShip,
   posePerson,
@@ -42,6 +44,8 @@ export interface CameraView {
   firstPerson: boolean;
   /** In VR: the map angle your play space faces (head turning is added on top). */
   vrYaw: number;
+  /** Your ship's wheel angle and the three sail levers' angles. */
+  helm: { wheel: number; levers: number[] };
 }
 
 /** In VR, one real meter is this many world units (a person is about 18 units tall). */
@@ -54,10 +58,9 @@ export interface VrHandState {
   yaw: number;
 }
 
-/** Where your eyes are when you stand at the helm: on the stern castle roof. */
+/** Where your eyes are when you stand at the helm: behind the wheel on the stern castle roof. */
 function helmLocal(s: { cls: { length: number; beam: number } }, eye: number) {
-  // A little off the centerline so the mainmast isn't dead in front of you.
-  return new THREE.Vector3(-s.cls.length * 0.36, 5 + s.cls.beam * 0.14 + 22 + eye, s.cls.beam * 0.24);
+  return helmLayout(s.cls).stand.clone().add(new THREE.Vector3(0, eye, 0));
 }
 
 // ---------------------------------------------------------------- shaders
@@ -254,6 +257,7 @@ export class SeaRenderer {
   /** Holds the camera (and, in VR, your hands): moved to where you stand. */
   private rig = new THREE.Group();
   private vrHands: { left: THREE.Group | null; right: THREE.Group | null } = { left: null, right: null };
+  private vrGrips: { left: THREE.Group | null; right: THREE.Group | null } = { left: null, right: null };
   private vrSources: { left: XRInputSource | null; right: XRInputSource | null } = { left: null, right: null };
   private vrHud: { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture; mesh: THREE.Mesh } | null = null;
   private firstPersonSails = false;
@@ -410,7 +414,7 @@ export class SeaRenderer {
     this.oceanUniforms.uTime.value = sim.time;
     this.skyUniforms.uTime.value = sim.time;
     this.updateSky(sim);
-    this.syncShips(sim, dt);
+    this.syncShips(sim, dt, view);
     this.syncPeople(sim, view, dt);
     this.syncProjectiles(sim, dt);
     this.syncCrates(sim);
@@ -471,6 +475,20 @@ export class SeaRenderer {
     return Math.atan2(d.z, d.x);
   }
 
+  /** A VR hand's position in your ship's own coordinates (for the wheel and levers). */
+  vrHandOnShip(hand: "left" | "right", sim: Sim): THREE.Vector3 | null {
+    const grip = this.vrGrips[hand];
+    const v = this.ships.get(sim.player.id);
+    if (!grip || !v || !this.renderer.xr.isPresenting) return null;
+    return v.group.worldToLocal(grip.getWorldPosition(new THREE.Vector3()));
+  }
+
+  /** A short buzz in a VR hand. */
+  vrBuzz(hand: "left" | "right", strength: number, ms: number) {
+    const act = (this.vrSources[hand]?.gamepad as (Gamepad & { hapticActuators?: { pulse?: (v: number, t: number) => Promise<boolean> }[] }) | undefined)?.hapticActuators?.[0];
+    act?.pulse?.(strength, ms).catch(() => {});
+  }
+
   vrHand(hand: "left" | "right"): VrHandState {
     const src = this.vrSources[hand];
     const g = this.vrHands[hand];
@@ -499,6 +517,7 @@ export class SeaRenderer {
         const hand = src.handedness === "left" ? "left" : "right";
         this.vrSources[hand] = src;
         this.vrHands[hand] = ray;
+        this.vrGrips[hand] = grip;
         if (hand === "right") {
           // An aiming line from your right hand.
           const line = new THREE.Line(
@@ -516,6 +535,7 @@ export class SeaRenderer {
         for (const h of ["left", "right"] as const) if (this.vrHands[h] === ray) {
           this.vrHands[h] = null;
           this.vrSources[h] = null;
+          this.vrGrips[h] = null;
         }
         ray.getObjectByName("aim")?.removeFromParent();
       });
@@ -786,7 +806,7 @@ export class SeaRenderer {
 
   // ---------------------------------------------------------------- ships
 
-  private syncShips(sim: Sim, dt: number) {
+  private syncShips(sim: Sim, dt: number, view: CameraView) {
     const seen = new Set<number>();
     const t = sim.time;
     for (const s of sim.ships) {
@@ -797,7 +817,14 @@ export class SeaRenderer {
         this.ships.set(s.id, v);
         this.scene.add(v.group);
       }
-      if (s === sim.player) setCannons(v, s);
+      if (s === sim.player) {
+        setCannons(v, s);
+        v.helm.wheel.rotation.x = view.helm.wheel;
+        view.helm.levers.forEach((a, i) => (v.helm.levers[i].rotation.z = a));
+      } else {
+        // Other crews' wheels turn as they steer.
+        v.helm.wheel.rotation.x += (s.rudder * WHEEL_LOCK * 0.5 - v.helm.wheel.rotation.x) * Math.min(1, dt * 3);
+      }
       const f = forward(s.heading);
       const L = s.cls.length / 2;
       const B = s.cls.beam / 2;

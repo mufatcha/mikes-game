@@ -1,4 +1,5 @@
 /** Runs a Wrathwater session: game loop, controls, camera, minimap, autosave. React shows the HUD and menus. */
+import * as THREE from "three";
 import { HUNTERS_BY_STARS, UPGRADES, rankFor, shortBerries, upgradeCost, type UpgradeId } from "./data";
 import { SeaAudio } from "./audio";
 import {
@@ -17,6 +18,7 @@ import {
   type WeaponId,
 } from "./items";
 import { SeaRenderer, type CameraView } from "./render";
+import { LEVER_IN, LEVER_LENGTH, LEVER_OUT, WHEEL_LOCK, helmLayout } from "./models";
 import { connectedPad, padDown } from "@/lib/gamepad";
 import { writeSave, type SaveData } from "./save";
 import { AWAKEN_COOLDOWN, AWAKEN_TIME, Sim, type Side, type SimEvent } from "./sim";
@@ -45,6 +47,9 @@ export type Action =
   | "sailsUp"
   | "sailsDown"
   | "view";
+
+/** A VR hand holding the wheel (and the angle it was at last frame), or a sail lever. */
+type HelmGrab = { kind: "wheel"; last: number } | { kind: "lever"; i: number };
 
 /** Held buttons from touch, gamepad or VR. */
 interface Held {
@@ -167,6 +172,13 @@ export class WrathwaterEngine {
   private vrHudTimer = 0;
   private lastHud: HudState | null = null;
   private lastNotice = "";
+  /** Your ship's wheel angle (radians) and the three sail levers: angle, and whether each is pulled out. */
+  private helmWheel = 0;
+  private leverAngle = [LEVER_IN, LEVER_IN, LEVER_IN];
+  private leverOut = [false, false, false];
+  /** VR: what each hand is holding at the helm. */
+  private vrGrab: { left: HelmGrab | null; right: HelmGrab | null } = { left: null, right: null };
+  private vrSqueeze = { left: false, right: false };
   private mouseLeft = false;
   private mouseRight = false;
   private sails = 0;
@@ -437,6 +449,7 @@ export class WrathwaterEngine {
     this.last = now;
     this.pollPad(dt);
     this.pollVr();
+    this.updateHelm(dt);
     if (!this.paused) {
       this.acc += dt;
       let steps = 0;
@@ -485,6 +498,7 @@ export class WrathwaterEngine {
       aiming: this.sim.mode === "foot" && (this.mouseRight || this.anyHeld("aim") || (WEAPONS[this.sim.save.equipped].kind === "gun" && this.mouseLeft)),
       firstPerson: this.firstPerson,
       vrYaw: (this.sim.mode === "ship" ? this.sim.player.heading : 0) + this.vrTurn,
+      helm: { wheel: this.helmWheel, levers: this.leverAngle },
     };
   }
 
@@ -496,6 +510,8 @@ export class WrathwaterEngine {
       let rudder = this.touchMove.x + this.padMove.x;
       if (k.has("KeyA") || k.has("ArrowLeft")) rudder -= 1;
       if (k.has("KeyD") || k.has("ArrowRight")) rudder += 1;
+      // In VR you steer with your hands on the wheel: it stays where you leave it.
+      if (this.renderer.inVr) rudder = this.helmWheel / WHEEL_LOCK;
       inp.sails = this.sails;
       inp.rudder = Math.max(-1, Math.min(1, rudder));
       inp.moveX = inp.moveZ = 0;
@@ -744,7 +760,7 @@ export class WrathwaterEngine {
       this.releasePointer();
       this.inputMode = "vr";
       this.vrTurn = this.sim.mode === "foot" ? this.footYaw : 0;
-      this.notice("VR: left stick moves (or steers), right stick turns, right trigger attacks or fires, A boards, B uses your fruit, grips hold to use or sprint, ☰ pauses.", "info");
+      this.notice("VR: at the helm, grab the wheel with a grip and turn it, and pull the sail levers on your left toward you. On foot: left stick walks, right stick turns, right trigger attacks. A boards, B uses your fruit, ☰ pauses.", "info");
       this.pushHud();
       return true;
     } catch {
@@ -806,14 +822,13 @@ export class WrathwaterEngine {
         this.padHeld = { attack: on(rb, 0), aim: on(lb, 0), interact: on(rb, 1), sprint: on(lb, 1) };
         if (on(rb, 0) || on(lb, 0)) this.footYaw = R.yaw;
       } else {
-        this.padMove = { x: lx, y: 0 };
+        // At the helm you steer with the wheel and set sail with the levers: grab them with a grip.
+        this.padMove = { x: 0, y: 0 };
         this.padHeld = { ...NO_HELD };
-        const stepY = ly < -0.7 ? -1 : ly > 0.7 ? 1 : 0;
-        if (stepY !== this.padStickY && stepY !== 0) this.press(stepY < 0 ? "sailsUp" : "sailsDown");
-        this.padStickY = stepY;
+        this.vrHelm(on(lb, 1), on(rb, 1));
         if (pressed("right", 0)) this.press("fireLook");
       }
-      if (pressed("right", 1)) this.press("interact");
+      if (pressed("right", 1) && this.sim.mode === "foot") this.press("interact");
       if (pressed("right", 4)) this.press("board");
       if (pressed("right", 5)) this.press("power");
       if (pressed("left", 4)) this.press("switchMove");
@@ -821,6 +836,101 @@ export class WrathwaterEngine {
       if (pressed("left", 3)) this.press("inventory");
     }
     this.vrPrev = { left: lb.map((b) => b.pressed || b.value > 0.5), right: rb.map((b) => b.pressed || b.value > 0.5) };
+  }
+
+  // ---------------------------------------------------------------- the helm (wheel and sail levers)
+
+  /** Keep the wheel and levers in step with how you're sailing (unless a VR hand is holding them). */
+  private updateHelm(dt: number) {
+    const vr = this.renderer.inVr && this.sim.mode === "ship";
+    if (!vr) {
+      // The wheel turns as you steer, and spins back when you let go.
+      const want = this.sim.player.rudder * WHEEL_LOCK;
+      const step = 5 * dt;
+      this.helmWheel += Math.max(-step, Math.min(step, want - this.helmWheel));
+      this.vrGrab = { left: null, right: null };
+    }
+    const count = this.leverOut.filter(Boolean).length;
+    // Sails changed some other way (keys, a menu, going ashore): the levers follow.
+    if (count !== this.sails) this.leverOut = [0, 1, 2].map((i) => i < this.sails);
+    for (let i = 0; i < 3; i++) {
+      const held = this.vrGrab.left?.kind === "lever" && this.vrGrab.left.i === i || (this.vrGrab.right?.kind === "lever" && this.vrGrab.right.i === i);
+      if (held) continue;
+      const want = this.leverOut[i] ? LEVER_OUT : LEVER_IN;
+      this.leverAngle[i] += (want - this.leverAngle[i]) * Math.min(1, dt * 10);
+    }
+  }
+
+  /**
+   * VR at the helm: squeeze a grip near the wheel's rim to take hold, turn it
+   * like a real wheel, and let go: it stays put. Squeeze near a lever's knob
+   * and pull it toward you to let out a set of sails (push it away to take
+   * them in). Each lever pulled out is one more set of sails.
+   */
+  private vrHelm(leftSqueeze: boolean, rightSqueeze: boolean) {
+    const lay = helmLayout(this.sim.player.cls);
+    for (const hand of ["left", "right"] as const) {
+      const squeeze = hand === "left" ? leftSqueeze : rightSqueeze;
+      const fresh = squeeze && !this.vrSqueeze[hand];
+      this.vrSqueeze[hand] = squeeze;
+      const pos = this.renderer.vrHandOnShip(hand, this.sim);
+      let g = this.vrGrab[hand];
+      if (!squeeze || !pos) {
+        if (g?.kind === "lever") {
+          // Let go: it snaps to whichever end it's nearer.
+          this.leverOut[g.i] = this.leverAngle[g.i] > 0;
+          this.sails = this.leverOut.filter(Boolean).length;
+          this.renderer.vrBuzz(hand, 0.4, 30);
+        }
+        this.vrGrab[hand] = null;
+        continue;
+      }
+      const toWheel = pos.clone().sub(lay.wheel);
+      const wheelAngle = Math.atan2(toWheel.z, toWheel.y);
+      if (!g) {
+        if (!fresh) continue;
+        const radial = Math.hypot(toWheel.y, toWheel.z);
+        // The nearest lever knob within reach wins; otherwise the wheel's rim (or a spoke handle).
+        let best = 3;
+        lay.levers.forEach((pivot, i) => {
+          const a = this.leverAngle[i];
+          const knob = pivot.clone().add(new THREE.Vector3(-Math.sin(a), Math.cos(a), 0).multiplyScalar(LEVER_LENGTH));
+          const d = knob.distanceTo(pos);
+          if (d < best) {
+            best = d;
+            g = { kind: "lever", i };
+          }
+        });
+        if (!g && Math.abs(toWheel.x) < 3 && radial > lay.wheelRadius - 2.5 && radial < lay.wheelRadius + 3) g = { kind: "wheel", last: wheelAngle };
+        if (!g) continue;
+        this.vrGrab[hand] = g;
+        this.renderer.vrBuzz(hand, 0.6, 40);
+      }
+      if (g.kind === "wheel") {
+        let da = wheelAngle - g.last;
+        while (da > Math.PI) da -= Math.PI * 2;
+        while (da < -Math.PI) da += Math.PI * 2;
+        const before = this.helmWheel;
+        this.helmWheel = Math.max(-WHEEL_LOCK, Math.min(WHEEL_LOCK, this.helmWheel + da));
+        g.last = wheelAngle;
+        // A click every eighth of a turn, and a thump at hard over.
+        const notch = (a: number) => Math.round(a / (Math.PI / 4));
+        if (notch(before) !== notch(this.helmWheel)) this.renderer.vrBuzz(hand, 0.25, 15);
+        if (Math.abs(this.helmWheel) === WHEEL_LOCK && Math.abs(before) !== WHEEL_LOCK) this.renderer.vrBuzz(hand, 0.9, 60);
+      } else {
+        const pivot = lay.levers[g.i];
+        const d = pos.clone().sub(pivot);
+        const a = Math.max(LEVER_IN, Math.min(LEVER_OUT, Math.atan2(-d.x, Math.max(0.5, d.y))));
+        const was = this.leverAngle[g.i] > 0;
+        this.leverAngle[g.i] = a;
+        // Sails go out (or in) as soon as the lever passes the middle.
+        if (a > 0 !== was) {
+          this.leverOut[g.i] = a > 0;
+          this.sails = this.leverOut.filter(Boolean).length;
+          this.renderer.vrBuzz(hand, 0.7, 50);
+        }
+      }
+    }
   }
 
   /** The wrist screen in VR. */
