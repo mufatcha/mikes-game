@@ -2,7 +2,8 @@
  * Wrathwater on foot: going ashore, walking/swimming, fighting Marines and
  * bandits, looting islands, robbing towns, and Devil Fruit powers.
  */
-import { FRUITS, FRUIT_IDS, PLAYER_FOOT_HP, WEAPONS, WEAPON_ORDER, type FruitId, type StretchMove, type WeaponId } from "./items";
+import { FRUIT_IDS, ITEMS, PLAYER_FOOT_HP, WEAPONS, WEAPON_ORDER, skillEffects, type FruitId, type ItemId, type StretchMove, type WeaponId } from "./items";
+import { giverName } from "./quests";
 import type { Sim } from "./sim";
 import { BEACH_TOP, COUNTER, ISLANDS, doorAxis, groundHeight, islandAt, waveHeight, type Building, type BuildingKind, type Island, type LootSpot, type ServiceKind } from "./world";
 
@@ -30,6 +31,9 @@ export interface Walker {
   hurt: number;
   /** A Vault Warden: a tough captain carrying one of the vault's keys. */
   warden?: boolean;
+  /** Seconds of poison left (it hurts every second), and of being bound by smoke (can't fight). */
+  poison?: number;
+  stun?: number;
 }
 
 export interface Shot {
@@ -43,6 +47,8 @@ export interface Shot {
   damage: number;
   byHero: boolean;
   fire: boolean;
+  /** Venom: whoever it hits keeps getting hurt for a while. */
+  poison?: boolean;
 }
 
 export interface Hold {
@@ -77,7 +83,7 @@ const ROB: Record<BuildingKind, { label: string; hold: number }> = {
   vault: { label: "Crack the vault", hold: 30 },
 };
 /** What Blackwater Cove's stores are called. */
-export const STORE_NAMES: Record<ServiceKind, string> = { shipwright: "shipwright's", blacksmith: "blacksmith's", market: "black market", tavern: "tavern" };
+export const STORE_NAMES: Record<ServiceKind, string> = { shipwright: "shipwright's", blacksmith: "blacksmith's", market: "black market", tavern: "tavern", shop: "general store" };
 
 /** Holding E this long at a shop you can visit means rob it, not visit. */
 const ROB_INSTEAD_AFTER = 0.5;
@@ -147,8 +153,9 @@ export class Shore {
     const x = isl.x + Math.cos(a) * isl.radius * 0.84;
     const z = isl.z + Math.sin(a) * isl.radius * 0.84;
     this.hero = this.makeWalker("hero", isl.index, x, z, this.sim.save.equipped);
-    this.hero.maxHp = PLAYER_FOOT_HP;
-    this.hero.hp = PLAYER_FOOT_HP;
+    const fx = skillEffects(this.sim.save.skills);
+    this.hero.maxHp = fx.maxHp;
+    this.hero.hp = fx.maxHp;
     this.hero.heading = a + Math.PI;
     // Docking at Blackwater Cove: the shipwright's crew patches the hull while you're ashore.
     if (isl.haven) p.hp = p.stats.hull;
@@ -203,6 +210,18 @@ export class Shore {
         w.dead += dt;
         continue;
       }
+      if (w.poison && w.poison > 0) {
+        const before = Math.ceil(w.poison);
+        w.poison -= dt;
+        // Once a second, the poison bites.
+        if (Math.ceil(w.poison) < before) this.damageWalker(w, 12 * this.sim.powerMul, true);
+        if (w.dead >= 0) continue;
+      }
+      if (w.stun && w.stun > 0) {
+        w.stun -= dt;
+        w.moving = false;
+        continue;
+      }
       if (h) this.think(w, h, dt);
     }
     this.walkers = this.walkers.filter((w) => w.dead < 8);
@@ -211,7 +230,13 @@ export class Shore {
       h.hurt = Math.max(0, h.hurt - dt);
       h.cooldown = Math.max(0, h.cooldown - dt);
       if (h.dead >= 0) h.dead += dt;
-      else if (this.sim.time - this.lastHeroHit > 7) h.hp = Math.min(h.maxHp, h.hp + 6 * dt);
+      else {
+        // You heal when you've been out of a fight a while, unless you're hungry.
+        if (this.sim.time - this.lastHeroHit > 7 && this.sim.save.hunger >= 20) h.hp = Math.min(h.maxHp, h.hp + 6 * dt);
+        // Starving or food poisoning wears you down.
+        const drain = (this.sim.starving ? 1 : 0) + (this.sim.foodPoisoned ? 1.5 : 0);
+        if (drain && h.hp > 1) h.hp = Math.max(1, h.hp - drain * dt);
+      }
     }
     if (h && h.dead < 0) this.updateFlurry(h, dt);
     else this.flurry = null;
@@ -229,6 +254,10 @@ export class Shore {
     h.swimming = ground === null;
     let speed = h.swimming ? SWIM : inp.sprint ? SPRINT : WALK;
     if (hidden) speed *= 1.35;
+    speed *= skillEffects(this.sim.save.skills).speed;
+    if (this.sim.tailwind) speed *= 1.7;
+    if (this.sim.foodPoisoned) speed *= 0.7;
+    if (this.sim.starving) speed *= 0.85;
     h.moving = len > 0.1;
     const launching = this.updateLaunch(h, dt);
     if (h.moving && !launching) {
@@ -355,11 +384,12 @@ export class Shore {
       }
       this.sim.save.ammo--;
     }
-    h.cooldown = wpn.cooldown;
+    const sk = skillEffects(this.sim.save.skills);
+    h.cooldown = wpn.cooldown * (wpn.kind === "gun" ? sk.gunCooldown : 1);
     h.swing = 0;
     if (wpn.kind === "melee") {
       this.sim.events.push({ k: "swing", x: h.x, z: h.z, byHero: true });
-      this.meleeHit(h, wpn.damage, wpn.range, 0.55);
+      this.meleeHit(h, wpn.damage * sk.melee, wpn.range, 0.55);
       // A supply crate in front of you breaks open.
       const fx = Math.cos(h.heading);
       const fz = Math.sin(h.heading);
@@ -401,7 +431,7 @@ export class Shore {
     for (const t of this.walkers) {
       if (t.dead >= 0) continue;
       if (Math.hypot(t.x - x, t.z - z) > HERO_RADIUS + 4 || y < t.y - 2 || y > t.y + 21) continue;
-      this.damageWalker(t, wpn.damage, true);
+      this.damageWalker(t, wpn.damage * skillEffects(this.sim.save.skills).melee, true);
       result = "hit";
     }
     return result;
@@ -433,7 +463,7 @@ export class Shore {
         vz: Math.sin(a) * 950,
         travelled: 0,
         range: wpn.range,
-        damage: byHero ? wpn.damage : (NPC_GUN_DAMAGE[weapon] ?? 8),
+        damage: byHero ? wpn.damage * skillEffects(this.sim.save.skills).gunDamage : (NPC_GUN_DAMAGE[weapon] ?? 8),
         byHero,
         fire: false,
       });
@@ -459,6 +489,7 @@ export class Shore {
           if (t.dead >= 0 || Math.hypot(t.x - s.x, t.z - s.z) > (s.fire ? 16 : 9)) continue;
           if (s.fire) this.explode(s.x, s.z, 45, s.damage, true);
           else this.damageWalker(t, s.damage, s.byHero);
+          if (s.poison && t.kind !== "hero") t.poison = Math.max(t.poison ?? 0, 6);
           continue outer;
         }
       }
@@ -503,7 +534,7 @@ export class Shore {
     const bounty = t.kind === "captain" ? 12_000_000 : t.kind === "marine" ? 2_000_000 : 1_000_000;
     const gold = t.kind === "bandit" ? randInt(15, 40) : randInt(5, 20);
     this.sim.addBounty(bounty, gold, t.kind === "bandit" ? 0 : 0.35);
-    this.sim.events.push({ k: "walkerDown", x: t.x, z: t.z, kind: t.kind, bounty, gold });
+    this.sim.events.push({ k: "walkerDown", x: t.x, z: t.z, kind: t.kind, bounty, gold, island: t.island });
   }
 
   private hurtHero(h: Walker, amount: number, from: Walker | null) {
@@ -520,6 +551,7 @@ export class Shore {
     // Awakened: bullets do nothing and blades only scratch.
     if (this.sim.awakened && gun) return;
     const rubber = this.sim.save.fruit === "gomu" && gun;
+    if (this.sim.ironSkin) amount *= 0.25;
     h.hp -= rubber ? amount * 0.5 : this.sim.awakened ? amount * 0.5 : amount;
     h.hurt = 0.3;
     this.lastHeroHit = this.sim.time;
@@ -542,36 +574,184 @@ export class Shore {
   private useFootPower(h: Walker) {
     const fruit = this.sim.save.fruit;
     if (fruit === "gomu") return this.footStretch(h);
-    if (!fruit || this.sim.fruitCooldown > 0) return;
-    this.sim.fruitCooldown = FRUITS[fruit].cooldown * (this.sim.awakened ? 1 / 3 : 1);
+    if (!fruit || this.launch) return;
+    const move = this.sim.takeFruitMove();
+    if (!move) return;
+    const pow = this.sim.powerMul;
     const aim = this.sim.input.aimYaw;
+    const cx = Math.cos(aim);
+    const cz = Math.sin(aim);
     h.heading = aim;
     h.swing = 0;
-    switch (fruit) {
-      case "mera":
-        this.shots.push({
-          x: h.x, y: h.y + 14, z: h.z, vx: Math.cos(aim) * 520, vz: Math.sin(aim) * 520,
-          travelled: 0, range: 420, damage: 85, byHero: true, fire: true,
-        });
-        this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx: h.x + Math.cos(aim) * 40, tz: h.z + Math.sin(aim) * 40 });
+    const fx = (tx: number, tz: number, m: string = move) =>
+      this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx, tz, move: m as typeof move });
+    const shoot = (speed: number, range: number, damage: number, fire: boolean, poison = false) =>
+      this.shots.push({
+        x: h.x, y: h.y + 14, z: h.z, vx: cx * speed, vz: cz * speed,
+        travelled: 0, range, damage: damage * pow, byHero: true, fire, poison,
+      });
+    const around = (r: number) => this.walkers.filter((w) => w.dead < 0 && Math.hypot(w.x - h.x, w.z - h.z) < r);
+    const fling = (w: Walker, dist: number) => {
+      const a = Math.atan2(w.z - h.z, w.x - h.x);
+      const nx = w.x + Math.cos(a) * dist;
+      const nz = w.z + Math.sin(a) * dist;
+      if (groundHeight(nx, nz) !== null) {
+        w.x = nx;
+        w.z = nz;
+      }
+    };
+    switch (move) {
+      case "fireball":
+        shoot(520, 420, 85, true);
+        fx(h.x + cx * 40, h.z + cz * 40);
         break;
-      case "goro": {
+      case "flameRing":
+        fx(h.x, h.z);
+        this.explode(h.x, h.z, 110, 70 * pow, true);
+        break;
+      case "fireRain":
+        for (let i = 1; i <= 5; i++) {
+          const tx = h.x + cx * (50 + i * 50);
+          const tz = h.z + cz * (50 + i * 50);
+          fx(tx, tz);
+          this.explode(tx, tz, 45, 55 * pow, true);
+        }
+        break;
+      case "bolt": {
         const t = this.nearestInFront(h, 340, 0.5);
-        const tx = t ? t.x : h.x + Math.cos(aim) * 200;
-        const tz = t ? t.z : h.z + Math.sin(aim) * 200;
-        this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx, tz });
-        this.explode(tx, tz, 40, 95, true);
+        const tx = t ? t.x : h.x + cx * 200;
+        const tz = t ? t.z : h.z + cz * 200;
+        fx(tx, tz);
+        this.explode(tx, tz, 40, 95 * pow, true);
         break;
       }
-      case "moku":
-        this.sim.smoke(8);
-        this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx: h.x, tz: h.z });
+      case "chain": {
+        const hit = around(260).sort((a, b) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(b.x - h.x, b.z - h.z)).slice(0, 4);
+        if (!hit.length) fx(h.x + cx * 120, h.z + cz * 120, "bolt");
+        for (const w of hit) {
+          fx(w.x, w.z, "bolt");
+          this.damageWalker(w, 60 * pow, true);
+        }
         break;
-      case "gura":
-        this.sim.events.push({ k: "power", fruit, x: h.x, z: h.z, tx: h.x, tz: h.z });
-        this.explode(h.x, h.z, 170, 85, true);
+      }
+      case "thunderDash":
+        fx(h.x + cx * 200, h.z + cz * 200);
+        this.launch = { dir: aim, t: 0.3, speed: 1000, hit: new Set() };
+        break;
+      case "screen":
+        this.sim.smoke(8);
+        fx(h.x, h.z);
+        break;
+      case "smokeFist":
+        shoot(600, 320, 55, false);
+        fx(h.x + cx * 40, h.z + cz * 40);
+        break;
+      case "smokeBind":
+        fx(h.x, h.z);
+        for (const w of around(160)) {
+          w.stun = 4;
+          this.damageWalker(w, 25 * pow, true);
+        }
+        break;
+      case "seaquake":
+        fx(h.x, h.z);
+        this.explode(h.x, h.z, 170, 85 * pow, true);
+        break;
+      case "quakePunch":
+        fx(h.x + cx * 70, h.z + cz * 70);
+        this.explode(h.x + cx * 70, h.z + cz * 70, 80, 120 * pow, true);
+        break;
+      case "tsunami":
+        fx(h.x, h.z);
+        for (const w of around(240)) {
+          this.damageWalker(w, 55 * pow, true);
+          fling(w, 120);
+        }
+        break;
+      case "galeSlash":
+        shoot(800, 520, 70, false);
+        fx(h.x + cx * 60, h.z + cz * 60);
+        break;
+      case "tornado":
+        fx(h.x, h.z);
+        for (const w of around(180)) {
+          this.damageWalker(w, 40 * pow, true);
+          fling(w, 140);
+          w.stun = 1.5;
+        }
+        break;
+      case "tailwind":
+        this.sim.windUntil = this.sim.time + 6;
+        fx(h.x, h.z);
+        break;
+      case "ironSkin":
+        this.sim.ironUntil = this.sim.time + 8;
+        fx(h.x, h.z);
+        break;
+      case "ironFist": {
+        const t = this.nearestInFront(h, 60, 0.6);
+        fx(h.x + cx * 40, h.z + cz * 40);
+        if (t) this.damageWalker(t, 150 * pow, true);
+        break;
+      }
+      case "ironRain":
+        fx(h.x + cx * 260, h.z + cz * 260);
+        this.explode(h.x + cx * 260, h.z + cz * 260, 70, 90 * pow, true);
+        break;
+      case "venomSpit":
+        shoot(560, 360, 40, false, true);
+        fx(h.x + cx * 40, h.z + cz * 40);
+        break;
+      case "poisonCloud":
+        fx(h.x, h.z);
+        for (const w of around(150)) w.poison = Math.max(w.poison ?? 0, 6);
+        break;
+      case "toxicTide":
+        fx(h.x, h.z);
+        for (const w of around(300)) {
+          w.poison = Math.max(w.poison ?? 0, 4);
+          this.damageWalker(w, 20 * pow, true);
+        }
+        break;
+      default:
         break;
     }
+  }
+
+  // ---------------------------------------------------------------- bombs, tonics and smoke
+
+  /** Use something you're carrying. Returns a reason it can't be used, or null when it worked. */
+  useItem(id: ItemId): string | null {
+    const s = this.sim.save;
+    if ((s.items[id] ?? 0) <= 0) return `You have no ${ITEMS[id].name.toLowerCase()}s.`;
+    const h = this.hero;
+    if (id === "smoke") {
+      s.items.smoke--;
+      this.sim.smoke(5);
+      const at = h ?? this.sim.player;
+      this.sim.events.push({ k: "power", fruit: "moku", x: at.x, z: at.z, tx: at.x, tz: at.z, move: "screen" });
+      return null;
+    }
+    if (!h || h.dead >= 0) return "Use that ashore.";
+    if (id === "tonic") {
+      if (h.hp >= h.maxHp) return "You're already at full health.";
+      s.items.tonic--;
+      h.hp = Math.min(h.maxHp, h.hp + 60);
+      this.sim.events.push({ k: "itemUsed", item: id });
+      return null;
+    }
+    // A powder bomb, thrown where you're looking.
+    s.items.bomb--;
+    const aim = this.sim.input.aimYaw;
+    let tx = h.x + Math.cos(aim) * 150;
+    let tz = h.z + Math.sin(aim) * 150;
+    if (groundHeight(tx, tz) === null) {
+      tx = h.x + Math.cos(aim) * 60;
+      tz = h.z + Math.sin(aim) * 60;
+    }
+    this.explode(tx, tz, 70, 80, true);
+    this.sim.events.push({ k: "itemUsed", item: id });
+    return null;
   }
 
   // ---------------------------------------------------------------- the Stretch Fruit on foot
@@ -879,6 +1059,12 @@ export class Shore {
     }
     if (this.canBoard()) return { key: "board", label: "Board your ship", hold: 0, run: () => this.board() };
     const isl = ISLANDS[h.island];
+    if (isl.questGiver && Math.hypot(isl.questGiver.x - h.x, isl.questGiver.z - h.z) < 26) {
+      const name = giverName(isl.index);
+      const q = this.sim.save.quest;
+      const label = !q ? `Talk to ${name} (quest)` : q.giver === isl.index && q.kind === "bring" ? `Hand over to ${name}` : `Talk to ${name}`;
+      return { key: `quest${isl.index}`, label, hold: 0, run: () => this.sim.events.push({ k: "questGiver", island: isl.index }) };
+    }
     const t = this.sim.time;
     for (const s of isl.spots) {
       if ((this.spentUntil.get(s.id) ?? 0) > t) continue;
@@ -909,13 +1095,14 @@ export class Shore {
         }
         return { ...rob, vault: true };
       }
-      if (b.kind === "shipwright" || b.kind === "blacksmith" || b.kind === "market" || (b.kind === "tavern" && isl.haven)) {
+      if (b.kind === "shipwright" || b.kind === "blacksmith" || b.kind === "market" || b.kind === "shop" || (b.kind === "tavern" && isl.haven)) {
         const kind = b.kind as ServiceKind;
         const visit = {
           shipwright: "Visit the Shipwright (upgrades and bigger ships)",
           blacksmith: "Visit the Blacksmith (craft weapons)",
           market: "Visit the Black Market",
-          tavern: "Visit the tavern (hire crew)",
+          tavern: "Visit the tavern (hire crew, buy food)",
+          shop: "Visit the general store (food and supplies)",
         }[kind];
         return {
           key: `svc${i}`,
@@ -1049,7 +1236,7 @@ export class Shore {
     }
     save.gold += gold;
     save.ammo += ammo;
-    this.sim.events.push({ k: "loot", x: s.x, z: s.z, gold, weapon, ...mats, ammo, smashed });
+    this.sim.events.push({ k: "loot", x: s.x, z: s.z, gold, weapon, ...mats, ammo, smashed, spot: s.id, kind: s.kind });
   }
 
   private rob(isl: Island, b: Building, key: string) {

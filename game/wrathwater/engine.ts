@@ -16,6 +16,7 @@ import {
 } from "./data";
 import { STORE_NAMES } from "./foot";
 import type { PanelRow } from "./panel";
+import { giverName, makeQuest, type Quest } from "./quests";
 import { SeaAudio } from "./audio";
 import {
   FRUITS,
@@ -28,6 +29,18 @@ import {
   STRETCH,
   STRETCH_MOVES,
   fruitInfo,
+  FOODS,
+  ITEMS,
+  SKILL_IDS,
+  SKILL_MAX,
+  SKILLS,
+  FOOD_IDS,
+  ITEM_IDS,
+  levelFromXp,
+  skillEffects,
+  type FoodId,
+  type ItemId,
+  type SkillId,
   type FruitId,
   type MaterialId,
   type WeaponId,
@@ -61,7 +74,11 @@ export type Action =
   | "fireStarboard"
   | "sailsUp"
   | "sailsDown"
-  | "view";
+  | "view"
+  | "bomb"
+  | "tonic"
+  | "smoke"
+  | "eat";
 
 /** A VR hand holding the wheel (and the angle it was at last frame), or a sail lever. */
 type HelmGrab = { kind: "wheel"; last: number } | { kind: "lever"; i: number; start: number };
@@ -101,6 +118,16 @@ export interface HudState {
   reload: { port: number; starboard: number };
   landing: string | null;
   inHaven: boolean;
+  /** You: level, XP into it, unspent skill points. */
+  level: { level: number; into: number; need: number; points: number };
+  /** How full you are (0..100), and what's affecting you right now. */
+  hunger: number;
+  status: { text: string; tone: "good" | "bad" }[];
+  /** Bombs, tonics, smoke bombs; how much food you have and how much has spoiled. */
+  items: Record<ItemId, number>;
+  food: { count: number; spoiled: number };
+  /** The quest you're on. */
+  quest: { title: string; progress: number; count: number } | null;
   /** Your ship's size and how well she's manned (people aboard counts you). */
   ship: { name: string; tier: number; people: number; min: number; full: number; short: boolean };
   aimSide: Side | null;
@@ -153,6 +180,8 @@ export interface EngineCallbacks {
   onHurt(): void;
   /** You opened the vault and read the fruit's real name. */
   onTrueName(): void;
+  /** A quest giver offers you a quest (accept or turn it down). */
+  onQuestOffer(q: Quest): void;
   /** Your progress was replaced from another tab (a save code was loaded there): this game stopped saving. */
   onSaveReplaced(): void;
 }
@@ -385,6 +414,158 @@ export class WrathwaterEngine {
     this.save();
   }
 
+  // ---------------------------------------------------------------- you: XP, levels and skills
+
+  /** Skill points to spend: one for every level past the first, minus those spent. */
+  get skillPoints() {
+    const spent = SKILL_IDS.reduce((n, k) => n + this.sim.save.skills[k], 0);
+    return Math.max(0, levelFromXp(this.sim.save.xp).level - 1 - spent);
+  }
+
+  gainXp(n: number) {
+    if (n <= 0) return;
+    const before = levelFromXp(this.sim.save.xp).level;
+    this.sim.save.xp += n;
+    const after = levelFromXp(this.sim.save.xp).level;
+    if (after > before) {
+      this.audio.fanfare();
+      this.notice(`Level ${after}! You have a skill point to spend: open your inventory (I) and train.`, "bounty");
+      this.save();
+    }
+  }
+
+  /** Put a skill point into a skill. */
+  trainSkill(id: SkillId) {
+    const s = this.sim.save;
+    if (this.skillPoints <= 0 || s.skills[id] >= SKILL_MAX) return false;
+    s.skills[id]++;
+    // More health right away.
+    const h = this.sim.shore.hero;
+    if (h && id === "vitality") {
+      h.maxHp = skillEffects(s.skills).maxHp;
+      h.hp = Math.min(h.maxHp, h.hp + 15);
+    }
+    this.afterPurchase();
+    return true;
+  }
+
+  // ---------------------------------------------------------------- items and food
+
+  useItem(id: ItemId) {
+    const why = this.sim.shore.useItem(id);
+    if (why) this.notice(why, "info");
+    else this.pushHud();
+  }
+
+  eatFood(index?: number) {
+    if (!this.sim.save.food.length) {
+      this.notice("You've no food. Buy some at a town's shop or the Blackwater Cove tavern.", "info");
+      return false;
+    }
+    const ok = this.sim.eat(index);
+    if (ok) this.save();
+    return ok;
+  }
+
+  /** Buy food (fresh: it spoils after a while). */
+  buyFood(id: FoodId, n = 1) {
+    const s = this.sim.save;
+    const def = FOODS[id];
+    let bought = 0;
+    while (bought < n && s.gold >= def.price) {
+      s.gold -= def.price;
+      s.food.push({ food: id, spoils: s.playTime + def.fresh * 60 });
+      bought++;
+    }
+    if (bought) this.afterPurchase();
+    return bought;
+  }
+
+  buyItem(id: ItemId) {
+    const s = this.sim.save;
+    if (s.gold < ITEMS[id].price) return false;
+    s.gold -= ITEMS[id].price;
+    s.items[id]++;
+    this.afterPurchase();
+    return true;
+  }
+
+  canMakeItem(id: ItemId) {
+    const r = ITEMS[id].recipe;
+    const m = this.sim.save.materials;
+    return !!r && (Object.keys(r) as MaterialId[]).every((k) => m[k] >= (r[k] ?? 0));
+  }
+
+  /** Make a bomb or smoke bomb from materials (at the blacksmith, or from your inventory). */
+  makeItem(id: ItemId) {
+    if (!this.canMakeItem(id)) return false;
+    const r = ITEMS[id].recipe!;
+    const m = this.sim.save.materials;
+    for (const k of Object.keys(r) as MaterialId[]) m[k] -= r[k] ?? 0;
+    this.sim.save.items[id]++;
+    this.afterPurchase();
+    return true;
+  }
+
+  // ---------------------------------------------------------------- quests
+
+  private talkToGiver(island: number) {
+    const s = this.sim.save;
+    const q = s.quest;
+    const name = giverName(island);
+    if (!q) {
+      const offer = makeQuest(island, s.side, levelFromXp(s.xp).level);
+      // There are no menus in VR: take it straight away.
+      if (this.renderer.inVr) return this.acceptQuest(offer);
+      this.releasePointer();
+      this.cb.onQuestOffer(offer);
+      return;
+    }
+    if (q.kind === "bring" && q.giver === island && q.material) {
+      const have = s.materials[q.material];
+      if (have >= q.count) {
+        s.materials[q.material] -= q.count;
+        this.completeQuest();
+      } else this.notice(`"I still need ${q.count - have} more ${MATERIAL_NAMES[q.material].toLowerCase()}." (${name})`, "info");
+      return;
+    }
+    this.notice(`"You've already got a job: ${q.title}. Come back when it's done." (${name})`, "info");
+  }
+
+  acceptQuest(q: Quest) {
+    this.sim.save.quest = q;
+    this.notice(`New quest: ${q.title}. Reward: ${q.gold} gold and ${q.xp} XP.`, "gold");
+    this.save();
+  }
+
+  abandonQuest() {
+    if (!this.sim.save.quest) return;
+    this.notice(`You gave up on: ${this.sim.save.quest.title}.`, "info");
+    this.sim.save.quest = null;
+    this.save();
+  }
+
+  private questStep() {
+    const q = this.sim.save.quest;
+    if (!q) return;
+    q.progress++;
+    if (q.progress >= q.count) this.completeQuest();
+    else this.notice(`Quest: ${q.title} (${q.progress}/${q.count})`, "info");
+  }
+
+  private completeQuest() {
+    const s = this.sim.save;
+    const q = s.quest;
+    if (!q) return;
+    s.quest = null;
+    s.questsDone++;
+    s.gold += q.gold;
+    this.audio.fanfare();
+    this.notice(`Quest complete: ${q.title}! +${q.gold} gold, +${q.xp} XP`, "bounty");
+    this.gainXp(q.xp);
+    this.save();
+  }
+
   // ---------------------------------------------------------------- bigger ships and crew
 
   /** The next size of ship the shipwright can build you (null once you have the biggest). */
@@ -480,9 +661,33 @@ export class WrathwaterEngine {
         return { text: `Forge a ${WEAPONS[r.weapon].name}`, sub: owned ? "You have one" : mats, right: owned ? "Owned" : g(r.gold), disabled: !this.canCraft(r.weapon), act: () => this.craft(r.weapon) };
       });
       rows.push({ text: `Make ${SHOT_RECIPE.rounds} shot`, sub: "1 iron and 2 gunpowder", right: `${s.ammo} shot`, disabled: !this.canMakeShot(), act: () => this.makeShot() });
+      for (const id of ["bomb", "smoke"] as const) {
+        const r = ITEMS[id].recipe!;
+        rows.push({
+          text: `Make a ${ITEMS[id].name}`,
+          sub: (Object.keys(r) as MaterialId[]).map((k) => `${r[k]} ${MATERIAL_NAMES[k].toLowerCase()}`).join(", "),
+          right: `have ${s.items[id]}`,
+          disabled: !this.canMakeItem(id),
+          act: () => this.makeItem(id),
+        });
+      }
       rows.push(leave);
       const m = s.materials;
       return { title: "Blacksmith", subtitle: `${s.gold.toLocaleString("en-US")} gold · timber ${m.wood} · iron ${m.iron} · gunpowder ${m.powder}`, rows };
+    }
+    if (kind === "shop") {
+      const rows: PanelRow[] = [
+        ...this.foodRows(FOOD_IDS),
+        ...ITEM_IDS.map((id) => ({
+          text: `Buy a ${ITEMS[id].name}`,
+          sub: `have ${s.items[id]}`,
+          right: g(ITEMS[id].price),
+          disabled: s.gold < ITEMS[id].price,
+          act: () => this.buyItem(id),
+        })),
+        leave,
+      ];
+      return { title: "General Store", subtitle: `${s.gold.toLocaleString("en-US")} gold · you're ${Math.round(s.hunger)}% full`, rows };
     }
     if (kind === "market") {
       const rows: PanelRow[] = s.heldFruits.map((f) => ({ text: `Sell the ${fruitInfo(f, s.trueName).name}`, right: g(FRUIT_SELL_PRICE), act: () => this.sellFruit(f) }));
@@ -504,9 +709,22 @@ export class WrathwaterEngine {
         disabled: room <= 0 || s.gold < cost * room,
         act: () => this.hireCrew(room),
       },
+      ...this.foodRows(["meat", "fish"]),
       leave,
     ];
     return { title: "The Rusty Anchor", subtitle: `${s.gold.toLocaleString("en-US")} gold · sailors looking for a ship`, rows };
+  }
+
+  /** Food for sale on a board. */
+  private foodRows(ids: FoodId[]): PanelRow[] {
+    const s = this.sim.save;
+    return ids.map((id) => ({
+      text: `Buy ${FOODS[id].name}`,
+      sub: `fills ${FOODS[id].fill}% · fresh for ${FOODS[id].fresh} min`,
+      right: `${FOODS[id].price} g`,
+      disabled: s.gold < FOODS[id].price,
+      act: () => this.buyFood(id),
+    }));
   }
 
   /** What's in your backpack: weapons to take in hand, supplies, fruit to eat. */
@@ -521,6 +739,24 @@ export class WrathwaterEngine {
     const m = s.materials;
     rows.push({ text: `Timber ${m.wood} · Iron ${m.iron} · Gunpowder ${m.powder}`, right: `${s.ammo} shot` });
     if (this.canMakeShot()) rows.push({ text: `Make ${SHOT_RECIPE.rounds} shot`, sub: "1 iron and 2 gunpowder", right: "+5", act: () => this.makeShot() });
+    for (const id of ITEM_IDS) {
+      if (s.items[id] > 0) rows.push({ text: `Use a ${ITEMS[id].name}`, right: `${s.items[id]}`, act: () => this.useItem(id) });
+    }
+    if (s.food.length) {
+      const off = s.food.filter((f) => f.spoils <= s.playTime).length;
+      rows.push({
+        text: `Eat (${Math.round(s.hunger)}% full)`,
+        sub: `${s.food.length} food${off ? `, ${off} spoiled` : ""}: you eat the freshest`,
+        act: () => this.eatFood(),
+      });
+    }
+    const pts = this.skillPoints;
+    if (pts > 0) {
+      rows.push({ text: `Level ${levelFromXp(s.xp).level}: ${pts} skill point${pts === 1 ? "" : "s"}`, header: true });
+      for (const k of SKILL_IDS) {
+        rows.push({ text: `Train ${SKILLS[k].name}`, sub: SKILLS[k].per, right: `${s.skills[k]}/${SKILL_MAX}`, disabled: s.skills[k] >= SKILL_MAX, act: () => this.trainSkill(k) });
+      }
+    }
     if (s.vaultKeys.length) rows.push({ text: `Vault keys ${s.vaultKeys.length}/3`, color: "#fcd34d" });
     if (s.heldFruits.length || s.fruit) rows.push({ text: "Devil Fruits", header: true });
     if (s.fruit) rows.push({ text: `You ate the ${fruitInfo(s.fruit, s.trueName).name}`, color: "#e9d5ff" });
@@ -610,11 +846,12 @@ export class WrathwaterEngine {
     if (s.fruit || !s.heldFruits.includes(fruit)) return false;
     s.heldFruits = s.heldFruits.filter((f) => f !== fruit);
     s.fruit = fruit;
-    this.sim.fruitCooldown = 0;
+    this.sim.fruitCd = [0, 0, 0];
+    this.sim.fruitMove = 0;
     this.audio.fanfare();
     const info = fruitInfo(fruit, s.trueName);
     this.notice(`You ate the ${info.name}! Press R to use ${info.power}. You can never swim again.`, "bounty");
-    if (fruit === "gomu") this.notice("Five moves: press T to switch, R to use.", "info");
+    this.notice(`${fruit === "gomu" ? "Five" : "Three"} moves: press T to switch, R to use.`, "info");
     if (this.sim.canAwaken) this.notice("Its true power is yours: press V to awaken it.", "bounty");
     this.save();
     return true;
@@ -780,8 +1017,16 @@ export class WrathwaterEngine {
         sim.input.ability = true;
         break;
       case "switchMove":
-        if (sim.save.fruit === "gomu") sim.cycleMove();
+        if (sim.save.fruit) sim.cycleMove();
         else this.press("weaponNext");
+        break;
+      case "bomb":
+      case "tonic":
+      case "smoke":
+        this.useItem(a);
+        break;
+      case "eat":
+        this.eatFood();
         break;
       case "awaken":
         if (!sim.awaken() && sim.canAwaken && !sim.awakened) this.notice("The awakening is still resting.", "info");
@@ -944,13 +1189,17 @@ export class WrathwaterEngine {
     if (pressed(14)) this.press("awaken");
     if (pressed(11)) this.press("view");
     if (pressed(8)) this.press("inventory");
-    if (pressed(12)) this.press("sailsUp");
-    if (pressed(13)) this.press("sailsDown");
     if (foot) {
+      // D-pad: up drinks a tonic, down throws a bomb, right eats.
+      if (pressed(12)) this.press("tonic");
+      if (pressed(13)) this.press("bomb");
+      if (pressed(15)) this.press("eat");
       if (pressed(4)) this.press("weaponPrev");
       if (pressed(5)) this.press("weaponNext");
-      if (pressed(15)) this.press("weaponNext");
     } else {
+      if (pressed(12)) this.press("sailsUp");
+      if (pressed(13)) this.press("sailsDown");
+      if (pressed(15)) this.press("eat");
       if (pressed(7)) this.press("fireLook");
       if (pressed(4)) this.press("firePort");
       if (pressed(5)) this.press("fireStarboard");
@@ -1291,11 +1540,35 @@ export class WrathwaterEngine {
         if (e.byPlayer) {
           const gold = e.gold ? ` · +${e.gold} gold` : "";
           this.notice(`Sank a ${e.name}! +${shortBerries(e.bounty)} bounty${gold}`, "bounty");
+          this.gainXp(Math.min(300, 30 + Math.round(e.bounty / 300_000)));
+          const q = this.sim.save.quest;
+          if (q?.kind === "sink" && q.faction === e.faction) this.questStep();
         }
         break;
       case "crate":
         this.audio.coin();
         this.notice(`Treasure! +${e.gold} gold`, "gold");
+        this.gainXp(5);
+        break;
+      case "ate":
+        this.audio.coin();
+        this.notice(
+          e.poisoned
+            ? `That ${e.name} had gone off. Food poisoning! You'll feel rotten for a while.`
+            : e.spoiled
+              ? `The ${e.name} tasted off... but you got away with it this time.`
+              : `You eat the ${e.name}.`,
+          e.poisoned ? "danger" : "info",
+        );
+        break;
+      case "hunger":
+        this.notice(e.level === "starving" ? "You're starving! Eat something (N), or you'll weaken." : "You're getting hungry. Eat something (N).", "danger");
+        break;
+      case "itemUsed":
+        this.audio.coin();
+        break;
+      case "questGiver":
+        this.talkToGiver(e.island);
         break;
       case "scrape":
         this.notice("Ran aground! Mind the shallows.", "danger");
@@ -1389,6 +1662,8 @@ export class WrathwaterEngine {
         this.audio.thud(near(e.x, e.z) * 0.7);
         break;
       case "walkerDown":
+        if (e.bounty) this.gainXp(e.kind === "captain" ? 60 : e.kind === "marine" ? 20 : 15);
+        if (e.kind === "bandit" && this.sim.save.quest?.kind === "bandits" && this.sim.save.quest.island === e.island) this.questStep();
         if (e.bounty) this.notice(`Defeated a ${e.kind === "bandit" ? "bandit" : e.kind === "captain" ? "Marine captain" : "Marine"} · +${shortBerries(e.bounty)}${e.gold ? ` · +${e.gold} gold` : ""}`, "bounty");
         break;
       case "heroHit":
@@ -1408,6 +1683,8 @@ export class WrathwaterEngine {
         this.cb.onFruit(e.fruit);
         break;
       case "loot": {
+        this.gainXp(e.kind === "buried" ? 30 : e.kind === "chest" ? 15 : 8);
+        if (this.sim.save.quest?.kind === "treasure" && this.sim.save.quest.spot === e.spot) this.questStep();
         this.audio.coin();
         const parts = this.lootParts(e.gold, e.weapon, e, e.ammo);
         if (parts) this.notice(parts, "gold");
@@ -1445,6 +1722,7 @@ export class WrathwaterEngine {
         this.audio.step();
         break;
       case "robbed": {
+        this.gainXp(e.building === "vault" ? 500 : 40);
         this.audio.coin();
         this.audio.alarm();
         const what = {
@@ -1526,6 +1804,27 @@ export class WrathwaterEngine {
       },
       landing: landing ? landing.name : null,
       inHaven: sim.inHaven,
+      level: (() => {
+        const l = levelFromXp(sim.save.xp);
+        return { level: l.level, into: l.into, need: l.need, points: this.skillPoints };
+      })(),
+      hunger: Math.round(sim.save.hunger),
+      status: [
+        ...(sim.foodPoisoned ? [{ text: "Food poisoning", tone: "bad" as const }] : []),
+        ...(sim.starving ? [{ text: "Starving", tone: "bad" as const }] : sim.save.hunger < 20 ? [{ text: "Hungry", tone: "bad" as const }] : []),
+        ...(sim.ironSkin ? [{ text: "Iron Skin", tone: "good" as const }] : []),
+        ...(sim.tailwind ? [{ text: "Tailwind", tone: "good" as const }] : []),
+        ...(sim.hidden ? [{ text: "Hidden", tone: "good" as const }] : []),
+      ],
+      items: { ...sim.save.items },
+      food: { count: sim.save.food.length, spoiled: sim.save.food.filter((f) => f.spoils <= sim.save.playTime).length },
+      quest: sim.save.quest
+        ? {
+            title: sim.save.quest.title,
+            progress: sim.save.quest.kind === "bring" && sim.save.quest.material ? Math.min(sim.save.quest.count, sim.save.materials[sim.save.quest.material]) : sim.save.quest.progress,
+            count: sim.save.quest.count,
+          }
+        : null,
       ship: (() => {
         const t = shipTier(sim.save.shipTier);
         const m = manning(t.tier, sim.save.crew);
@@ -1547,15 +1846,12 @@ export class WrathwaterEngine {
         ? {
             id: fruit,
             name: fruitInfo(fruit, sim.save.trueName).name,
-            power: fruit === "gomu" ? STRETCH[sim.stretchMove].name : fruitInfo(fruit, sim.save.trueName).power,
-            ready:
-              fruit === "gomu"
-                ? sim.moveReady(sim.stretchMove)
-                : Math.max(0, 1 - sim.fruitCooldown / (FRUITS[fruit].cooldown * (sim.awakened ? 1 / 3 : 1))),
+            power: fruit === "gomu" ? STRETCH[sim.stretchMove].name : (sim.fruitMoves[sim.fruitMove]?.name ?? fruitInfo(fruit, sim.save.trueName).power),
+            ready: fruit === "gomu" ? sim.moveReady(sim.stretchMove) : sim.fruitMoveReady(sim.fruitMove),
             moves:
               fruit === "gomu"
                 ? STRETCH_MOVES.map((m) => ({ name: STRETCH[m].name, ready: sim.moveReady(m), selected: m === sim.stretchMove }))
-                : undefined,
+                : sim.fruitMoves.map((m, i) => ({ name: m.name, ready: sim.fruitMoveReady(i), selected: i === sim.fruitMove })),
             bouncing: sim.bouncing,
           }
         : null,
@@ -1740,6 +2036,10 @@ export class WrathwaterEngine {
       const foot = sim.mode === "foot";
       if (e.code === "KeyR") sim.input.ability = true;
       else if (e.code === "KeyT") sim.cycleMove();
+      else if (e.code === "KeyG") this.press("bomb");
+      else if (e.code === "KeyH") this.press("tonic");
+      else if (e.code === "KeyX") this.press("smoke");
+      else if (e.code === "KeyN") this.press("eat");
       else if (e.code === "KeyP") this.toggleView();
       else if (e.code === "KeyV") {
         if (!sim.awaken() && sim.canAwaken && !sim.awakened) this.notice("The awakening is still resting.", "info");
@@ -1760,7 +2060,8 @@ export class WrathwaterEngine {
         if (e.code === "KeyF") sim.shore.board();
         else if (e.code === "Space") e.preventDefault();
         else if (e.code.startsWith("Digit")) {
-          const w = WEAPON_ORDER[Number(e.code.slice(5)) - 1];
+          // 1 to 9, then 0 for the tenth.
+          const w = WEAPON_ORDER[(Number(e.code.slice(5)) + 9) % 10];
           if (w) this.equip(w);
         } else if (e.code === "KeyQ") {
           const owned = WEAPON_ORDER.filter((w) => w === "fists" || sim.save.weapons.includes(w));

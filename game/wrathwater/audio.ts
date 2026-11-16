@@ -162,6 +162,17 @@ export class SeaAudio {
         this.tone(0.7, 50, 25, 1.6, "sine");
         this.burst(0.8, 220, 0.5, 1.8);
         break;
+      case "gale":
+        this.burst(0.5, 1800, 0.4, 0.9);
+        break;
+      case "iron":
+        this.tone(0.4, 300, 120, 0.3, "square");
+        this.burst(0.5, 3000, 0.1, 0.2);
+        break;
+      case "venom":
+        this.burst(0.4, 500, 0.3, 0.8);
+        this.tone(0.15, 140, 90, 0.5, "sawtooth");
+        break;
     }
   }
 

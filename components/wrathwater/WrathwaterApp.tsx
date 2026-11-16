@@ -32,15 +32,25 @@ import {
   KILL_ORDER,
   STRETCH,
   STRETCH_MOVES,
+  FOODS,
+  FOOD_IDS,
+  FRUIT_MOVES,
+  ITEMS,
+  ITEM_IDS,
+  SKILLS,
+  SKILL_IDS,
+  SKILL_MAX,
+  levelFromXp,
   type FruitId,
   type MaterialId,
 } from "@/game/wrathwater/items";
+import type { Quest } from "@/game/wrathwater/quests";
 import { deleteSave, loadSave, newSave, writeSave, type SaveData } from "@/game/wrathwater/save";
 import { ProfileButton, ProfileModal } from "@/components/ProfilePanel";
 import { useProfile } from "@/lib/profile";
 
 type Screen = "menu" | "naming" | "playing";
-type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename";
+type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename" | "general" | "quest";
 
 const SAVE_KEY = "ww.save.v1";
 
@@ -231,11 +241,13 @@ function HowToPlay() {
     ["Click / Right-click", "Attack / aim"],
     ["E (hold)", "Loot chests, dig treasure, rob buildings"],
     ["F", "Board your ship"],
-    ["1-7 / Q", "Switch weapons"],
+    ["1-9, 0 / Q", "Switch weapons"],
+    ["G / H", "Throw a powder bomb / drink a healing tonic"],
   ];
   const both: [string, string][] = [
     ["R", "Use your Devil Fruit power"],
-    ["T", "Switch Stretch Fruit move"],
+    ["T", "Switch your fruit's move"],
+    ["X / N", "Smoke bomb / eat"],
     ["P", "First person / third person"],
     ["V", "Awaken your fruit (if you know its real name)"],
     ["I / Tab", "Inventory and crafting"],
@@ -284,6 +296,7 @@ function HowToPlay() {
         ["X / Y", "Fruit power / switch Stretch move"],
         ["LB / RB", "Switch weapon, or fire left / right at sea"],
         ["D-pad left", "Awaken"],
+        ["D-pad up / down / right", "On foot: tonic / bomb / eat (at sea: sails up / down, eat)"],
         ["Start / View", "Pause / inventory"],
       ])}
       {table("VR", [
@@ -349,6 +362,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [foundFruit, setFoundFruit] = useState<FruitId | null>(null);
+  const [offer, setOffer] = useState<Quest | null>(null);
   const [hurt, setHurt] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Phones and tablets get on-screen controls (also the moment anyone touches the screen).
@@ -392,7 +406,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
           onSunk: (onFoot) => setOverlay(onFoot ? "defeated" : "sunk"),
           onKing: () => setOverlay("king"),
           onPauseRequest: () => setOverlay((o) => (o === "none" ? "pause" : o)),
-          onService: (kind) => setOverlay(kind === "shipwright" ? "shop" : kind === "blacksmith" ? "inventory" : kind === "tavern" ? "tavern" : "market"),
+          onService: (kind) => setOverlay(kind === "shipwright" ? "shop" : kind === "blacksmith" ? "inventory" : kind === "tavern" ? "tavern" : kind === "shop" ? "general" : "market"),
           onFruit: (f) => {
             setFoundFruit(f);
             setOverlay("fruit");
@@ -401,6 +415,10 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
           onCheatMenu: () => setOverlay((o) => (o === "none" ? "cheats" : o)),
           onTrueName: () => setOverlay("truename"),
           onSaveReplaced: () => setOverlay("replaced"),
+          onQuestOffer: (q) => {
+            setOffer(q);
+            setOverlay("quest");
+          },
           onHurt: () => {
             setHurt(true);
             window.clearTimeout(hurtTimer);
@@ -531,6 +549,29 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       {overlay === "shop" && engine && <Shipwright engine={engine} onClose={resume} />}
       {overlay === "market" && engine && <BlackMarket engine={engine} onClose={resume} />}
       {overlay === "tavern" && engine && <Tavern engine={engine} onClose={resume} />}
+      {overlay === "general" && engine && <GeneralStore engine={engine} onClose={resume} />}
+      {overlay === "quest" && engine && offer && (
+        <Modal onClose={resume}>
+          <p className="text-xs font-bold uppercase tracking-widest text-amber-300">A job for you</p>
+          <h2 className="font-serif text-3xl font-black">{offer.title}</h2>
+          <p className="mt-2 text-sm text-zinc-300">{offer.text}</p>
+          <p className="mt-2 text-sm font-semibold text-amber-300">
+            Reward: {offer.gold.toLocaleString("en-US")} gold and {offer.xp} XP
+          </p>
+          <div className="flex gap-2">
+            <PanelButton
+              primary
+              onClick={() => {
+                engine.acceptQuest(offer);
+                resume();
+              }}
+            >
+              Take the job
+            </PanelButton>
+            <PanelButton onClick={resume}>Not now</PanelButton>
+          </div>
+        </Modal>
+      )}
       {overlay === "truename" && engine && <TrueName engine={engine} onClose={resume} />}
       {overlay === "replaced" && (
         <Modal>
@@ -630,11 +671,41 @@ function Hud({ hud, touch }: { hud: HudState; touch: boolean }) {
           {hud.hidden ? "Hidden in smoke" : hud.inHaven ? "Safe in Blackwater Cove" : hud.stars > 0 ? "Marines hunting you" : "Not wanted"}
         </p>
         <p className="mt-2 text-lg font-bold text-amber-300 drop-shadow">{hud.gold.toLocaleString("en-US")} gold</p>
+        <div className="ml-auto mt-2 w-44">
+          <p className="text-xs font-bold uppercase tracking-widest text-sky-300 drop-shadow">
+            Level {hud.level.level}
+            {hud.level.points > 0 && <span className="ml-1 animate-pulse text-amber-300">· {hud.level.points} skill point{hud.level.points === 1 ? "" : "s"} (I)</span>}
+          </p>
+          <div className="mt-1 h-1.5 w-full rounded-full bg-white/10">
+            <div className="h-1.5 rounded-full bg-sky-400" style={{ width: `${Math.min(1, hud.level.into / hud.level.need) * 100}%` }} />
+          </div>
+        </div>
+        {hud.status.length > 0 && (
+          <div className="mt-2 flex flex-wrap justify-end gap-1">
+            {hud.status.map((s) => (
+              <span key={s.text} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${s.tone === "bad" ? "bg-red-900/80 text-red-200" : "bg-emerald-900/80 text-emerald-200"}`}>
+                {s.text}
+              </span>
+            ))}
+          </div>
+        )}
+        {hud.quest && (
+          <div className="ml-auto mt-2 w-56 rounded-lg bg-black/60 p-2 text-left ring-1 ring-amber-400/30 backdrop-blur">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300">Quest</p>
+            <p className="text-sm font-semibold text-white">{hud.quest.title}</p>
+            <p className="text-xs text-zinc-400">
+              {hud.quest.progress}/{hud.quest.count}
+            </p>
+          </div>
+        )}
       </div>
 
       {hud.mode === "ship" ? <ShipPanel hud={hud} touch={touch} /> : <FootPanel hud={hud} touch={touch} />}
       {hud.fruit && !touch && <PowerBadge fruit={hud.fruit} />}
       {hud.awaken && !touch && <AwakenBadge awaken={hud.awaken} />}
+      {hud.status.some((s) => s.text === "Food poisoning") && (
+        <div className="pointer-events-none absolute inset-0 animate-pulse shadow-[inset_0_0_140px_50px_rgba(101,163,13,0.45)]" />
+      )}
       {hud.awaken && hud.awaken.active > 0 && (
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_120px_40px_rgba(127,29,29,0.55)]" />
       )}
@@ -725,6 +796,7 @@ function ShipPanel({ hud, touch }: { hud: HudState; touch: boolean }) {
         </span>
         <span className="text-sm font-bold text-white">{hud.knots} kn</span>
       </div>
+      <Needs hud={hud} />
       <div className="mt-2 flex items-baseline justify-between text-[10px] uppercase tracking-widest text-zinc-400">
         <span>{hud.ship.name}</span>
         <span className={hud.ship.short ? "font-bold text-red-400" : "text-zinc-300"}>
@@ -761,8 +833,32 @@ function FootPanel({ hud, touch }: { hud: HudState; touch: boolean }) {
       <div className="mt-1 h-1.5 w-full rounded-full bg-white/10">
         <div className={`h-1.5 rounded-full ${hud.weapon.ready >= 0.999 ? "bg-amber-300" : "bg-zinc-500"}`} style={{ width: `${Math.min(1, hud.weapon.ready) * 100}%` }} />
       </div>
+      <Needs hud={hud} />
       <p className="mt-2 text-[10px] uppercase tracking-widest text-zinc-500">Ship hull {hud.hp} / {hud.maxHp}</p>
     </div>
+  );
+}
+
+/** Hunger, and what you're carrying: bombs (G), tonics (H), smoke (X) and food (N). */
+function Needs({ hud }: { hud: HudState }) {
+  const h = hud.hunger;
+  return (
+    <>
+      <div className="mt-3 flex items-baseline justify-between text-xs uppercase tracking-widest text-zinc-400">
+        <span>Food</span>
+        <span className={`text-xs font-bold ${h < 20 ? "text-red-400" : "text-zinc-300"}`}>{h <= 0 ? "Starving" : h < 20 ? "Hungry" : `${h}%`}</span>
+      </div>
+      <Bar frac={h / 100} color={h < 20 ? "bg-red-500" : "bg-orange-400"} />
+      <div className="mt-2 flex justify-between text-[11px] text-zinc-300">
+        <span title="Powder bombs (G)">💣 {hud.items.bomb}</span>
+        <span title="Healing tonics (H)">🧪 {hud.items.tonic}</span>
+        <span title="Smoke bombs (X)">💨 {hud.items.smoke}</span>
+        <span title="Food (N to eat)" className={hud.food.spoiled ? "text-lime-300" : ""}>
+          🍞 {hud.food.count}
+          {hud.food.spoiled > 0 && ` (${hud.food.spoiled} off)`}
+        </span>
+      </div>
+    </>
   );
 }
 
@@ -910,6 +1006,8 @@ function Inventory({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
         <h2 className="font-serif text-3xl font-black uppercase tracking-wide">Inventory</h2>
         <span className="text-lg font-bold text-amber-300">{save.gold.toLocaleString("en-US")} gold</span>
       </div>
+      <CaptainSection engine={engine} refresh={refresh} />
+      <ItemsSection engine={engine} refresh={refresh} />
 
       <section className="mt-4">
         <h3 className="text-xs font-bold uppercase tracking-widest text-red-300">Materials</h3>
@@ -951,7 +1049,7 @@ function Inventory({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
               <div key={id} className={`flex flex-col rounded-lg p-3 ring-1 ${equipped ? "bg-amber-400/10 ring-amber-400/60" : "bg-white/5 ring-white/5"}`}>
                 <div className="flex items-baseline justify-between">
                   <p className="font-semibold">{w.name}</p>
-                  <span className="font-mono text-xs text-zinc-500">{i + 1}</span>
+                  <span className="font-mono text-xs text-zinc-500">{(i + 1) % 10}</span>
                 </div>
                 <p className="text-xs text-zinc-400">{w.description}</p>
                 <p className="mt-1 text-[11px] text-zinc-500">
@@ -1033,6 +1131,225 @@ function Inventory({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
   );
 }
 
+/** You: your level, skills to train, and the quest you're on. */
+function CaptainSection({ engine, refresh }: { engine: WrathwaterEngine; refresh: () => void }) {
+  const save = engine.sim.save;
+  const lvl = levelFromXp(save.xp);
+  const points = engine.skillPoints;
+  return (
+    <section className="mt-4">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-sky-300">You · level {lvl.level}</h3>
+        <span className="text-xs text-zinc-400">
+          {lvl.into}/{lvl.need} XP to the next level{points > 0 && <span className="font-bold text-amber-300"> · {points} point{points === 1 ? "" : "s"} to spend</span>}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-5">
+        {SKILL_IDS.map((k) => (
+          <div key={k} className="flex flex-col rounded-lg bg-white/5 p-2 text-center">
+            <p className="text-sm font-semibold">{SKILLS[k].name}</p>
+            <p className="text-[11px] text-zinc-400">{SKILLS[k].per}</p>
+            <p className="mt-1 text-lg font-black">
+              {save.skills[k]}
+              <span className="text-xs text-zinc-500">/{SKILL_MAX}</span>
+            </p>
+            <button
+              type="button"
+              disabled={points <= 0 || save.skills[k] >= SKILL_MAX}
+              onClick={() => {
+                engine.trainSkill(k);
+                refresh();
+              }}
+              className="mt-auto rounded-md bg-sky-700 py-1 text-xs font-semibold text-white hover:bg-sky-600 disabled:bg-white/5 disabled:text-zinc-500"
+            >
+              Train
+            </button>
+          </div>
+        ))}
+      </div>
+      {save.quest && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-amber-400/10 p-2 ring-1 ring-amber-400/30">
+          <p className="text-sm">
+            <span className="font-semibold text-amber-300">Quest:</span> {save.quest.title} ({save.quest.progress}/{save.quest.count}) · {save.quest.gold} gold, {save.quest.xp} XP
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              engine.abandonQuest();
+              refresh();
+            }}
+            className="shrink-0 rounded-md px-2 py-1 text-xs text-zinc-400 hover:text-red-300"
+          >
+            Give up
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Bombs, tonics, smoke bombs, and your food (it spoils). */
+function ItemsSection({ engine, refresh }: { engine: WrathwaterEngine; refresh: () => void }) {
+  const save = engine.sim.save;
+  const now = save.playTime;
+  return (
+    <section className="mt-4">
+      <h3 className="text-xs font-bold uppercase tracking-widest text-red-300">Items</h3>
+      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+        {ITEM_IDS.map((id) => {
+          const it = ITEMS[id];
+          return (
+            <div key={id} className="flex flex-col rounded-lg bg-white/5 p-2">
+              <div className="flex items-baseline justify-between">
+                <p className="font-semibold">{it.name}</p>
+                <span className="text-lg font-black">{save.items[id]}</span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                {it.description} Key: {it.key}.
+              </p>
+              <div className="mt-auto flex gap-1 pt-2">
+                <button
+                  type="button"
+                  disabled={save.items[id] <= 0}
+                  onClick={() => {
+                    engine.useItem(id);
+                    refresh();
+                  }}
+                  className="flex-1 rounded-md bg-white/10 py-1 text-xs font-semibold hover:bg-white/20 disabled:opacity-40"
+                >
+                  Use
+                </button>
+                {it.recipe && (
+                  <button
+                    type="button"
+                    disabled={!engine.canMakeItem(id)}
+                    onClick={() => {
+                      engine.makeItem(id);
+                      refresh();
+                    }}
+                    className="flex-1 rounded-md bg-red-800 py-1 text-[11px] font-semibold text-white hover:bg-red-700 disabled:bg-white/5 disabled:text-zinc-500"
+                  >
+                    Make: {Object.entries(it.recipe).map(([m, n]) => `${n} ${MATERIAL_NAMES[m as MaterialId].toLowerCase()}`).join(", ")}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex items-baseline justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-orange-300">Food · {Math.round(save.hunger)}% full</h3>
+        <span className="text-xs text-zinc-500">Food goes off: spoiled food can make you sick. N eats the best you have.</span>
+      </div>
+      {save.food.length === 0 ? (
+        <p className="mt-1 text-sm text-zinc-400">No food. Buy some at a town&apos;s shop or the Blackwater Cove tavern.</p>
+      ) : (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {save.food.map((f, i) => {
+            const left = f.spoils - now;
+            const off = left <= 0;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => {
+                  engine.eatFood(i);
+                  refresh();
+                }}
+                className={`rounded-lg px-2 py-1 text-left text-xs ring-1 hover:bg-white/10 ${off ? "bg-lime-900/40 text-lime-200 ring-lime-500/40" : "bg-white/5 ring-white/10"}`}
+                title="Eat it"
+              >
+                <span className="font-semibold">{FOODS[f.food].name}</span>
+                <span className="block text-[10px] text-zinc-400">{off ? "Spoiled!" : `Good for ${Math.ceil(left / 60)} min`}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** A town's shop: food for the voyage, tonics and bombs. */
+function GeneralStore({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => void }) {
+  const [, setTick] = useState(0);
+  const refresh = () => setTick((t) => t + 1);
+  const save = engine.sim.save;
+  return (
+    <Modal wide onClose={onClose}>
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-serif text-3xl font-black uppercase tracking-wide">General Store</h2>
+        <span className="text-lg font-bold text-amber-300">{save.gold.toLocaleString("en-US")} gold</span>
+      </div>
+      <p className="mt-1 text-sm text-zinc-400">&ldquo;Provisions for the voyage. Eat it while it&apos;s fresh!&rdquo; You&apos;re {Math.round(save.hunger)}% full.</p>
+      <FoodShop engine={engine} refresh={refresh} />
+      <h3 className="mt-4 text-xs font-bold uppercase tracking-widest text-red-300">Supplies</h3>
+      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+        {ITEM_IDS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            disabled={save.gold < ITEMS[id].price}
+            onClick={() => {
+              engine.buyItem(id);
+              refresh();
+            }}
+            className="rounded-lg bg-white/5 p-2 text-left ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+          >
+            <p className="font-semibold">
+              {ITEMS[id].name} <span className="text-xs text-zinc-400">(have {save.items[id]})</span>
+            </p>
+            <p className="text-[11px] text-zinc-400">{ITEMS[id].description}</p>
+            <p className="mt-1 text-sm font-bold text-amber-300">{ITEMS[id].price} g</p>
+          </button>
+        ))}
+      </div>
+      <PanelButton primary onClick={onClose}>
+        Leave the store
+      </PanelButton>
+    </Modal>
+  );
+}
+
+/** Food for sale, one or five at a time. */
+function FoodShop({ engine, refresh }: { engine: WrathwaterEngine; refresh: () => void }) {
+  const save = engine.sim.save;
+  return (
+    <>
+      <h3 className="mt-4 text-xs font-bold uppercase tracking-widest text-orange-300">Food</h3>
+      <div className="mt-2 grid gap-2 sm:grid-cols-4">
+        {FOOD_IDS.map((id) => {
+          const f = FOODS[id];
+          return (
+            <div key={id} className="rounded-lg bg-white/5 p-2 ring-1 ring-white/10">
+              <p className="font-semibold">{f.name}</p>
+              <p className="text-[11px] text-zinc-400">
+                Fills {f.fill}% · fresh for {f.fresh} min
+              </p>
+              <div className="mt-2 flex gap-1">
+                {[1, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    disabled={save.gold < f.price * n}
+                    onClick={() => {
+                      engine.buyFood(id, n);
+                      refresh();
+                    }}
+                    className="flex-1 rounded-md bg-amber-500 py-1 text-xs font-bold text-black hover:bg-amber-400 disabled:bg-white/10 disabled:text-zinc-500"
+                  >
+                    ×{n} · {f.price * n}g
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 function FruitCard({ fruit, note, trueName = false }: { fruit: FruitId; note: string; trueName?: boolean }) {
   const def = fruitInfo(fruit, trueName);
   return (
@@ -1052,6 +1369,15 @@ function FruitCard({ fruit, note, trueName = false }: { fruit: FruitId; note: st
               <li key={m}>
                 <span className="font-semibold text-amber-200">{STRETCH[m].name}:</span> {STRETCH[m].foot} At sea: {STRETCH[m].sea}
                 {trueName && <span className="text-red-400"> Awakened: {STRETCH[m].awakened}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {fruit !== "gomu" && (
+          <ul className="mt-1 space-y-0.5 text-xs text-zinc-300">
+            {FRUIT_MOVES[fruit].map((m) => (
+              <li key={m.id}>
+                <span className="font-semibold text-amber-200">{m.name}:</span> {m.foot} At sea: {m.sea}
               </li>
             ))}
           </ul>
@@ -1265,6 +1591,7 @@ function Tavern({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => 
         </button>
       </div>
       {room <= 0 && tier.tier < 4 && <p className="mt-2 text-xs text-zinc-500">No room for more: the shipwright can build you a bigger ship once she&apos;s fully upgraded.</p>}
+      <FoodShop engine={engine} refresh={() => setTick((t) => t + 1)} />
       <PanelButton primary onClick={onClose}>
         Leave the tavern
       </PanelButton>

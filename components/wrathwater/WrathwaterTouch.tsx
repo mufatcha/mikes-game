@@ -10,7 +10,8 @@ import type { HudState, WrathwaterEngine } from "@/game/wrathwater/engine";
  */
 export default function WrathwaterTouch({ engine, hud, onVr }: { engine: WrathwaterEngine; hud: HudState; onVr: (() => void) | null }) {
   const foot = hud.mode === "foot";
-  const gomu = hud.fruit?.id === "gomu";
+  // Every fruit has moves to switch between now.
+  const moves = !!hud.fruit?.moves?.length;
   return (
     <div className="absolute inset-0 touch-none">
       <LookPad engine={engine} />
@@ -22,6 +23,13 @@ export default function WrathwaterTouch({ engine, hud, onVr }: { engine: Wrathwa
         <Small label="🎒" title="Inventory" onTap={() => engine.press("inventory")} />
         <Small label={hud.firstPerson ? "1st" : "3rd"} title="Switch view" onTap={() => engine.press("view")} />
         {onVr && <Small label="VR" title="Play in VR" onTap={onVr} />}
+      </div>
+      {/* Bombs, tonics, smoke and food. */}
+      <div className="absolute right-2 top-[9.5rem] flex gap-2">
+        {foot && <Small label={`💣${hud.items.bomb}`} title="Throw a powder bomb" onTap={() => engine.press("bomb")} />}
+        {foot && <Small label={`🧪${hud.items.tonic}`} title="Drink a healing tonic" onTap={() => engine.press("tonic")} />}
+        <Small label={`💨${hud.items.smoke}`} title="Smoke bomb" onTap={() => engine.press("smoke")} />
+        <Small label={`🍞${hud.food.count}`} title="Eat" onTap={() => engine.press("eat")} />
       </div>
 
       {/* Action buttons, bottom right. */}
@@ -47,13 +55,13 @@ export default function WrathwaterTouch({ engine, hud, onVr }: { engine: Wrathwa
         )}
         {hud.fruit && (
           <Tap
-            label={gomu ? hud.fruit.power.split(" ")[0] : "Power"}
+            label={moves ? hud.fruit.power.split(" ")[0] : "Power"}
             sub={hud.fruit.ready >= 0.999 ? "ready" : `${Math.round(hud.fruit.ready * 100)}%`}
             tone="purple"
             onTap={() => engine.press("power")}
           />
         )}
-        {gomu && <Tap label="Switch" sub="move" tone="purple" onTap={() => engine.press("switchMove")} />}
+        {moves && <Tap label="Switch" sub="move" tone="purple" onTap={() => engine.press("switchMove")} />}
         {hud.awaken && (
           <Tap
             label="Awaken"

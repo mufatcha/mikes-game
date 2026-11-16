@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import type { Faction } from "./data";
 import type { Walker, WalkerKind } from "./foot";
-import { FRUITS, type FruitId, type WeaponId } from "./items";
+import { FRUITS, WEAPONS, type FruitId, type WeaponId } from "./items";
 import type { Ship } from "./sim";
 
 // ---------------------------------------------------------------- textures
@@ -503,6 +503,7 @@ const steelMat = new THREE.MeshStandardMaterial({ color: "#cbd5e1", metalness: 0
 const darkWoodMat = new THREE.MeshStandardMaterial({ color: "#3f2a1a", roughness: 0.8 });
 const ironMat = new THREE.MeshStandardMaterial({ color: "#27272a", metalness: 0.7, roughness: 0.4 });
 const rustMat = new THREE.MeshStandardMaterial({ color: "#7a6a5c", metalness: 0.3, roughness: 0.9 });
+const brassMat = new THREE.MeshStandardMaterial({ color: "#d4a017", metalness: 0.7, roughness: 0.35 });
 
 function limb(w: number, h: number, d: number, mat: THREE.Material, pivotY: number) {
   const pivot = new THREE.Group();
@@ -600,7 +601,9 @@ function setWeapon(v: PersonVisual, id: WeaponId) {
 }
 
 /** How far a weapon reaches from the hand to its tip (along -y in its own space). */
-export const WEAPON_TIP: Record<WeaponId, number> = { fists: 0, dull_sword: 7.6, cutlass: 9, axe: 8.6, flintlock: 4.6, musket: 11.5, blunderbuss: 8.4 };
+export const WEAPON_TIP: Record<WeaponId, number> = {
+  fists: 0, dull_sword: 7.6, cutlass: 9, axe: 8.6, flintlock: 4.6, musket: 11.5, blunderbuss: 8.4, rapier: 10.5, hammer: 9.5, twin_pistols: 4.6,
+};
 
 /** A weapon's shapes, with the grip at the origin and the blade or barrel pointing down -y. */
 export function weaponMeshes(group: THREE.Group, id: WeaponId) {
@@ -637,6 +640,21 @@ export function weaponMeshes(group: THREE.Group, id: WeaponId) {
       add(new THREE.BoxGeometry(1.2, 8, 1.2), darkWoodMat, -0.8, -2.6);
       add(new THREE.CylinderGeometry(0.6, 1.4, 2.4, 8), ironMat, -0.8, -7.2);
       break;
+    case "rapier":
+      add(new THREE.BoxGeometry(0.45, 1.4, 0.45), darkWoodMat, 0, 0);
+      add(new THREE.SphereGeometry(0.9, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), brassMat, 0, -0.7);
+      add(new THREE.BoxGeometry(0.16, 9.6, 0.3), steelMat, 0, -5.6);
+      break;
+    case "hammer":
+      add(new THREE.BoxGeometry(0.6, 10, 0.6), darkWoodMat, 0, -4);
+      add(new THREE.BoxGeometry(2.6, 2.6, 4.2), ironMat, 0, -8.6);
+      break;
+    case "twin_pistols":
+      for (const z of [-0.9, 0.9]) {
+        add(new THREE.BoxGeometry(0.8, 2, 1), darkWoodMat, -0.6, 0, z);
+        add(new THREE.BoxGeometry(0.7, 4.5, 0.7), ironMat, -1.2, -2.4, z);
+      }
+      break;
     default:
       break;
   }
@@ -647,7 +665,7 @@ export function posePerson(v: PersonVisual, w: Walker, dt: number, aimingGun: bo
   setWeapon(v, w.weapon);
   v.group.position.set(w.x, w.y, w.z);
   v.group.rotation.y = -w.heading;
-  const isGun = w.weapon === "flintlock" || w.weapon === "musket" || w.weapon === "blunderbuss";
+  const isGun = WEAPONS[w.weapon].kind === "gun";
   if (w.dead >= 0) {
     const k = Math.min(1, w.dead / 0.6);
     v.body.rotation.z = (-Math.PI / 2) * k;

@@ -962,7 +962,18 @@ export class SeaRenderer {
     const y0 = e.atSea ? 14 : (sim.shore.hero?.y ?? 6) + 12;
     switch (e.fruit) {
       case "mera":
-        for (let i = 0; i < 16; i++) p("fire", e.x, y0, e.z);
+        if (e.move === "flameRing") {
+          const ground = e.atSea ? 4 : (sim.shore.hero?.y ?? 6) + 1;
+          const r = e.atSea ? 450 : 110;
+          for (let i = 0; i < 48; i++) {
+            const a = (i / 48) * Math.PI * 2;
+            p("fire", e.x + Math.cos(a) * r * 0.8, ground + 3, e.z + Math.sin(a) * r * 0.8);
+          }
+          this.effects.ring(e.x, ground + 2, e.z, r, "#f97316", 0.6);
+        } else if (e.move === "fireRain") {
+          const ground = e.atSea ? 4 : (groundHeight(e.tx, e.tz) ?? 6) + 1;
+          for (let i = 0; i < 10; i++) p("fire", e.tx, ground + 10, e.tz);
+        } else for (let i = 0; i < 16; i++) p("fire", e.x, y0, e.z);
         break;
       case "goro": {
         const ty = e.atSea ? 4 : (groundHeight(e.tx, e.tz) ?? 2) + 1;
@@ -1002,12 +1013,64 @@ export class SeaRenderer {
         break;
       }
       case "moku":
-        for (let i = 0; i < 40; i++) p("bigsmoke", e.x, y0, e.z);
+        if (e.move === "smokeFist") this.effects.stretch(e.x, y0, e.z, e.tx, e.tz, e.atSea ? 3 : 1, "#d4d4d8", 0.3);
+        else for (let i = 0; i < (e.move === "smokeBind" ? 25 : 40); i++) p("bigsmoke", e.x, y0, e.z);
         break;
-      case "gura":
-        this.effects.ring(e.x, y0 - 10, e.z, e.atSea ? 520 : 170, "#e0e7ff", 0.9);
-        this.shake = 1.5;
+      case "gura": {
+        const ground = e.atSea ? 4 : (sim.shore.hero?.y ?? 6) + 1;
+        if (e.move === "quakePunch") {
+          this.effects.ring(e.tx, ground + 2, e.tz, e.atSea ? 160 : 80, "#e0e7ff", 0.6);
+          this.shake = 1;
+        } else {
+          this.effects.ring(e.x, y0 - 10, e.z, e.atSea ? (e.move === "tsunami" ? 700 : 520) : e.move === "tsunami" ? 240 : 170, e.move === "tsunami" ? "#7dd3fc" : "#e0e7ff", 0.9);
+          if (e.move === "tsunami") for (let i = 0; i < 50; i++) p("spray", e.x + (Math.random() - 0.5) * 200, ground, e.z + (Math.random() - 0.5) * 200);
+          this.shake = 1.5;
+        }
         break;
+      }
+      case "gale": {
+        const ground = e.atSea ? 4 : (sim.shore.hero?.y ?? 6) + 1;
+        if (e.move === "galeSlash") {
+          this.effects.stretch(e.x, y0, e.z, e.tx, e.tz, e.atSea ? 3 : 0.8, "#ccfbf1", 0.25);
+        } else if (e.move === "tornado") {
+          for (let i = 0; i < 60; i++) p("wind", e.x, ground, e.z);
+          this.effects.ring(e.x, ground + 2, e.z, e.atSea ? 600 : 180, "#99f6e4", 0.7);
+        } else {
+          for (let i = 0; i < 30; i++) p("wind", e.x, ground, e.z);
+        }
+        break;
+      }
+      case "iron": {
+        const ground = e.atSea ? 4 : (sim.shore.hero?.y ?? 6) + 1;
+        if (e.move === "ironSkin") {
+          this.effects.ring(e.x, ground + 2, e.z, e.atSea ? 120 : 30, "#a1a1aa", 0.6);
+          for (let i = 0; i < 20; i++) p("iron", e.x, ground + 10, e.z);
+        } else if (e.move === "ironRain") {
+          for (let i = 0; i < 30; i++) p("iron", e.tx + (Math.random() - 0.5) * 60, ground + 20, e.tz + (Math.random() - 0.5) * 60);
+          this.effects.ring(e.tx, ground + 2, e.tz, e.atSea ? 100 : 70, "#71717a", 0.5);
+          this.shake = Math.max(this.shake, 0.7);
+        } else {
+          this.effects.stretch(e.x, y0, e.z, e.tx, e.tz, e.atSea ? 3 : 1.2, "#52525b", 0.25);
+          for (let i = 0; i < 12; i++) p("iron", e.tx, y0, e.tz);
+        }
+        break;
+      }
+      case "venom": {
+        const ground = e.atSea ? 4 : (sim.shore.hero?.y ?? 6) + 1;
+        if (e.move === "venomSpit") {
+          this.effects.stretch(e.x, y0, e.z, e.tx, e.tz, e.atSea ? 2 : 0.6, "#84cc16", 0.25);
+          for (let i = 0; i < 8; i++) p("venom", e.tx, y0, e.tz);
+        } else {
+          const r = e.move === "toxicTide" ? (e.atSea ? 650 : 300) : e.atSea ? 500 : 150;
+          for (let i = 0; i < 60; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const d = Math.random() * r;
+            p("venom", e.x + Math.cos(a) * d, ground + 3, e.z + Math.sin(a) * d);
+          }
+          this.effects.ring(e.x, ground + 2, e.z, r, "#65a30d", 0.8);
+        }
+        break;
+      }
     }
   }
 

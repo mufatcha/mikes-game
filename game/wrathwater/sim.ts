@@ -17,9 +17,23 @@ import {
   type ShipClassId,
 } from "./data";
 import { Shore, type WalkerKind } from "./foot";
-import { FRUITS, STRETCH, STRETCH_MOVES, type FruitId, type StretchMove, type WeaponId } from "./items";
+import {
+  FOODS,
+  FRUIT_MOVES,
+  HUNGER_TIME,
+  POISON_TIME,
+  STRETCH,
+  STRETCH_MOVES,
+  skillEffects,
+  type FruitId,
+  type FruitMove,
+  type ItemId,
+  type MoveDef,
+  type StretchMove,
+  type WeaponId,
+} from "./items";
 import type { SaveData } from "./save";
-import { FORTRESS, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, groundHeight, islandAt, type BuildingKind, type ServiceKind } from "./world";
+import { FORTRESS, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, groundHeight, islandAt, type BuildingKind, type ServiceKind, type SpotKind } from "./world";
 
 export const GRAVITY = 160;
 const BALL_SPEED = 390;
@@ -118,20 +132,24 @@ export type SimEvent =
   | { k: "impact"; x: number; y: number; z: number; fire: boolean }
   | { k: "explosion"; x: number; z: number; radius: number }
   | { k: "walkerHit"; x: number; y: number; z: number; damage: number }
-  | { k: "walkerDown"; x: number; z: number; kind: WalkerKind; bounty: number; gold: number }
+  | { k: "walkerDown"; x: number; z: number; kind: WalkerKind; bounty: number; gold: number; island: number }
   | { k: "heroHit"; damage: number }
   | { k: "heroDown" }
   | { k: "drowning" }
-  | { k: "power"; fruit: FruitId; x: number; z: number; tx: number; tz: number; atSea?: boolean; move?: StretchMove; awake?: boolean }
+  | { k: "power"; fruit: FruitId; x: number; z: number; tx: number; tz: number; atSea?: boolean; move?: StretchMove | FruitMove; awake?: boolean }
   | { k: "fruitFound"; fruit: FruitId }
-  | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number; smashed?: boolean }
+  | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number; smashed?: boolean; spot?: string; kind?: SpotKind }
   | { k: "service"; building: ServiceKind; island: number; index: number }
   | { k: "crewLost"; lost: number }
   | { k: "store"; building: ServiceKind | null }
   | { k: "vaultKey"; keys: number; island: number }
   | { k: "vaultOpened" }
   | { k: "carrierSighted" }
-  | { k: "switchMove"; move: StretchMove }
+  | { k: "switchMove"; move: string }
+  | { k: "ate"; name: string; spoiled: boolean; poisoned: boolean }
+  | { k: "itemUsed"; item: ItemId }
+  | { k: "questGiver"; island: number }
+  | { k: "hunger"; level: "hungry" | "starving" }
   | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
 
@@ -208,7 +226,14 @@ export class Sim {
   /** Sailing your ship, or ashore on foot. */
   mode: "ship" | "foot" = "ship";
   /** Seconds until your Devil Fruit power is ready again. */
-  fruitCooldown = 0;
+  /** Every fruit but the Stretch Fruit: which of its three moves is selected, and each one's cooldown. */
+  fruitMove = 0;
+  fruitCd = [0, 0, 0];
+  /** Iron Skin, Tailwind and food poisoning last until these times. */
+  ironUntil = 0;
+  windUntil = 0;
+  poisonedUntil = 0;
+  private lastHungerWarn: "" | "hungry" | "starving" = "";
   shore = new Shore(this);
   private hiddenUntil = -1;
 
@@ -266,7 +291,7 @@ export class Sim {
     this.awakenedUntil = this.time + AWAKEN_TIME;
     this.awakenReadyAt = this.time + AWAKEN_TIME + AWAKEN_COOLDOWN;
     this.wasAwakened = true;
-    this.fruitCooldown = 0;
+    this.fruitCd = [0, 0, 0];
     for (const m of STRETCH_MOVES) this.moveCd[m] = 0;
     this.events.push({ k: "awakened", on: true });
     return true;
@@ -287,11 +312,92 @@ export class Sim {
   get bouncing() {
     return this.time < this.bounceUntil;
   }
-  /** T: the next Stretch move. */
+  /** T: the next move of the fruit you ate. */
   cycleMove() {
-    if (this.save.fruit !== "gomu") return;
-    this.stretchMove = STRETCH_MOVES[(STRETCH_MOVES.indexOf(this.stretchMove) + 1) % STRETCH_MOVES.length];
-    this.events.push({ k: "switchMove", move: this.stretchMove });
+    const fruit = this.save.fruit;
+    if (!fruit) return;
+    if (fruit === "gomu") {
+      this.stretchMove = STRETCH_MOVES[(STRETCH_MOVES.indexOf(this.stretchMove) + 1) % STRETCH_MOVES.length];
+      this.events.push({ k: "switchMove", move: STRETCH[this.stretchMove].name });
+      return;
+    }
+    this.fruitMove = (this.fruitMove + 1) % FRUIT_MOVES[fruit].length;
+    this.events.push({ k: "switchMove", move: FRUIT_MOVES[fruit][this.fruitMove].name });
+  }
+
+  /** The moves of the fruit you ate (not the Stretch Fruit's, which are in STRETCH). */
+  get fruitMoves(): MoveDef[] {
+    const f = this.save.fruit;
+    return f && f !== "gomu" ? FRUIT_MOVES[f] : [];
+  }
+
+  /** How much sooner powers come back with Fruit Mastery (and three times as fast awakened). */
+  private get powerCdScale() {
+    return skillEffects(this.save.skills).fruitCooldown * (this.awakened ? 1 / 3 : 1);
+  }
+
+  /** Start the selected move (of any fruit but the Stretch Fruit) if it's ready; returns it, or null. */
+  takeFruitMove(): FruitMove | null {
+    const moves = this.fruitMoves;
+    const i = this.fruitMove % Math.max(1, moves.length);
+    const m = moves[i];
+    if (!m || this.fruitCd[i] > 0) return null;
+    this.fruitCd[i] = m.cooldown * this.powerCdScale;
+    return m.id;
+  }
+
+  /** How ready one of your fruit's moves is, 0..1. */
+  fruitMoveReady(i: number) {
+    const m = this.fruitMoves[i];
+    if (!m) return 1;
+    return Math.max(0, Math.min(1, 1 - this.fruitCd[i] / (m.cooldown * this.powerCdScale)));
+  }
+
+  /** How much harder powers hit with Fruit Mastery. */
+  get powerMul() {
+    return skillEffects(this.save.skills).fruitDamage;
+  }
+
+  get ironSkin() {
+    return this.time < this.ironUntil;
+  }
+  get tailwind() {
+    return this.time < this.windUntil;
+  }
+  get foodPoisoned() {
+    return this.time < this.poisonedUntil;
+  }
+  get starving() {
+    return this.save.hunger <= 0;
+  }
+
+  /**
+   * Eat something from your pack (the given one, or the freshest that fills
+   * you most). Spoiled food fills you half as much and may poison you.
+   */
+  eat(index?: number) {
+    const s = this.save;
+    if (!s.food.length) return false;
+    let i = index ?? -1;
+    if (i < 0) {
+      // Fresh food first (the most filling), spoiled only if that's all there is.
+      const fresh = s.food.map((f, k) => ({ f, k })).filter((x) => x.f.spoils > s.playTime);
+      const pool = fresh.length ? fresh : s.food.map((f, k) => ({ f, k }));
+      pool.sort((a, b) => FOODS[b.f.food].fill - FOODS[a.f.food].fill);
+      i = pool[0].k;
+    }
+    const item = s.food[i];
+    if (!item) return false;
+    s.food.splice(i, 1);
+    const def = FOODS[item.food];
+    const spoiled = item.spoils <= s.playTime;
+    s.hunger = Math.min(100, s.hunger + (spoiled ? def.fill / 2 : def.fill));
+    // The longer it's been off, the likelier it makes you sick.
+    const poisoned = spoiled && Math.random() < Math.min(0.95, 0.55 + (s.playTime - item.spoils) / 600);
+    if (poisoned) this.poisonedUntil = this.time + POISON_TIME;
+    this.lastHungerWarn = "";
+    this.events.push({ k: "ate", name: def.name, spoiled, poisoned });
+    return true;
   }
   /** Start the selected Stretch move if it's ready; returns it, or null. */
   takeMove(): StretchMove | null {
@@ -377,7 +483,13 @@ export class Sim {
     this.time += dt;
     const p = this.player;
 
-    this.fruitCooldown = Math.max(0, this.fruitCooldown - dt);
+    for (let i = 0; i < this.fruitCd.length; i++) this.fruitCd[i] = Math.max(0, this.fruitCd[i] - dt);
+    // You get hungry as time goes by.
+    this.save.playTime += dt;
+    this.save.hunger = Math.max(0, this.save.hunger - (100 / HUNGER_TIME) * dt);
+    const warn = this.save.hunger <= 0 ? "starving" : this.save.hunger < 20 ? "hungry" : "";
+    if (warn && warn !== this.lastHungerWarn) this.events.push({ k: "hunger", level: warn });
+    this.lastHungerWarn = warn;
     for (const m of STRETCH_MOVES) this.moveCd[m] = Math.max(0, this.moveCd[m] - dt);
     if (this.wasAwakened && !this.awakened) {
       this.wasAwakened = false;
@@ -464,7 +576,8 @@ export class Sim {
     if (s.sinking >= 0) {
       s.speed = Math.max(0, s.speed - 20 * dt);
     } else {
-      const target = s.throttle * s.stats.speed;
+      // A starving crew (you) can't work the sails as well.
+      const target = s.throttle * s.stats.speed * (s === this.player && this.starving ? 0.8 : 1);
       const accel = target > s.speed ? 16 : 26;
       s.speed += clamp(target - s.speed, -accel * dt, accel * dt);
       // Ships turn poorly when nearly stopped.
@@ -472,6 +585,8 @@ export class Sim {
       s.heading = wrap(s.heading + s.stats.turn * s.rudder * grip * dt);
     }
     if (s === this.player && this.time < this.surgeUntil && s.sinking < 0) s.speed = s.stats.speed * (this.awakened ? 4.5 : 2.8);
+    // Tailwind fills your sails.
+    if (s === this.player && this.tailwind && s.sinking < 0) s.speed = Math.max(s.speed, s.stats.speed * 1.6);
     const f = forward(s.heading);
     s.x += f.x * s.speed * dt;
     s.z += f.z * s.speed * dt;
@@ -630,38 +745,127 @@ export class Sim {
   private seaPower() {
     const fruit = this.save.fruit;
     if (fruit === "gomu" && !this.inHaven) return this.seaStretch();
-    if (!fruit || this.fruitCooldown > 0 || this.inHaven) return;
+    if (!fruit || fruit === "gomu" || this.inHaven) return;
+    const move = this.takeFruitMove();
+    if (!move) return;
     const p = this.player;
-    // Awakened, the power comes back three times as fast.
-    this.fruitCooldown = FRUITS[fruit].cooldown * (this.awakened ? 1 / 3 : 1);
+    const pow = this.powerMul;
     const aim = this.input.aimYaw;
     const target = this.shipInCone(aim, 950, 0.55);
     const tx = target ? target.x : p.x + Math.cos(aim) * 500;
     const tz = target ? target.z : p.z + Math.sin(aim) * 500;
-    this.events.push({ k: "power", fruit, x: p.x, z: p.z, tx, tz, atSea: true });
-    switch (fruit) {
-      case "mera": {
-        const d = Math.max(150, Math.hypot(tx - p.x, tz - p.z));
-        const flight = d / 520;
-        this.balls.push({
-          x: p.x, y: 14, z: p.z,
-          vx: ((tx - p.x) / d) * 520, vy: 0.5 * GRAVITY * flight - 14 / flight, vz: ((tz - p.z) / d) * 520,
-          owner: p.id, byPlayer: true, damage: 140, fire: true,
-        });
+    this.events.push({ k: "power", fruit, x: p.x, z: p.z, tx, tz, atSea: true, move });
+    const near = (r: number) => this.ships.filter((s) => s !== p && s.sinking < 0 && Math.hypot(s.x - p.x, s.z - p.z) < r);
+    const lob = (x: number, z: number, dmg: number, fire: boolean) => {
+      const d = Math.max(150, Math.hypot(x - p.x, z - p.z));
+      const flight = d / 520;
+      this.balls.push({
+        x: p.x, y: 14, z: p.z,
+        vx: ((x - p.x) / d) * 520, vy: 0.5 * GRAVITY * flight - 14 / flight, vz: ((z - p.z) / d) * 520,
+        owner: p.id, byPlayer: true, damage: dmg * pow, fire,
+      });
+    };
+    const push = (s: Ship, dist: number) => {
+      const a = Math.atan2(s.z - p.z, s.x - p.x);
+      s.x += Math.cos(a) * dist;
+      s.z += Math.sin(a) * dist;
+    };
+    switch (move) {
+      case "fireball":
+        lob(tx, tz, 140, true);
+        break;
+      case "flameRing":
+        this.events.push({ k: "explosion", x: p.x, z: p.z, radius: 450 });
+        for (const s of near(450)) {
+          this.damage(s, 70 * pow, true, s.x, 8, s.z);
+          s.burn = 8;
+        }
+        break;
+      case "fireRain":
+        for (let i = 0; i < 5; i++) lob(tx + (Math.random() - 0.5) * 120, tz + (Math.random() - 0.5) * 120, 70, true);
+        break;
+      case "bolt":
+        if (target) this.damage(target, 210 * pow, true, target.x, 10, target.z);
+        break;
+      case "chain": {
+        const hit = near(900).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z)).slice(0, 3);
+        for (const s of hit) {
+          this.damage(s, 130 * pow, true, s.x, 10, s.z);
+          this.events.push({ k: "power", fruit, x: p.x, z: p.z, tx: s.x, tz: s.z, atSea: true, move: "bolt" });
+        }
         break;
       }
-      case "goro":
-        if (target) this.damage(target, 210, true, target.x, 10, target.z);
+      case "thunderDash":
+        this.surgeUntil = this.time + 1.2;
+        this.surgeHit.clear();
         break;
-      case "moku":
+      case "screen":
         this.smoke(8);
         break;
-      case "gura":
-        this.events.push({ k: "explosion", x: p.x, z: p.z, radius: 520 });
-        for (const s of this.ships) {
-          if (s === p || s.sinking >= 0) continue;
-          if (Math.hypot(s.x - p.x, s.z - p.z) < 520) this.damage(s, 150, true, s.x, 8, s.z);
+      case "smokeFist":
+        if (target) this.damage(target, 120 * pow, true, target.x, 10, target.z);
+        break;
+      case "smokeBind":
+        for (const s of near(600)) {
+          s.reload[1] = Math.max(s.reload[1], 6);
+          s.reload[-1] = Math.max(s.reload[-1], 6);
         }
+        break;
+      case "seaquake":
+        this.seaBlast(p.x, p.z, 520, 150 * pow);
+        break;
+      case "quakePunch":
+        if (target) this.seaBlast(target.x, target.z, 160, 240 * pow);
+        else this.seaBlast(tx, tz, 160, 240 * pow);
+        break;
+      case "tsunami":
+        this.events.push({ k: "explosion", x: p.x, z: p.z, radius: 700 });
+        for (const s of near(700)) {
+          this.damage(s, 90 * pow, true, s.x, 8, s.z);
+          push(s, 260);
+        }
+        break;
+      case "galeSlash":
+        if (target) this.damage(target, 150 * pow, true, target.x, 10, target.z);
+        break;
+      case "tornado":
+        for (const s of near(600)) {
+          this.damage(s, 60 * pow, true, s.x, 8, s.z);
+          push(s, 320);
+        }
+        break;
+      case "tailwind":
+        this.windUntil = this.time + 5;
+        break;
+      case "ironSkin":
+        this.ironUntil = this.time + 8;
+        break;
+      case "ironFist":
+        p.reload[1] = 0;
+        p.reload[-1] = 0;
+        this.tryFire(p, 1);
+        this.tryFire(p, -1);
+        break;
+      case "ironRain":
+        for (let i = 0; i < 4; i++) lob(tx + (Math.random() - 0.5) * 80, tz + (Math.random() - 0.5) * 80, 60, false);
+        break;
+      case "venomSpit":
+        if (target) {
+          this.damage(target, 60 * pow, true, target.x, 10, target.z);
+          target.burn = Math.max(target.burn, 8);
+        }
+        break;
+      case "poisonCloud":
+        for (const s of near(500)) {
+          this.damage(s, 30 * pow, true, s.x, 8, s.z);
+          s.burn = Math.max(s.burn, 10);
+        }
+        break;
+      case "toxicTide":
+        this.events.push({ k: "explosion", x: p.x, z: p.z, radius: 650 });
+        for (const s of near(650)) s.burn = Math.max(s.burn, 14);
+        break;
+      default:
         break;
     }
   }
@@ -937,6 +1141,8 @@ export class Sim {
       this.events.push({ k: "splash", x, z });
       return;
     }
+    // Iron Skin turns your hull to iron too.
+    if (s === this.player && this.ironSkin) amount *= 0.33;
     s.hp -= amount;
     this.events.push({ k: "hit", x, y, z, onPlayer: s === this.player, byPlayer, damage: amount });
     if (byPlayer && s !== this.player) {

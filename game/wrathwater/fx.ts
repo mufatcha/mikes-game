@@ -124,7 +124,10 @@ export type PuffKind =
   | "spark"
   | "blood"
   | "steam"
-  | "bigsmoke";
+  | "bigsmoke"
+  | "venom"
+  | "wind"
+  | "iron";
 
 /** The particle recipes, shared by every effect. */
 export function puff(smoke: ParticleLayer, glow: ParticleLayer, kind: PuffKind, x: number, y: number, z: number, vx = 0, vz = 0) {
@@ -173,6 +176,18 @@ export function puff(smoke: ParticleLayer, glow: ParticleLayer, kind: PuffKind, 
       break;
     case "blood":
       smoke.add({ x, y, z, vx: (r() - 0.5) * 40, vy: 10 + r() * 30, vz: (r() - 0.5) * 40, life: 0.5, size: 2, grow: 0, r: 0.6, g: 0.05, b: 0.05, a: 0.9, gravity: 90 });
+      break;
+    case "venom":
+      glow.add({ x: x + (r() - 0.5) * 20, y, z: z + (r() - 0.5) * 20, vx: (r() - 0.5) * 30, vy: 6 + r() * 10, vz: (r() - 0.5) * 30, life: 1.4 + r(), size: 9, grow: 10, r: 0.35, g: 1.3, b: 0.15, a: 0.55, gravity: -2 });
+      break;
+    case "wind": {
+      // A swirl of pale air, spinning outward.
+      const a = r() * Math.PI * 2;
+      smoke.add({ x: x + Math.cos(a) * 8, y: y + r() * 16, z: z + Math.sin(a) * 8, vx: Math.cos(a + 1.4) * 70 + vx, vy: 10 + r() * 20, vz: Math.sin(a + 1.4) * 70 + vz, life: 0.8, size: 5, grow: 10, r: 0.85, g: 1, b: 0.98, a: 0.45, gravity: 0, drag: 0.5 });
+      break;
+    }
+    case "iron":
+      glow.add({ x, y, z, vx: (r() - 0.5) * 60, vy: 20 + r() * 40, vz: (r() - 0.5) * 60, life: 0.5, size: 3, grow: 0, r: 0.9, g: 0.9, b: 1, a: 1, gravity: 100 });
       break;
     case "steam":
       smoke.add({ x: x + (r() - 0.5) * 8, y, z: z + (r() - 0.5) * 8, vx: 0, vy: 10 + r() * 8, vz: 0, life: 1.5, size: 6, grow: 8, r: 0.9, g: 0.9, b: 0.92, a: 0.35, gravity: -2 });

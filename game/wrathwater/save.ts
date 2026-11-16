@@ -1,6 +1,24 @@
 import { NO_UPGRADES, SHIP_TIERS, type Upgrades } from "./data";
 import { ISLANDS } from "./world";
-import { FRUIT_IDS, NO_MATERIALS, STARTING_AMMO, STARTING_WEAPONS, WEAPON_ORDER, type FruitId, type Materials, type WeaponId } from "./items";
+import {
+  FOOD_IDS,
+  FRUIT_IDS,
+  ITEM_IDS,
+  NO_MATERIALS,
+  NO_SKILLS,
+  SKILL_IDS,
+  SKILL_MAX,
+  STARTING_AMMO,
+  STARTING_WEAPONS,
+  WEAPON_ORDER,
+  type FoodItem,
+  type FruitId,
+  type ItemId,
+  type Materials,
+  type SkillId,
+  type WeaponId,
+} from "./items";
+import { cleanQuest, type Quest } from "./quests";
 
 /** Progress kept between visits, in this browser only. */
 export interface SaveData {
@@ -33,6 +51,23 @@ export interface SaveData {
   shipTier: number;
   /** Sailors you've hired (you're aboard too, on top of these). */
   crew: number;
+  /** Experience: you level up as it grows, and each level gives a skill point. */
+  xp: number;
+  skills: Record<SkillId, number>;
+  /** Bombs, tonics and smoke bombs you're carrying. */
+  items: Record<ItemId, number>;
+  /** Food in your pack, and how full you are (0..100). */
+  food: FoodItem[];
+  hunger: number;
+  /** Seconds you've played this voyage (food spoils by it). */
+  playTime: number;
+  /** Pirate or Marine, chosen when the voyage starts. */
+  side: "pirate" | "marine";
+  /** The quest you're on, and how many you've finished. */
+  quest: Quest | null;
+  questsDone: number;
+  /** Tutorial step, or -1 once it's done or skipped. */
+  tutorial: number;
 }
 
 export const SAVE_KEY = "ww.save.v1";
@@ -59,6 +94,20 @@ export function newSave(captain: string): SaveData {
     trueName: false,
     shipTier: 1,
     crew: 0,
+    xp: 0,
+    skills: { ...NO_SKILLS },
+    items: { bomb: 2, tonic: 2, smoke: 0 },
+    food: [
+      { food: "biscuit", spoils: 30 * 60 },
+      { food: "biscuit", spoils: 30 * 60 },
+      { food: "fish", spoils: 15 * 60 },
+    ],
+    hunger: 100,
+    playTime: 0,
+    side: "pirate",
+    quest: null,
+    questsDone: 0,
+    tutorial: 0,
   };
 }
 
@@ -96,6 +145,19 @@ export function loadSave(): SaveData | null {
       trueName: !!s.trueName,
       shipTier: Math.max(1, Math.min(SHIP_TIERS.length, Math.floor(Number(s.shipTier)) || 1)),
       crew: Math.max(0, Math.floor(Number(s.crew)) || 0),
+      xp: Math.max(0, Number(s.xp) || 0),
+      skills: Object.fromEntries(SKILL_IDS.map((k) => [k, Math.max(0, Math.min(SKILL_MAX, Math.floor(Number(s.skills?.[k]) || 0)))])) as Record<SkillId, number>,
+      items: Object.fromEntries(ITEM_IDS.map((k) => [k, Math.max(0, Math.floor(Number(s.items?.[k]) || 0))])) as Record<ItemId, number>,
+      food: Array.isArray(s.food)
+        ? s.food.filter((f): f is FoodItem => !!f && FOOD_IDS.includes((f as FoodItem).food) && typeof (f as FoodItem).spoils === "number").slice(0, 60)
+        : [],
+      hunger: typeof s.hunger === "number" ? Math.max(0, Math.min(100, s.hunger)) : 100,
+      playTime: Math.max(0, Number(s.playTime) || 0),
+      side: s.side === "marine" ? "marine" : "pirate",
+      quest: cleanQuest(s.quest),
+      questsDone: Math.max(0, Number(s.questsDone) || 0),
+      // Captains from before the tutorial existed don't need it.
+      tutorial: typeof s.tutorial === "number" ? s.tutorial : -1,
     };
   } catch {
     return null;

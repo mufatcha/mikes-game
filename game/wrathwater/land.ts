@@ -1,6 +1,6 @@
 /** Islands in 3D: terrain matching world.ts heights, palms, rocks, towns and the haven. */
 import * as THREE from "three";
-import { canvasTexture, sailTexture } from "./models";
+import { buildPerson, canvasTexture, sailTexture } from "./models";
 import { BEACH_TOP, hillProfile, type Building, type Island } from "./world";
 
 function rng(seed: number) {
@@ -145,6 +145,7 @@ export function buildIsland(isl: Island): THREE.Group {
     if (isl.kind === "town") group.add(buildTownExtras(isl));
     if (isl.kind === "fortress") group.add(buildFortressExtras(isl));
     if (isl.haven) group.add(buildHavenExtras(isl));
+    if (isl.questGiver) group.add(buildQuestGiver(isl));
   }
 
   for (const [geo, mat, list] of [
@@ -373,6 +374,22 @@ function buildFortressExtras(isl: Island) {
   flag.position.set(isl.x + 20, BEACH_TOP + 98, isl.z);
   g.add(pole, flag);
   return g;
+}
+
+/** Someone outside the tavern with work for you: a sailor under a glowing "!". */
+function buildQuestGiver(isl: Island) {
+  const q = isl.questGiver!;
+  const p = buildPerson("sailor");
+  p.group.position.set(q.x, groundY(isl, q.x, q.z), q.z);
+  p.group.rotation.y = -q.facing;
+  p.armR.rotation.z = 1.2;
+  const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.9, 0.3) });
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 4, 1.2), glow);
+  bar.position.y = 25;
+  const dot = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), glow);
+  dot.position.y = 21.8;
+  p.group.add(bar, dot);
+  return p.group;
 }
 
 function lampPost(x: number, y: number, z: number) {

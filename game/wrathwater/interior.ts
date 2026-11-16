@@ -27,8 +27,8 @@ function planks() {
   return t;
 }
 
-const WALLS: Record<ServiceKind, string> = { shipwright: "#7a5a3c", blacksmith: "#4b4038", market: "#4a3a66", tavern: "#6e4a2e" };
-const KEEPER: Record<ServiceKind, "sailor" | "bandit" | "captain"> = { shipwright: "sailor", blacksmith: "bandit", market: "bandit", tavern: "sailor" };
+const WALLS: Record<ServiceKind, string> = { shipwright: "#7a5a3c", blacksmith: "#4b4038", market: "#4a3a66", tavern: "#6e4a2e", shop: "#7c6a4a" };
+const KEEPER: Record<ServiceKind, "sailor" | "bandit" | "captain"> = { shipwright: "sailor", blacksmith: "bandit", market: "bandit", tavern: "sailor", shop: "sailor" };
 
 export interface Interior {
   group: THREE.Group;
@@ -157,6 +157,22 @@ export function buildInterior(b: Building, kind: ServiceKind): Interior {
     }
     for (let i = 0; i < 3; i++) box(6, 6, 6, mat("#5a3f28"), -D / 6 + i * 8, 3.4, -side + 2);
   } else {
+    if (kind === "shop") {
+      // Sacks, barrels of biscuit, and strings of fish.
+      for (let i = 0; i < 4; i++) {
+        const sack = new THREE.Mesh(new THREE.SphereGeometry(3, 10, 8), mat("#c2a878"));
+        sack.scale.set(1, 1.2, 1);
+        sack.position.set(-D / 4 + i * 7, 3.2, -side + 2);
+        group.add(sack);
+      }
+      for (let k = 0; k < 2; k++) box(D * 0.45, 0.8, 5, mat("#3b2716"), 0, 8 + k * 8, side + 2);
+      for (let i = 0; i < 6; i++) {
+        const fish = new THREE.Mesh(new THREE.ConeGeometry(0.8, 4, 6), mat("#9ca3af", { metalness: 0.4 }));
+        fish.rotation.z = Math.PI / 2;
+        fish.position.set(-D * 0.18 + i * (D * 0.07), 10, side + 2);
+        group.add(fish);
+      }
+    }
     // Tavern: barrels, tables and stools, mugs.
     for (let i = 0; i < 4; i++) {
       const barrel = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 6, 12), mat("#6b4423"));

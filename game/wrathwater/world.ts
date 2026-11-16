@@ -16,7 +16,7 @@ export const BEACH_TOP = 6;
 export type IslandKind = "haven" | "town" | "wild" | "mystery" | "fortress";
 export type BuildingKind = "house" | "bank" | "shop" | "armory" | "tavern" | "shipwright" | "blacksmith" | "market" | "vault";
 /** Blackwater Cove's stores (and its tavern, where you hire crew): tap E to visit, hold E to rob. */
-export type ServiceKind = "shipwright" | "blacksmith" | "market" | "tavern";
+export type ServiceKind = "shipwright" | "blacksmith" | "market" | "tavern" | "shop";
 
 /**
  * The wall a building's door is in: the map angle it faces (one of the four
@@ -77,6 +77,8 @@ export interface Island {
   bandits: { x: number; z: number }[];
   /** Towns: where the Vault Warden stands, a tough Marine captain carrying one of the three vault keys. */
   warden?: { x: number; z: number };
+  /** Towns and Blackwater Cove: someone outside the tavern who hands out quests. */
+  questGiver?: { x: number; z: number; facing: number };
 }
 
 /** Inside this radius around the haven nobody can fire, Marines turn back, and your wanted level drops fast. */
@@ -268,6 +270,12 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
       const a = r() * Math.PI * 2;
       isl.guards.push({ x: b.door.x + Math.cos(a) * 35, z: b.door.z + Math.sin(a) * 35 });
     }
+  }
+  // A quest giver beside the tavern door, in the towns and at the haven.
+  const tavern = isl.buildings.find((b) => b.kind === "tavern");
+  if (tavern && (o.kind === "town" || o.kind === "haven")) {
+    const side = tavern.facing + Math.PI / 2;
+    isl.questGiver = { x: tavern.door.x + Math.cos(side) * 20, z: tavern.door.z + Math.sin(side) * 20, facing: tavern.facing };
   }
   // Three towns each have a Vault Warden guarding one of the vault's three keys.
   if (o.kind === "town" && TOWN_NAMES.slice(0, 3).includes(o.name) && isl.buildings[0]) {
