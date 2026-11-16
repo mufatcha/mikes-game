@@ -5,7 +5,8 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Effects, ParticleLayer, puff, type PuffKind } from "./fx";
-import { buildIslands } from "./land";
+import { WEAPONS, type WeaponId } from "./items";
+import { buildIsland, disposeIsland } from "./land";
 import {
   buildBuriedMark,
   buildChest,
@@ -20,11 +21,24 @@ import {
   disposeShip,
   posePerson,
   setCannons,
+  weaponMeshes,
+  WEAPON_TIP,
   type PersonVisual,
   type ShipVisual,
 } from "./models";
 import { forward, sideNormal, type Sim, type SimEvent, type Side } from "./sim";
-import { ISLANDS, WAVES, groundHeight, islandAt, waveHeight } from "./world";
+import { HAVEN, ISLANDS, WAVES, groundHeight, islandAt, waveHeight } from "./world";
+
+/**
+ * Islands are built when you come within this distance of their shore and
+ * thrown away again past ISLAND_UNLOAD. The sea haze ends at about 2700, and
+ * islands are spaced further apart than that, so you only ever have the
+ * island you're at (or sailing toward) loaded.
+ */
+const ISLAND_LOAD = 3200;
+const ISLAND_UNLOAD = 4000;
+/** In VR, your weapon's tip has to move this fast (meters a second) to count as a swing. */
+export const VR_SWING_SPEED = 2.6;
 
 const OCEAN_SIZE = 4400;
 const OCEAN_SEGMENTS = 300;
@@ -275,6 +289,24 @@ export class SeaRenderer {
   private bullets: THREE.InstancedMesh;
   private crates = new Map<number, THREE.Group>();
   private spots = new Map<string, THREE.Object3D>();
+  /** The islands currently built, by index. */
+  private islands = new Map<number, THREE.Group>();
+  /** Your weapon in first person: held at the bottom right of your view (holder, tilted, turned, model). */
+  private fpHolder = new THREE.Group();
+  private fpTilt = new THREE.Group();
+  private fpSpin = new THREE.Group();
+  private fpId: WeaponId | null = null;
+  private fpPos = new THREE.Vector3(3.8, -3.8, -7.5);
+  private fpModels = new Map<WeaponId, THREE.Group>();
+  /** Your weapon in VR, in your right hand. */
+  private vrWeapon = new THREE.Group();
+  private vrTilt = new THREE.Group();
+  private vrSpin = new THREE.Group();
+  private vrWeaponId: WeaponId | null = null;
+  private vrModels = new Map<WeaponId, THREE.Group>();
+  private vrTipPrev: THREE.Vector3 | null = null;
+  /** In VR on foot: where your weapon's tip is, and how fast it's moving (meters a second, relative to you). */
+  vrTip: { pos: THREE.Vector3; speed: number } | null = null;
   private smoke = new ParticleLayer(false);
   private glow = new ParticleLayer(true);
   private effects = new Effects();
@@ -351,7 +383,22 @@ export class SeaRenderer {
     this.ocean.frustumCulled = false;
     this.scene.add(this.ocean);
 
-    this.scene.add(buildIslands());
+    // Blackwater Cove's warm dock light stays in the scene (adding and removing lights rebuilds every shader).
+    const havenLight = new THREE.PointLight("#ffa040", 3, 900, 1.2);
+    havenLight.position.set(HAVEN.x + HAVEN.radius, 60, HAVEN.z);
+    this.scene.add(havenLight);
+
+    // Your weapon in first person, and in VR.
+    this.fpSpin.rotation.y = -Math.PI / 2;
+    this.fpTilt.add(this.fpSpin);
+    this.fpHolder.add(this.fpTilt);
+    this.fpHolder.visible = false;
+    this.camera.add(this.fpHolder);
+    this.vrSpin.rotation.y = -Math.PI / 2;
+    this.vrTilt.add(this.vrSpin);
+    this.vrWeapon.add(this.vrTilt);
+    this.vrWeapon.scale.setScalar(1 / VR_SCALE);
+    this.vrWeapon.visible = false;
 
     const instanced = (geo: THREE.BufferGeometry, mat: THREE.Material, n: number) => {
       const m = new THREE.InstancedMesh(geo, mat, n);
@@ -418,14 +465,17 @@ export class SeaRenderer {
     this.syncPeople(sim, view, dt);
     this.syncProjectiles(sim, dt);
     this.syncCrates(sim);
+    this.streamIslands(sim);
     this.syncSpots(sim);
     this.emitAmbient(sim, dt);
     this.smoke.update(dt);
     this.glow.update(dt);
     this.effects.update(dt);
     this.updateFirstPersonSails(sim, view);
+    this.poseViewWeapon(sim, view, dt);
     if (this.renderer.xr.isPresenting) {
       this.placeVrRig(sim, view);
+      this.poseVrWeapon(sim, dt);
       this.placeAimMarker(sim, view);
       // No bloom in VR: the headset draws each eye directly.
       this.renderer.render(this.scene, this.camera);
@@ -731,6 +781,13 @@ export class SeaRenderer {
           break;
         case "loot":
         case "robbed": {
+          // A crate you smashed bursts into splinters.
+          if (e.k === "loot" && e.smashed) {
+            const y = (groundHeight(e.x, e.z) ?? 6) + 5;
+            for (let i = 0; i < 14; i++) p("debris", e.x, y, e.z);
+            p("dust", e.x, y, e.z);
+            this.shake = Math.min(0.5, this.shake + 0.2);
+          }
           const h = sim.shore.hero;
           if (h) for (let i = 0; i < 24; i++) p("gold", h.x, h.y + 10, h.z);
           break;
@@ -830,8 +887,15 @@ export class SeaRenderer {
           btn.mat.color.set(b.ready ? "#ef4444" : "#4b1d1d");
         });
       } else {
-        // Other crews' wheels turn as they steer.
+        // Other crews' wheels turn as they steer, and their helmsman leans into the turn.
         v.helm.wheel.rotation.x += (s.rudder * WHEEL_LOCK * 0.5 - v.helm.wheel.rotation.x) * Math.min(1, dt * 3);
+        if (v.helmsman) {
+          v.helmsman.body.rotation.x += (-s.rudder * 0.12 - v.helmsman.body.rotation.x) * Math.min(1, dt * 3);
+          // Hands follow the spokes a little.
+          const turn = v.helm.wheel.rotation.x * 0.15;
+          v.helmsman.armL.rotation.x = turn;
+          v.helmsman.armR.rotation.x = turn;
+        }
       }
       const f = forward(s.heading);
       const L = s.cls.length / 2;
@@ -963,10 +1027,155 @@ export class SeaRenderer {
     }
   }
 
+  /** Build the islands you're near, and throw away the ones you've left far behind. */
+  private streamIslands(sim: Sim) {
+    const at = sim.mode === "foot" && sim.shore.hero ? sim.shore.hero : sim.player;
+    for (const isl of ISLANDS) {
+      const shore = Math.hypot(isl.x - at.x, isl.z - at.z) - isl.radius;
+      const built = this.islands.get(isl.index);
+      if (!built && shore < ISLAND_LOAD) {
+        const g = buildIsland(isl);
+        this.scene.add(g);
+        this.islands.set(isl.index, g);
+      } else if (built && shore > ISLAND_UNLOAD) {
+        this.scene.remove(built);
+        disposeIsland(built);
+        this.islands.delete(isl.index);
+        for (const s of isl.spots) {
+          const obj = this.spots.get(s.id);
+          if (obj) this.scene.remove(obj);
+          this.spots.delete(s.id);
+        }
+      }
+    }
+  }
+
+  /** Islands loaded right now (for tests). */
+  get loadedIslands() {
+    return [...this.islands.keys()];
+  }
+
+  /** A weapon model for your own hands, made once per weapon. On screen it draws over everything, so it never pokes into walls. */
+  private handWeapon(cache: Map<WeaponId, THREE.Group>, id: WeaponId, onScreen: boolean) {
+    let g = cache.get(id);
+    if (g) return g;
+    g = new THREE.Group();
+    weaponMeshes(g, id);
+    if (id === "fists" && onScreen) {
+      const fist = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.2, 2.6), new THREE.MeshStandardMaterial({ color: "#d9a17a", roughness: 0.8 }));
+      fist.position.y = -0.6;
+      g.add(fist);
+    }
+    if (onScreen) {
+      g.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        const m = (o.material as THREE.Material).clone();
+        // Held up close it would sit in your own shadow: give it a little light of its own.
+        if (m instanceof THREE.MeshStandardMaterial) {
+          m.emissive.copy(m.color).multiplyScalar(0.3);
+          m.metalness = Math.min(m.metalness, 0.35);
+          m.roughness = Math.max(m.roughness, 0.4);
+        }
+        m.depthTest = false;
+        m.depthWrite = false;
+        o.material = m;
+        o.renderOrder = 20;
+      });
+    }
+    cache.set(id, g);
+    return g;
+  }
+
+  /** First person on foot: the weapon you're holding, at the bottom right, swinging, firing and bobbing as you walk. */
+  private poseViewWeapon(sim: Sim, view: CameraView, dt: number) {
+    const h = sim.mode === "foot" ? sim.shore.hero : null;
+    const show = !!h && h.dead < 0 && !h.swimming && view.firstPerson && !this.renderer.xr.isPresenting;
+    this.fpHolder.visible = show;
+    if (!show || !h) return;
+    if (this.fpId !== h.weapon) {
+      this.fpSpin.clear();
+      this.fpSpin.add(this.handWeapon(this.fpModels, h.weapon, true));
+      this.fpId = h.weapon;
+    }
+    const gun = WEAPONS[h.weapon].kind === "gun";
+    const fists = h.weapon === "fists";
+    // Guns come up to the middle of your view when you aim.
+    const base =
+      gun && view.aiming
+        ? new THREE.Vector3(0, -2.3, -7)
+        : gun
+          ? new THREE.Vector3(3, -3, -7.5)
+          : fists
+            ? new THREE.Vector3(3, -3, -6.5)
+            : new THREE.Vector3(3.8, -3.8, -7.5);
+    this.fpPos.lerp(base, Math.min(1, dt * 12));
+    const step = sim.time * (sim.input.sprint ? 15 : 10);
+    const bob = h.moving
+      ? new THREE.Vector3(Math.sin(step / 2) * 0.35, -Math.abs(Math.sin(step / 2)) * 0.4, 0)
+      : new THREE.Vector3(0, Math.sin(sim.time * 1.6) * 0.08, 0);
+    // Blades point forward and up; guns and fists straight ahead.
+    this.fpTilt.rotation.x = gun || fists ? Math.PI / 2 : 2.2;
+    let rx = 0;
+    let ry = 0;
+    let push = 0;
+    if (gun) {
+      if (h.swing < 0.15) {
+        // Kick: back toward you, muzzle up.
+        const k = 1 - h.swing / 0.15;
+        rx = 0.35 * k;
+        push = 1.2 * k;
+      }
+    } else if (h.swing < 0.3) {
+      // A quick chop down and across (or a punch straight out), then back.
+      const k = h.swing / 0.3;
+      const a = k < 0.35 ? k / 0.35 : 1 - (k - 0.35) / 0.65;
+      if (fists) push = -3 * a;
+      else {
+        rx = -0.9 * a;
+        ry = 0.9 * a;
+        bob.x -= 3 * a;
+      }
+    }
+    this.fpHolder.position.copy(this.fpPos).add(bob);
+    this.fpHolder.position.z += push;
+    this.fpHolder.rotation.set(rx, ry, 0);
+  }
+
+  /** VR on foot: your weapon is in your right hand, and we track how fast its tip moves so a real swing can hit. */
+  private poseVrWeapon(sim: Sim, dt: number) {
+    const h = sim.mode === "foot" ? sim.shore.hero : null;
+    const grip = this.vrGrips.right;
+    if (!h || h.dead >= 0 || !grip) {
+      this.vrWeapon.visible = false;
+      this.vrTip = null;
+      this.vrTipPrev = null;
+      return;
+    }
+    if (this.vrWeapon.parent !== grip) grip.add(this.vrWeapon);
+    if (this.vrWeaponId !== h.weapon) {
+      this.vrSpin.clear();
+      this.vrSpin.add(this.handWeapon(this.vrModels, h.weapon, false));
+      this.vrWeaponId = h.weapon;
+    }
+    const gun = WEAPONS[h.weapon].kind === "gun";
+    this.vrWeapon.visible = h.weapon !== "fists";
+    // Along your hand, like holding the controller: blades tilt up a little, barrels point where you aim.
+    this.vrTilt.rotation.x = gun ? Math.PI / 2 : 1.85;
+    this.vrWeapon.updateMatrixWorld(true);
+    const model = this.vrSpin.children[0];
+    const tip = model.localToWorld(new THREE.Vector3(0, -WEAPON_TIP[h.weapon], 0));
+    // Speed measured relative to you, so walking or turning doesn't count as swinging.
+    const local = this.rig.worldToLocal(tip.clone());
+    const speed = this.vrTipPrev ? local.distanceTo(this.vrTipPrev) / Math.max(dt, 1e-3) : 0;
+    this.vrTipPrev = local;
+    this.vrTip = { pos: tip, speed };
+  }
+
   /** Chests, supply crates, X marks and Devil Fruits on islands; hidden once emptied. */
   private syncSpots(sim: Sim) {
     const fruitsLeft = sim.save.fruitsFound.length < 5;
     for (const isl of ISLANDS) {
+      if (!this.islands.has(isl.index)) continue;
       for (const s of isl.spots) {
         let obj = this.spots.get(s.id);
         if (!obj) {

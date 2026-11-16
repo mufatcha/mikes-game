@@ -123,7 +123,7 @@ export type SimEvent =
   | { k: "drowning" }
   | { k: "power"; fruit: FruitId; x: number; z: number; tx: number; tz: number; atSea?: boolean; move?: StretchMove; awake?: boolean }
   | { k: "fruitFound"; fruit: FruitId }
-  | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number }
+  | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number; smashed?: boolean }
   | { k: "service"; building: ServiceKind }
   | { k: "vaultKey"; keys: number; island: number }
   | { k: "vaultOpened" }
@@ -218,7 +218,7 @@ export class Sim {
 
   constructor(public save: SaveData) {
     this.spawnPlayer();
-    for (let i = 0; i < 14; i++) this.spawnCrate();
+    for (let i = 0; i < 50; i++) this.spawnCrate();
   }
 
   get stars() {

@@ -262,7 +262,7 @@ function HowToPlay() {
       </p>
       <ul className="list-disc space-y-1 pl-5">
         <li>Crimes raise your wanted level (★). More stars, more Marines. Hide, or flee to Blackwater Cove.</li>
-        <li>Anchor near an island and press F to go ashore. Chests, buried treasure (X) and supply crates hold gold and materials.</li>
+        <li>Anchor near an island and press F to go ashore. Chests, buried treasure (X) and supply crates hold gold and materials. Hit a supply crate with a blade or your fists to smash it open.</li>
         <li>Towns have banks, shops and armories to rob, guarded by Marines.</li>
         <li>Craft weapons from timber, iron and gunpowder (I). Armories have weapons to steal.</li>
         <li>Devil Fruits grant a power, but fruit eaters can never swim again.</li>
@@ -287,6 +287,7 @@ function HowToPlay() {
         ["At the helm", "Grab the wheel with a grip and turn it to steer (it stays where you let go). The sail levers are beside its left handles: squeeze one to flip it (or pull it toward you / push it away). Poke the PORT or STARBOARD button beside its right handles (or squeeze next to it) to fire that broadside."],
         ["Right stick", "Snap turn"],
         ["Right trigger", "Attack where your hand points, or fire the side you face"],
+        ["Swing", "On foot your weapon is in your right hand: swing it for real to smash supply crates and hit anyone in reach"],
         ["Grips", "On foot: right uses (hold to rob), left sprints · At sea: grab the wheel and levers"],
         ["A / B", "Go ashore or board / fruit power"],
         ["X / Y", "Switch Stretch move / awaken"],

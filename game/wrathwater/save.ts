@@ -1,4 +1,5 @@
 import { NO_UPGRADES, type Upgrades } from "./data";
+import { ISLANDS } from "./world";
 import { FRUIT_IDS, NO_MATERIALS, STARTING_AMMO, STARTING_WEAPONS, WEAPON_ORDER, type FruitId, type Materials, type WeaponId } from "./items";
 
 /** Progress kept between visits, in this browser only. */
@@ -84,7 +85,7 @@ export function loadSave(): SaveData | null {
       heldFruits: Array.isArray(s.heldFruits) ? s.heldFruits.filter(isFruit) : [],
       fruitsFound: Array.isArray(s.fruitsFound) ? s.fruitsFound.filter(isFruit) : [],
       robberies: Number(s.robberies) || 0,
-      vaultKeys: Array.isArray(s.vaultKeys) ? [...new Set(s.vaultKeys.map(Number).filter(Number.isInteger))] : [],
+      vaultKeys: Array.isArray(s.vaultKeys) ? wardenKeys(s.vaultKeys) : [],
       trueName: !!s.trueName,
     };
   } catch {
@@ -106,4 +107,17 @@ export function deleteSave() {
   } catch {
     // Nothing to delete.
   }
+}
+
+/**
+ * Vault keys are saved as the island each Warden was on. If the islands have
+ * moved since (the sea was redrawn), keep how many keys you had, matched to
+ * the Warden towns as they are now.
+ */
+function wardenKeys(raw: unknown[]): number[] {
+  const wardens = ISLANDS.filter((i) => i.warden).map((i) => i.index);
+  const saved = [...new Set(raw.map(Number).filter(Number.isInteger))];
+  const keys = wardens.filter((i) => saved.includes(i));
+  for (const i of wardens) if (keys.length < Math.min(saved.length, wardens.length) && !keys.includes(i)) keys.push(i);
+  return keys;
 }

@@ -4,7 +4,12 @@
  */
 
 /** The playable sea is a square from -WORLD_HALF to +WORLD_HALF; beyond it is a storm wall. */
-export const WORLD_HALF = 6000;
+export const WORLD_HALF = 12000;
+/**
+ * Shore-to-shore distance kept between islands: more than you can see through
+ * the sea haze, so from one island you can't see the next.
+ */
+export const ISLAND_GAP = 2900;
 /** Height of a beach above the water. */
 export const BEACH_TOP = 6;
 
@@ -104,11 +109,12 @@ function makeIslands(): Island[] {
     { name: FORTRESS_NAME, x: WORLD_HALF - 1100, z: WORLD_HALF - 1100, radius: 400, seed: 666, fortress: true },
   ];
   let tries = 0;
-  while (raw.length < 19 && tries++ < 6000) {
+  while (raw.length < 19 && tries++ < 20000) {
     const radius = 140 + r() * 300;
     const x = (r() * 2 - 1) * (WORLD_HALF - 700);
     const z = (r() * 2 - 1) * (WORLD_HALF - 700);
-    const clear = raw.every((o) => Math.hypot(o.x - x, o.z - z) > o.radius + radius + (o.haven ? 900 : 650));
+    // Allow for towns growing (below) so the gap still holds afterwards.
+    const clear = raw.every((o) => Math.hypot(o.x - x, o.z - z) > (o.radius + radius) * 1.4 + (o.haven ? ISLAND_GAP + 400 : ISLAND_GAP));
     if (clear) raw.push({ name: "", x, z, radius, seed: Math.floor(r() * 1e9) });
   }
   // The four biggest islands (besides the haven) become towns; the farthest wild one hides a Devil Fruit.

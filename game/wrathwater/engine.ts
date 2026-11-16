@@ -17,7 +17,7 @@ import {
   type MaterialId,
   type WeaponId,
 } from "./items";
-import { SeaRenderer, type CameraView } from "./render";
+import { SeaRenderer, VR_SWING_SPEED, type CameraView } from "./render";
 import { LEVER_IN, LEVER_LENGTH, LEVER_OUT, WHEEL_LOCK, helmLayout } from "./models";
 import { connectedPad, padDown } from "@/lib/gamepad";
 import { writeSave, type SaveData } from "./save";
@@ -834,6 +834,14 @@ export class WrathwaterEngine {
         this.padMove = { x: lx, y: -ly };
         this.padHeld = { attack: on(rb, 0), aim: on(lb, 0), interact: on(rb, 1), sprint: on(lb, 1) };
         if (on(rb, 0) || on(lb, 0)) this.footYaw = R.yaw;
+        // Swing your sword (or fist) for real: hit a supply crate to smash it open, or anyone in reach.
+        const tip = this.renderer.vrTip;
+        if (tip && tip.speed > VR_SWING_SPEED) {
+          const hit = this.sim.shore.swingAt(tip.pos.x, tip.pos.y, tip.pos.z);
+          if (hit === "crate") this.renderer.vrBuzz("right", 1, 90);
+          else if (hit === "hit") this.renderer.vrBuzz("right", 0.8, 70);
+          else if (hit === "miss") this.renderer.vrBuzz("right", 0.12, 15);
+        }
       } else {
         // At the helm you steer with the wheel and set sail with the levers: grab them with a grip.
         this.padMove = { x: 0, y: 0 };

@@ -1,7 +1,7 @@
 /** Islands in 3D: terrain matching world.ts heights, palms, rocks, towns and the haven. */
 import * as THREE from "three";
 import { canvasTexture, sailTexture } from "./models";
-import { BEACH_TOP, ISLANDS, hillProfile, type Building, type Island } from "./world";
+import { BEACH_TOP, hillProfile, type Building, type Island } from "./world";
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -41,14 +41,39 @@ const repeat = (t: THREE.Texture, n: number) => {
   return t;
 };
 
-/** All islands as one group. Static, built once. */
-export function buildIslands(): THREE.Group {
+/** Materials and shapes every island shares (made once, never thrown away). */
+let shared: ReturnType<typeof makeShared> | null = null;
+function makeShared() {
+  const trunkGeo = new THREE.CylinderGeometry(1.2, 1.7, 1, 7);
+  const frondGeo = new THREE.PlaneGeometry(1, 1, 1, 4);
+  frondGeo.rotateX(-Math.PI / 2);
+  frondGeo.translate(0, 0, 0.5);
+  // Droop the fronds.
+  const fp = frondGeo.getAttribute("position") as THREE.BufferAttribute;
+  for (let i = 0; i < fp.count; i++) fp.setY(i, -Math.pow(fp.getZ(i), 2) * 0.5);
+  frondGeo.computeVertexNormals();
+  return {
+    sand: new THREE.MeshStandardMaterial({ map: repeat(sandTexture(), 6), roughness: 1 }),
+    grass: new THREE.MeshStandardMaterial({ map: repeat(grassTexture(), 5), roughness: 1 }),
+    rockMat: new THREE.MeshStandardMaterial({ color: "#5d6066", roughness: 1, flatShading: true }),
+    trunkMat: new THREE.MeshStandardMaterial({ color: "#6b4c2e", roughness: 1 }),
+    leafMat: new THREE.MeshStandardMaterial({ color: "#3a7a3a", roughness: 0.9, side: THREE.DoubleSide }),
+    trunkGeo,
+    frondGeo,
+    rockGeo: new THREE.DodecahedronGeometry(1, 1),
+  };
+}
+
+/**
+ * One island in 3D: beach, hill, palms, rocks, buildings and extras. The
+ * renderer builds an island when you sail near it and throws it away when
+ * you're far off (see disposeIsland), so only what you can see is loaded.
+ */
+export function buildIsland(isl: Island): THREE.Group {
+  shared ??= makeShared();
+  const { sand, grass, rockMat, trunkMat, leafMat, trunkGeo, frondGeo, rockGeo } = shared;
   const group = new THREE.Group();
-  const sand = new THREE.MeshStandardMaterial({ map: repeat(sandTexture(), 6), roughness: 1 });
-  const grass = new THREE.MeshStandardMaterial({ map: repeat(grassTexture(), 5), roughness: 1 });
-  const rockMat = new THREE.MeshStandardMaterial({ color: "#5d6066", roughness: 1, flatShading: true });
-  const trunkMat = new THREE.MeshStandardMaterial({ color: "#6b4c2e", roughness: 1 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: "#3a7a3a", roughness: 0.9, side: THREE.DoubleSide });
+  group.name = `island-${isl.index}`;
 
   const trunks: THREE.Matrix4[] = [];
   const fronds: THREE.Matrix4[] = [];
@@ -59,7 +84,7 @@ export function buildIslands(): THREE.Group {
   const v = new THREE.Vector3();
   const sc = new THREE.Vector3();
 
-  for (const isl of ISLANDS) {
+  {
     const R = isl.radius;
     // Beach: a lathe whose profile matches world.ts (flat top at BEACH_TOP, sloping into the sea).
     const beachPts = [
@@ -122,25 +147,31 @@ export function buildIslands(): THREE.Group {
     if (isl.haven) group.add(buildHavenExtras(isl));
   }
 
-  const trunkGeo = new THREE.CylinderGeometry(1.2, 1.7, 1, 7);
-  const frondGeo = new THREE.PlaneGeometry(1, 1, 1, 4);
-  frondGeo.rotateX(-Math.PI / 2);
-  frondGeo.translate(0, 0, 0.5);
-  // Droop the fronds.
-  const fp = frondGeo.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < fp.count; i++) fp.setY(i, -Math.pow(fp.getZ(i), 2) * 0.5);
-  frondGeo.computeVertexNormals();
-  const rockGeo = new THREE.DodecahedronGeometry(1, 1);
   for (const [geo, mat, list] of [
     [trunkGeo, trunkMat, trunks],
     [frondGeo, leafMat, fronds],
     [rockGeo, rockMat, rocks],
   ] as const) {
+    if (!list.length) continue;
     const inst = new THREE.InstancedMesh(geo, mat, list.length);
     list.forEach((mat4, i) => inst.setMatrixAt(i, mat4));
     group.add(inst);
   }
   return group;
+}
+
+/** Free an island built by buildIsland (its own shapes and materials; shared ones and textures stay). */
+export function disposeIsland(g: THREE.Group) {
+  const keep = shared ? new Set<unknown>([shared.sand, shared.grass, shared.rockMat, shared.trunkMat, shared.leafMat, shared.trunkGeo, shared.frondGeo, shared.rockGeo, windowMat, doorMat, lampMat]) : new Set();
+  g.traverse((o) => {
+    if (o instanceof THREE.InstancedMesh) {
+      o.dispose();
+      return;
+    }
+    if (!(o instanceof THREE.Mesh)) return;
+    if (!keep.has(o.geometry)) o.geometry.dispose();
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (!keep.has(m)) m.dispose();
+  });
 }
 
 function groundY(isl: Island, x: number, z: number) {
@@ -395,8 +426,6 @@ function buildHavenExtras(isl: Island) {
   flag.position.set(isl.x + 25, 100, isl.z);
   g.add(flag);
   for (const b of isl.buildings) g.add(lampPost(b.door.x + 6, groundY(isl, b.door.x + 6, b.door.z), b.door.z));
-  const light = new THREE.PointLight("#ffa040", 3, 900, 1.2);
-  light.position.set(isl.x + isl.radius, 60, isl.z);
-  g.add(light);
+  // (The haven's warm dock light lives in the renderer, so adding and removing the island doesn't rebuild every shader.)
   return g;
 }

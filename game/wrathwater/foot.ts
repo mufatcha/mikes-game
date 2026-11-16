@@ -298,9 +298,51 @@ export class Shore {
     if (wpn.kind === "melee") {
       this.sim.events.push({ k: "swing", x: h.x, z: h.z, byHero: true });
       this.meleeHit(h, wpn.damage, wpn.range, 0.55);
+      // A supply crate in front of you breaks open.
+      const fx = Math.cos(h.heading);
+      const fz = Math.sin(h.heading);
+      const crate = this.crateNear(h.x + fx * wpn.range * 0.6, h.z + fz * wpn.range * 0.6, wpn.range * 0.6 + 6);
+      if (crate) this.lootSpot(crate, true);
     } else {
       this.fireGun(h, wpn.id, h.heading, true);
     }
+  }
+
+  /** An unopened supply crate on your island within `reach` of a point. */
+  private crateNear(x: number, z: number, reach: number) {
+    const h = this.hero;
+    if (!h) return null;
+    const t = this.sim.time;
+    return ISLANDS[h.island].spots.find((s) => s.kind === "crate" && (this.spentUntil.get(s.id) ?? 0) <= t && Math.hypot(s.x - x, s.z - z) < reach) ?? null;
+  }
+
+  /**
+   * A real swing in VR: your weapon's tip is at (x, y, z) and moving fast.
+   * Smashes a supply crate it hits, and hurts anyone it hits. Returns what it
+   * hit (for the controller's buzz), or null if you can't swing right now.
+   */
+  swingAt(x: number, y: number, z: number): "crate" | "hit" | "miss" | null {
+    const h = this.hero;
+    if (!h || h.dead >= 0 || h.cooldown > 0) return null;
+    const wpn = WEAPONS[h.weapon];
+    if (wpn.kind !== "melee") return null;
+    h.cooldown = Math.min(wpn.cooldown, 0.4);
+    h.swing = 0;
+    this.sim.events.push({ k: "swing", x: h.x, z: h.z, byHero: true });
+    let result: "crate" | "hit" | "miss" = "miss";
+    // Crates are about 10 tall: the tip has to come down into one.
+    const crate = this.crateNear(x, z, 9);
+    if (crate && y < (groundHeight(crate.x, crate.z) ?? BEACH_TOP) + 14) {
+      this.lootSpot(crate, true);
+      result = "crate";
+    }
+    for (const t of this.walkers) {
+      if (t.dead >= 0) continue;
+      if (Math.hypot(t.x - x, t.z - z) > HERO_RADIUS + 4 || y < t.y - 2 || y > t.y + 21) continue;
+      this.damageWalker(t, wpn.damage, true);
+      result = "hit";
+    }
+    return result;
   }
 
   private meleeHit(attacker: Walker, damage: number, range: number, cone: number) {
@@ -899,7 +941,7 @@ export class Shore {
     return got;
   }
 
-  private lootSpot(s: LootSpot) {
+  private lootSpot(s: LootSpot, smashed = false) {
     this.spentUntil.set(s.id, this.sim.time + SPOT_RESPAWN[s.kind]);
     const save = this.sim.save;
     let ammo = 0;
@@ -924,7 +966,7 @@ export class Shore {
     }
     save.gold += gold;
     save.ammo += ammo;
-    this.sim.events.push({ k: "loot", x: s.x, z: s.z, gold, weapon, ...mats, ammo });
+    this.sim.events.push({ k: "loot", x: s.x, z: s.z, gold, weapon, ...mats, ammo, smashed });
   }
 
   private rob(isl: Island, b: Building, key: string) {

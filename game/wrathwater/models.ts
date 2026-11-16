@@ -152,6 +152,8 @@ export function helmLayout(cls: { length: number; beam: number }) {
   };
 }
 export const LEVER_LENGTH = 6;
+/** How far behind the wheel a helmsman stands so their hands are on it. */
+const HELMSMAN_REACH = 5.8;
 /** Lever angles (about the ship's z axis): sails in (pushed forward) and let out (pulled back toward you). */
 export const LEVER_IN = -0.55;
 export const LEVER_OUT = 0.55;
@@ -168,6 +170,8 @@ export interface ShipVisual {
   cannonCount: number;
   recoil: { [side: number]: number };
   lanternMat: THREE.MeshBasicMaterial;
+  /** On other crews' ships: the sailor standing at the wheel, steering. */
+  helmsman: PersonVisual | null;
 }
 
 const cannonGeo = new THREE.CylinderGeometry(0.9, 1.15, 6, 8);
@@ -398,7 +402,18 @@ export function buildShip(ship: Ship): ShipVisual {
   group.add(new THREE.LineSegments(rigGeo, ropeMat));
 
   const helm = buildHelm(cls, group);
-  const visual: ShipVisual = { group, helm, sails, flag: flag!, cannons: [], cannonCount: 0, recoil: { 1: 0, [-1]: 0 }, lanternMat };
+  // Someone is actually steering every other ship: a sailor at the wheel, hands on the spokes.
+  let helmsman: PersonVisual | null = null;
+  if (faction !== "player") {
+    const big = cls.id === "marine_warship" || cls.id === "marine_flagship";
+    helmsman = buildPerson(faction === "marine" ? (big ? "captain" : "marine") : faction === "pirate" ? "bandit" : "sailor");
+    const lay = helmLayout(cls);
+    helmsman.group.position.set(lay.wheel.x - HELMSMAN_REACH, lay.roof, lay.wheel.z);
+    helmsman.armL.rotation.z = 1.25;
+    helmsman.armR.rotation.z = 1.25;
+    group.add(helmsman.group);
+  }
+  const visual: ShipVisual = { group, helm, sails, flag: flag!, cannons: [], cannonCount: 0, recoil: { 1: 0, [-1]: 0 }, lanternMat, helmsman };
   setCannons(visual, ship);
   return visual;
 }
@@ -451,7 +466,11 @@ export interface PersonVisual {
   hurtMat: THREE.MeshStandardMaterial[];
 }
 
-const PERSON_COLORS: Record<WalkerKind, { coat: string; pants: string; hat: string; trim: string }> = {
+/** People in the game, plus the merchant sailors who steer trading ships. */
+export type PersonKind = WalkerKind | "sailor";
+
+const PERSON_COLORS: Record<PersonKind, { coat: string; pants: string; hat: string; trim: string }> = {
+  sailor: { coat: "#1e3a5f", pants: "#d6d3d1", hat: "#e7e5e4", trim: "#93c5fd" },
   hero: { coat: "#3b0d0d", pants: "#1c1917", hat: "#111111", trim: "#d4a017" },
   marine: { coat: "#f1f5f9", pants: "#1e3a8a", hat: "#f8fafc", trim: "#1d4ed8" },
   captain: { coat: "#f8fafc", pants: "#1e293b", hat: "#0f172a", trim: "#eab308" },
@@ -474,7 +493,7 @@ function limb(w: number, h: number, d: number, mat: THREE.Material, pivotY: numb
 }
 
 /** A small low-poly person, about 17 units tall, facing +x. */
-export function buildPerson(kind: WalkerKind): PersonVisual {
+export function buildPerson(kind: PersonKind): PersonVisual {
   const c = PERSON_COLORS[kind];
   const coat = new THREE.MeshStandardMaterial({ color: c.coat, roughness: 0.85 });
   const pants = new THREE.MeshStandardMaterial({ color: c.pants, roughness: 0.9 });
@@ -548,10 +567,18 @@ function setWeapon(v: PersonVisual, id: WeaponId) {
   if (v.weaponId === id) return;
   v.weaponId = id;
   v.weapon.clear();
+  weaponMeshes(v.weapon, id);
+}
+
+/** How far a weapon reaches from the hand to its tip (along -y in its own space). */
+export const WEAPON_TIP: Record<WeaponId, number> = { fists: 0, dull_sword: 7.6, cutlass: 9, axe: 8.6, flintlock: 4.6, musket: 11.5, blunderbuss: 8.4 };
+
+/** A weapon's shapes, with the grip at the origin and the blade or barrel pointing down -y. */
+export function weaponMeshes(group: THREE.Group, id: WeaponId) {
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z = 0) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
-    v.weapon.add(m);
+    group.add(m);
     return m;
   };
   switch (id) {
