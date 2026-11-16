@@ -172,6 +172,10 @@ export interface ShipVisual {
   lanternMat: THREE.MeshBasicMaterial;
   /** On other crews' ships: the sailor standing at the wheel, steering. */
   helmsman: PersonVisual | null;
+  /** On your ship: your hired crew, standing at their stations on deck. */
+  crew: PersonVisual[];
+  /** The ship class this was built for (your ship is rebuilt when you buy a bigger one). */
+  cls: Ship["cls"];
 }
 
 const cannonGeo = new THREE.CylinderGeometry(0.9, 1.15, 6, 8);
@@ -413,7 +417,7 @@ export function buildShip(ship: Ship): ShipVisual {
     helmsman.armR.rotation.z = 1.25;
     group.add(helmsman.group);
   }
-  const visual: ShipVisual = { group, helm, sails, flag: flag!, cannons: [], cannonCount: 0, recoil: { 1: 0, [-1]: 0 }, lanternMat, helmsman };
+  const visual: ShipVisual = { group, helm, sails, flag: flag!, cannons: [], cannonCount: 0, recoil: { 1: 0, [-1]: 0 }, lanternMat, helmsman, crew: [], cls };
   setCannons(visual, ship);
   return visual;
 }
@@ -478,6 +482,23 @@ const PERSON_COLORS: Record<PersonKind, { coat: string; pants: string; hat: stri
 };
 
 const skinMat = new THREE.MeshStandardMaterial({ color: "#d9a17a", roughness: 0.8 });
+const packMat = new THREE.MeshStandardMaterial({ color: "#6b4a2b", roughness: 0.9 });
+const packFlapMat = new THREE.MeshStandardMaterial({ color: "#4a3220", roughness: 0.9 });
+
+/** The backpack you pull off your back in VR (in meters, for your hand): a leather satchel with straps and a buckle. */
+export function buildBackpack() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.32, 0.14), packMat);
+  body.position.y = -0.2;
+  const flap = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.12, 0.15), packFlapMat);
+  flap.position.y = -0.08;
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.02), new THREE.MeshStandardMaterial({ color: "#d4a017", metalness: 0.7, roughness: 0.3 }));
+  buckle.position.set(0, -0.13, 0.08);
+  const strap = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.012, 6, 16, Math.PI), packFlapMat);
+  strap.position.y = -0.03;
+  g.add(body, flap, buckle, strap);
+  return g;
+}
 const steelMat = new THREE.MeshStandardMaterial({ color: "#cbd5e1", metalness: 0.85, roughness: 0.25 });
 const darkWoodMat = new THREE.MeshStandardMaterial({ color: "#3f2a1a", roughness: 0.8 });
 const ironMat = new THREE.MeshStandardMaterial({ color: "#27272a", metalness: 0.7, roughness: 0.4 });
@@ -533,6 +554,14 @@ export function buildPerson(kind: PersonKind): PersonVisual {
     const tail = new THREE.Mesh(new THREE.BoxGeometry(0.6, 6, 5), coat);
     tail.position.set(-1.9, 6.5, 0);
     body.add(tail);
+    if (kind === "hero") {
+      // Your backpack, where your loot goes.
+      const pack = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5, 4.2), packMat);
+      pack.position.set(-2.7, 10.4, 0);
+      const flap = new THREE.Mesh(new THREE.BoxGeometry(2, 1.6, 4.4), packFlapMat);
+      flap.position.set(-2.8, 12.6, 0);
+      body.add(pack, flap);
+    }
   } else if (kind === "marine") {
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 1.6, 12), hatMat);
     cap.position.y = 16.8;

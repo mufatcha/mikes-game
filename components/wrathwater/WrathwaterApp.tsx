@@ -7,10 +7,14 @@ import {
   KING_BOUNTY,
   UPGRADES,
   formatBerries,
+  hireCost,
+  manning,
   playerStats,
   rankFor,
+  shipTier,
   shortBerries,
   upgradeCost,
+  upgradeMax,
   type UpgradeId,
 } from "@/game/wrathwater/data";
 import type { HudState, Notice, WrathwaterEngine } from "@/game/wrathwater/engine";
@@ -36,7 +40,7 @@ import { ProfileButton, ProfileModal } from "@/components/ProfilePanel";
 import { useProfile } from "@/lib/profile";
 
 type Screen = "menu" | "naming" | "playing";
-type Overlay = "none" | "pause" | "shop" | "market" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename";
+type Overlay = "none" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename";
 
 const SAVE_KEY = "ww.save.v1";
 
@@ -287,7 +291,10 @@ function HowToPlay() {
         ["At the helm", "Grab the wheel with a grip and turn it to steer (it stays where you let go). The sail levers are beside its left handles: squeeze one to flip it (or pull it toward you / push it away). Poke the PORT or STARBOARD button beside its right handles (or squeeze next to it) to fire that broadside."],
         ["Right stick", "Snap turn"],
         ["Right trigger", "Attack where your hand points, or fire the side you face"],
-        ["Swing", "On foot your weapon is in your right hand: swing it for real to smash supply crates and hit anyone in reach"],
+        ["Swing", "On foot your weapon is in your right hand: a full, fast swing (or a real punch) smashes supply crates and hits anyone in reach"],
+        ["Backpack", "Reach back over your shoulder and squeeze a grip to pull out your backpack: point at a weapon, fruit or supply with your other hand and pull the trigger. Let go to put it away."],
+        ["Arms", "Raise your left arm to read the map on it; your health, gold and prompts are on your right arm"],
+        ["Stores", "At Blackwater Cove you walk right into the shipwright's, blacksmith's, black market and tavern: point at the board on the back wall and pull the trigger to buy. Walk back to the door to leave."],
         ["Grips", "On foot: right uses (hold to rob), left sprints · At sea: grab the wheel and levers"],
         ["A / B", "Go ashore or board / fruit power"],
         ["X / Y", "Switch Stretch move / awaken"],
@@ -385,7 +392,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
           onSunk: (onFoot) => setOverlay(onFoot ? "defeated" : "sunk"),
           onKing: () => setOverlay("king"),
           onPauseRequest: () => setOverlay((o) => (o === "none" ? "pause" : o)),
-          onService: (kind) => setOverlay(kind === "shipwright" ? "shop" : kind === "blacksmith" ? "inventory" : "market"),
+          onService: (kind) => setOverlay(kind === "shipwright" ? "shop" : kind === "blacksmith" ? "inventory" : kind === "tavern" ? "tavern" : "market"),
           onFruit: (f) => {
             setFoundFruit(f);
             setOverlay("fruit");
@@ -522,6 +529,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       {overlay === "cheats" && engine && <CheatMenu engine={engine} onClose={resume} />}
       {overlay === "shop" && engine && <Shipwright engine={engine} onClose={resume} />}
       {overlay === "market" && engine && <BlackMarket engine={engine} onClose={resume} />}
+      {overlay === "tavern" && engine && <Tavern engine={engine} onClose={resume} />}
       {overlay === "truename" && engine && <TrueName engine={engine} onClose={resume} />}
       {overlay === "fruit" && engine && foundFruit && (
         <FruitFound
@@ -704,6 +712,13 @@ function ShipPanel({ hud, touch }: { hud: HudState; touch: boolean }) {
         </span>
         <span className="text-sm font-bold text-white">{hud.knots} kn</span>
       </div>
+      <div className="mt-2 flex items-baseline justify-between text-[10px] uppercase tracking-widest text-zinc-400">
+        <span>{hud.ship.name}</span>
+        <span className={hud.ship.short ? "font-bold text-red-400" : "text-zinc-300"}>
+          {hud.ship.short ? "Short-handed · " : ""}
+          {hud.ship.people}/{hud.ship.full} aboard
+        </span>
+      </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-widest text-zinc-400">
         <ReloadBar label="Port (Q)" frac={hud.reload.port} active={hud.aimSide === -1} />
         <ReloadBar label="Starboard (E)" frac={hud.reload.starboard} active={hud.aimSide === 1} />
@@ -841,6 +856,7 @@ function CheatMenu({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
         <PanelButton onClick={cheat(() => engine.cheatClearWanted())}>⭐ Clear wanted stars</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatBounty())}>🏴 +50,000,000 bounty</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatShip())}>⛵ Max ship upgrades and repair</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatBiggerShip())}>🚢 Next ship size, with a full crew</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatVaultKeys())}>🗝️ All 3 Vault Warden keys</PanelButton>
         <PanelButton onClick={() => engine.cheatTrueName()}>📜 Learn the fruit&apos;s real name</PanelButton>
         <PanelButton primary={god} onClick={() => setGod(engine.cheatGod())}>
@@ -1111,7 +1127,10 @@ function AwakenBadge({ awaken }: { awaken: NonNullable<HudState["awaken"]> }) {
 function Shipwright({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => void }) {
   const [, setTick] = useState(0);
   const save = engine.sim.save;
-  const stats = playerStats(save.upgrades);
+  const stats = playerStats(save);
+  const tier = shipTier(save.shipTier);
+  const next = engine.nextShip;
+  const maxedAll = engine.shipMaxed;
   return (
     <Modal wide>
       <div className="flex items-baseline justify-between">
@@ -1126,7 +1145,8 @@ function Shipwright({ engine, onClose }: { engine: WrathwaterEngine; onClose: ()
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         {UPGRADES.map((u) => {
           const level = save.upgrades[u.id as UpgradeId];
-          const maxed = level >= u.maxLevel;
+          const max = upgradeMax(u, save.shipTier);
+          const maxed = level >= max;
           const cost = maxed ? 0 : upgradeCost(u, level);
           const afford = save.gold >= cost;
           return (
@@ -1135,8 +1155,8 @@ function Shipwright({ engine, onClose }: { engine: WrathwaterEngine; onClose: ()
                 <p className="font-semibold">{u.name}</p>
                 <p className="text-xs text-zinc-400">{u.description}</p>
                 <div className="mt-1 flex gap-1">
-                  {Array.from({ length: u.maxLevel }, (_, i) => (
-                    <span key={i} className={`h-1.5 w-5 rounded-sm ${i < level ? "bg-amber-300" : "bg-white/10"}`} />
+                  {Array.from({ length: max }, (_, i) => (
+                    <span key={i} className={`h-1.5 w-3.5 rounded-sm ${i < level ? "bg-amber-300" : "bg-white/10"}`} />
                   ))}
                 </div>
               </div>
@@ -1155,8 +1175,85 @@ function Shipwright({ engine, onClose }: { engine: WrathwaterEngine; onClose: ()
           );
         })}
       </div>
+      <div className="mt-4 rounded-lg bg-amber-500/10 p-3 ring-1 ring-amber-400/30">
+        <p className="text-xs uppercase tracking-widest text-amber-300">Your ship: {tier.name} (size {tier.tier} of 4)</p>
+        {next ? (
+          <div className="mt-2 flex items-center gap-3">
+            <div className="flex-1 text-sm">
+              <p className="font-semibold">Build a {next.name}</p>
+              <p className="text-xs text-zinc-400">
+                Bigger and tougher, more guns, and every upgrade can go two levels higher. Needs {next.crewMin} to {next.crewFull} aboard (you count): hire crew at the
+                tavern.
+                {!maxedAll && " Max every upgrade first."}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!engine.canBuyShip()}
+              onClick={() => {
+                engine.buyShip();
+                setTick((t) => t + 1);
+              }}
+              className="w-28 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-black hover:bg-amber-400 disabled:bg-white/10 disabled:text-zinc-500"
+            >
+              {next.cost.toLocaleString("en-US")} g
+            </button>
+          </div>
+        ) : (
+          <p className="mt-1 text-sm text-zinc-300">The biggest ship on the sea. Nothing left to build.</p>
+        )}
+      </div>
       <PanelButton primary onClick={onClose}>
         Leave the shipwright
+      </PanelButton>
+    </Modal>
+  );
+}
+
+/** Blackwater Cove's tavern: sailors looking for a ship. */
+function Tavern({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => void }) {
+  const [, setTick] = useState(0);
+  const save = engine.sim.save;
+  const tier = shipTier(save.shipTier);
+  const m = manning(save.shipTier, save.crew);
+  const cost = hireCost(save.shipTier);
+  const room = engine.crewRoom - save.crew;
+  const hire = (n: number) => {
+    engine.hireCrew(n);
+    setTick((t) => t + 1);
+  };
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-serif text-3xl font-black uppercase tracking-wide">The Rusty Anchor</h2>
+        <span className="text-lg font-bold text-amber-300">{save.gold.toLocaleString("en-US")} gold</span>
+      </div>
+      <p className="mt-1 text-sm text-zinc-400">&ldquo;Plenty of hands here looking for a ship, Captain.&rdquo;</p>
+      <p className={`mt-3 text-sm ${m.short ? "text-red-300" : "text-emerald-300"}`}>
+        Your {tier.name} has {m.people} aboard (you count). She needs {tier.crewMin} to sail well and is at her best with {tier.crewFull}.
+        {m.short && " She's short-handed: slow, and slow to reload."}
+      </p>
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          disabled={room <= 0 || save.gold < cost}
+          onClick={() => hire(1)}
+          className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-black hover:bg-amber-400 disabled:bg-white/10 disabled:text-zinc-500"
+        >
+          Hire a sailor · {cost} g
+        </button>
+        <button
+          type="button"
+          disabled={room <= 0 || save.gold < cost * room}
+          onClick={() => hire(room)}
+          className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-bold text-black hover:bg-amber-400 disabled:bg-white/10 disabled:text-zinc-500"
+        >
+          {room > 0 ? `Hire a full crew (${room}) · ${(cost * room).toLocaleString("en-US")} g` : "Full crew aboard"}
+        </button>
+      </div>
+      {room <= 0 && tier.tier < 4 && <p className="mt-2 text-xs text-zinc-500">No room for more: the shipwright can build you a bigger ship once she&apos;s fully upgraded.</p>}
+      <PanelButton primary onClick={onClose}>
+        Leave the tavern
       </PanelButton>
     </Modal>
   );

@@ -1,4 +1,4 @@
-import { NO_UPGRADES, type Upgrades } from "./data";
+import { NO_UPGRADES, SHIP_TIERS, type Upgrades } from "./data";
 import { ISLANDS } from "./world";
 import { FRUIT_IDS, NO_MATERIALS, STARTING_AMMO, STARTING_WEAPONS, WEAPON_ORDER, type FruitId, type Materials, type WeaponId } from "./items";
 
@@ -29,6 +29,10 @@ export interface SaveData {
   vaultKeys: number[];
   /** Read the fruit's real name in the vault: the Stretch Fruit is really the Kill Order Fruit. */
   trueName: boolean;
+  /** Your ship's size, 1 (sloop) to 4 (man-o'-war). */
+  shipTier: number;
+  /** Sailors you've hired (you're aboard too, on top of these). */
+  crew: number;
 }
 
 const KEY = "ww.save.v1";
@@ -52,6 +56,8 @@ export function newSave(captain: string): SaveData {
     robberies: 0,
     vaultKeys: [],
     trueName: false,
+    shipTier: 1,
+    crew: 0,
   };
 }
 
@@ -87,6 +93,8 @@ export function loadSave(): SaveData | null {
       robberies: Number(s.robberies) || 0,
       vaultKeys: Array.isArray(s.vaultKeys) ? wardenKeys(s.vaultKeys) : [],
       trueName: !!s.trueName,
+      shipTier: Math.max(1, Math.min(SHIP_TIERS.length, Math.floor(Number(s.shipTier)) || 1)),
+      crew: Math.max(0, Math.floor(Number(s.crew)) || 0),
     };
   } catch {
     return null;

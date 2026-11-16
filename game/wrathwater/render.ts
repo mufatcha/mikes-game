@@ -6,8 +6,11 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { Effects, ParticleLayer, puff, type PuffKind } from "./fx";
 import { WEAPONS, type WeaponId } from "./items";
+import { buildInterior, disposeInterior } from "./interior";
 import { buildIsland, disposeIsland } from "./land";
+import { WorldPanel } from "./panel";
 import {
+  buildBackpack,
   buildBuriedMark,
   buildChest,
   buildCrate,
@@ -37,8 +40,18 @@ import { HAVEN, ISLANDS, WAVES, groundHeight, islandAt, waveHeight } from "./wor
  */
 const ISLAND_LOAD = 3200;
 const ISLAND_UNLOAD = 4000;
-/** In VR, your weapon's tip has to move this fast (meters a second) to count as a swing. */
-export const VR_SWING_SPEED = 2.6;
+/**
+ * A real swing in VR: over the last SWING_WINDOW seconds your weapon's tip
+ * must have travelled a full arc, moving fast at the end. Fists need a full
+ * punch rather than a full swing.
+ */
+const SWING_WINDOW = 0.35;
+export const VR_SWING = {
+  blade: { speed: 4, arc: 0.95, chord: 0.65 },
+  fist: { speed: 3, arc: 0.45, chord: 0.38 },
+  /** Your hand has to slow down to this (m/s) before the next swing can count. */
+  rearm: 1.2,
+};
 
 const OCEAN_SIZE = 4400;
 const OCEAN_SEGMENTS = 300;
@@ -304,9 +317,23 @@ export class SeaRenderer {
   private vrSpin = new THREE.Group();
   private vrWeaponId: WeaponId | null = null;
   private vrModels = new Map<WeaponId, THREE.Group>();
-  private vrTipPrev: THREE.Vector3 | null = null;
-  /** In VR on foot: where your weapon's tip is, and how fast it's moving (meters a second, relative to you). */
-  vrTip: { pos: THREE.Vector3; speed: number } | null = null;
+  /** Where your weapon's tip has been lately (meters, relative to you), to tell a real swing from a flick. */
+  private vrTipHist: { t: number; p: THREE.Vector3 }[] = [];
+  /**
+   * In VR on foot: where your weapon's tip is, how fast it's moving (meters a
+   * second, relative to you), how far it has travelled over the last third of
+   * a second (`arc`) and how far that is in a straight line (`chord`).
+   */
+  vrTip: { pos: THREE.Vector3; speed: number; arc: number; chord: number } | null = null;
+  /** The store you're standing in (VR), and the price board on its back wall. */
+  private interior: { key: string; group: THREE.Group; panel: WorldPanel } | null = null;
+  /** Your backpack, pulled off your back into one hand, with its list above it. */
+  private backpack = new THREE.Group();
+  readonly packPanel = new WorldPanel(0.46, 0.62, 12);
+  private packHand: "left" | "right" | null = null;
+  /** The map strapped to your left forearm in VR. */
+  readonly vrMap = { canvas: document.createElement("canvas"), tex: null as THREE.CanvasTexture | null };
+  private raycaster = new THREE.Raycaster();
   private smoke = new ParticleLayer(false);
   private glow = new ParticleLayer(true);
   private effects = new Effects();
@@ -399,6 +426,12 @@ export class SeaRenderer {
     this.vrWeapon.add(this.vrTilt);
     this.vrWeapon.scale.setScalar(1 / VR_SCALE);
     this.vrWeapon.visible = false;
+    this.backpack.add(buildBackpack());
+    this.packPanel.mesh.position.set(0, 0.36, 0);
+    this.backpack.add(this.packPanel.mesh);
+    this.backpack.visible = false;
+    this.vrMap.canvas.width = 512;
+    this.vrMap.canvas.height = 512;
 
     const instanced = (geo: THREE.BufferGeometry, mat: THREE.Material, n: number) => {
       const m = new THREE.InstancedMesh(geo, mat, n);
@@ -466,6 +499,7 @@ export class SeaRenderer {
     this.syncProjectiles(sim, dt);
     this.syncCrates(sim);
     this.streamIslands(sim);
+    this.syncInterior(sim);
     this.syncSpots(sim);
     this.emitAmbient(sim, dt);
     this.smoke.update(dt);
@@ -558,10 +592,10 @@ export class SeaRenderer {
       const ray = this.renderer.xr.getController(i);
       const grip = this.renderer.xr.getControllerGrip(i);
       this.rig.add(ray, grip);
-      // A fist where your hand is.
+      // A fist where your hand is, and your forearm in your coat sleeve.
       const fist = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 10), fistMat);
       fist.scale.set(1, 0.85, 1.3);
-      grip.add(fist);
+      grip.add(fist, this.makeForearm());
       ray.addEventListener("connected", (e) => {
         const src = (e as unknown as { data: XRInputSource }).data;
         const hand = src.handedness === "left" ? "left" : "right";
@@ -576,9 +610,11 @@ export class SeaRenderer {
           );
           line.name = "aim";
           ray.add(line);
-        } else {
-          // Your health and the rest, on a screen strapped to your left wrist.
+          // Your health and the rest, on a screen strapped to your right forearm.
           grip.add(this.makeVrHud());
+        } else {
+          // The map, strapped to your left forearm: raise your arm to read it.
+          grip.add(this.makeVrMapScreen());
         }
       });
       ray.addEventListener("disconnected", () => {
@@ -590,6 +626,111 @@ export class SeaRenderer {
         ray.getObjectByName("aim")?.removeFromParent();
       });
     }
+  }
+
+  /** A forearm in your red coat sleeve with a gold cuff, running back from the hand (meters, in the hand's space). */
+  private makeForearm() {
+    const g = new THREE.Group();
+    const dir = new THREE.Vector3(0, -0.3, 1).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.052, 0.3, 12), new THREE.MeshStandardMaterial({ color: "#3b0d0d", roughness: 0.85 }));
+    sleeve.quaternion.copy(q);
+    sleeve.position.copy(dir.clone().multiplyScalar(0.21));
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.047, 0.035, 12), new THREE.MeshStandardMaterial({ color: "#d4a017", metalness: 0.5, roughness: 0.4 }));
+    cuff.quaternion.copy(q);
+    cuff.position.copy(dir.clone().multiplyScalar(0.07));
+    g.add(sleeve, cuff);
+    return g;
+  }
+
+  /** The map screen on your left forearm. */
+  private makeVrMapScreen() {
+    const tex = new THREE.CanvasTexture(this.vrMap.canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.vrMap.tex = tex;
+    const mesh = new THREE.Mesh(
+      new THREE.CircleGeometry(0.085, 40),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false }),
+    );
+    mesh.renderOrder = 10;
+    mesh.position.set(0, 0.035, 0.17);
+    mesh.rotation.x = -Math.PI / 2.4;
+    return mesh;
+  }
+
+  /** The engine drew a fresh map onto vrMap.canvas. */
+  vrMapDrawn() {
+    if (this.vrMap.tex) this.vrMap.tex.needsUpdate = true;
+  }
+
+  /** Is this hand reaching back over your shoulder (where your backpack is)? */
+  vrHandAtBack(hand: "left" | "right") {
+    const grip = this.vrGrips[hand];
+    if (!grip || !this.renderer.xr.isPresenting) return false;
+    const head = this.renderer.xr.getCamera();
+    const p = head.worldToLocal(grip.getWorldPosition(new THREE.Vector3())).divideScalar(VR_SCALE);
+    // Behind your head's front, no lower than your shoulders, and not far out to the side.
+    return p.z > 0.02 && p.y > -0.35 && p.y < 0.3 && Math.abs(p.x) < 0.45;
+  }
+
+  /** Show your backpack in a hand (or put it away). */
+  holdBackpack(hand: "left" | "right" | null) {
+    if (hand === this.packHand) return;
+    this.packHand = hand;
+    const grip = hand ? this.vrGrips[hand] : null;
+    if (grip) {
+      grip.add(this.backpack);
+      this.backpack.visible = true;
+    } else {
+      this.backpack.removeFromParent();
+      this.backpack.visible = false;
+      this.packPanel.setHover(-1);
+    }
+  }
+
+  /** The price board in the store you're in. */
+  get storePanel() {
+    return this.interior?.panel ?? null;
+  }
+
+  /**
+   * What a VR hand is pointing at: a row on the store's board or in your
+   * backpack (which also lights up), or null.
+   */
+  vrPointAt(hand: "left" | "right"): { panel: WorldPanel; row: number } | null {
+    const ray = this.vrHands[hand];
+    const panels = [this.interior?.panel, this.packHand ? this.packPanel : null].filter((p): p is WorldPanel => !!p);
+    for (const p of panels) p.setHover(-1);
+    if (!ray || !panels.length || !this.renderer.xr.isPresenting) return null;
+    const origin = ray.getWorldPosition(new THREE.Vector3());
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(ray.getWorldQuaternion(new THREE.Quaternion()));
+    this.raycaster.set(origin, dir);
+    this.raycaster.far = 600;
+    const hit = this.raycaster.intersectObjects(panels.map((p) => p.mesh), false)[0];
+    if (!hit?.uv) return null;
+    const panel = hit.object.userData.panel as WorldPanel;
+    const row = panel.rowAt(hit.uv);
+    panel.setHover(row);
+    return row >= 0 ? { panel, row } : null;
+  }
+
+  /** Build the inside of the store you've walked into (and take it down when you leave). */
+  private syncInterior(sim: Sim) {
+    const at = sim.mode === "foot" ? sim.shore.inside : null;
+    const key = at ? `${at.island}:${at.index}` : "";
+    if (this.interior && this.interior.key !== key) {
+      this.scene.remove(this.interior.group);
+      disposeInterior(this.interior.group);
+      this.interior.panel.dispose();
+      this.interior = null;
+    }
+    if (!at || this.interior) return;
+    const b = ISLANDS[at.island].buildings[at.index];
+    const inside = buildInterior(b, at.kind);
+    const panel = new WorldPanel(inside.board.width, inside.board.height, 7);
+    inside.board.anchor.add(panel.mesh);
+    this.scene.add(inside.group);
+    this.interior = { key, group: inside.group, panel };
   }
 
   private makeVrHud() {
@@ -604,7 +745,7 @@ export class SeaRenderer {
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false }),
     );
     mesh.renderOrder = 10;
-    mesh.position.set(0, 0.06, 0.06);
+    mesh.position.set(0, 0.04, 0.16);
     mesh.rotation.x = -Math.PI / 2.6;
     this.vrHud = { canvas, tex, mesh };
     return mesh;
@@ -649,6 +790,11 @@ export class SeaRenderer {
     const cell = OCEAN_SIZE / OCEAN_SEGMENTS;
     this.ocean.position.set(Math.round(feet.x / cell) * cell, 0, Math.round(feet.z / cell) * cell);
     this.sky.position.copy(feet);
+    // Your backpack's list turns to face you.
+    if (this.packHand) {
+      this.backpack.updateMatrixWorld(true);
+      this.packPanel.mesh.lookAt(this.renderer.xr.getCamera().getWorldPosition(new THREE.Vector3()));
+    }
   }
 
   /** From the helm your own sails would fill the view, so they turn see-through. */
@@ -869,6 +1015,12 @@ export class SeaRenderer {
     for (const s of sim.ships) {
       seen.add(s.id);
       let v = this.ships.get(s.id);
+      if (v && v.cls !== s.cls) {
+        // You bought a bigger ship.
+        this.scene.remove(v.group);
+        disposeShip(v);
+        v = undefined;
+      }
       if (!v) {
         v = buildShip(s);
         this.ships.set(s.id, v);
@@ -876,6 +1028,7 @@ export class SeaRenderer {
       }
       if (s === sim.player) {
         setCannons(v, s);
+        this.syncCrew(v, s, sim.save.crew, t);
         v.helm.wheel.rotation.x = view.helm.wheel;
         view.helm.levers.forEach((a, i) => (v.helm.levers[i].rotation.z = a));
         // Cannon buttons glow when that side is loaded, and sink in when pressed.
@@ -1027,6 +1180,35 @@ export class SeaRenderer {
     }
   }
 
+  /** Your hired crew stand at their stations along the deck, facing the guns, swaying with the ship. */
+  private syncCrew(v: ShipVisual, s: Sim["player"], n: number, t: number) {
+    if (v.crew.length !== n) {
+      for (const p of v.crew) {
+        v.group.remove(p.group);
+        disposePerson(p);
+      }
+      v.crew = [];
+      const L = s.cls.length;
+      const B = s.cls.beam;
+      const deck = 5 + B * 0.14;
+      const perSide = Math.ceil(n / 2);
+      for (let i = 0; i < n; i++) {
+        const side = i % 2 ? 1 : -1;
+        const k = Math.floor(i / 2);
+        const along = perSide <= 1 ? L * 0.05 : L * (0.28 - (0.5 * k) / (perSide - 1));
+        const p = buildPerson("sailor");
+        p.group.position.set(along + (side > 0 ? 3 : -3), deck, side * B * 0.3);
+        p.group.rotation.y = -side * (Math.PI / 2);
+        v.group.add(p.group);
+        v.crew.push(p);
+      }
+    }
+    v.crew.forEach((p, i) => {
+      p.armR.rotation.z = 0.25 + 0.2 * Math.sin(t * 1.3 + i);
+      p.armL.rotation.z = 0.15 * Math.sin(t * 1.1 + i * 2);
+    });
+  }
+
   /** Build the islands you're near, and throw away the ones you've left far behind. */
   private streamIslands(sim: Sim) {
     const at = sim.mode === "foot" && sim.shore.hero ? sim.shore.hero : sim.player;
@@ -1142,13 +1324,15 @@ export class SeaRenderer {
   }
 
   /** VR on foot: your weapon is in your right hand, and we track how fast its tip moves so a real swing can hit. */
+  private clock = 0;
   private poseVrWeapon(sim: Sim, dt: number) {
+    this.clock += dt;
     const h = sim.mode === "foot" ? sim.shore.hero : null;
     const grip = this.vrGrips.right;
     if (!h || h.dead >= 0 || !grip) {
       this.vrWeapon.visible = false;
       this.vrTip = null;
-      this.vrTipPrev = null;
+      this.vrTipHist = [];
       return;
     }
     if (this.vrWeapon.parent !== grip) grip.add(this.vrWeapon);
@@ -1166,9 +1350,15 @@ export class SeaRenderer {
     const tip = model.localToWorld(new THREE.Vector3(0, -WEAPON_TIP[h.weapon], 0));
     // Speed measured relative to you, so walking or turning doesn't count as swinging.
     const local = this.rig.worldToLocal(tip.clone());
-    const speed = this.vrTipPrev ? local.distanceTo(this.vrTipPrev) / Math.max(dt, 1e-3) : 0;
-    this.vrTipPrev = local;
-    this.vrTip = { pos: tip, speed };
+    const hist = this.vrTipHist;
+    const prev = hist[hist.length - 1];
+    const speed = prev ? local.distanceTo(prev.p) / Math.max(dt, 1e-3) : 0;
+    hist.push({ t: this.clock, p: local });
+    while (hist.length && hist[0].t < this.clock - SWING_WINDOW) hist.shift();
+    let arc = 0;
+    for (let i = 1; i < hist.length; i++) arc += hist[i].p.distanceTo(hist[i - 1].p);
+    const chord = hist.length ? local.distanceTo(hist[0].p) : 0;
+    this.vrTip = { pos: tip, speed, arc, chord };
   }
 
   /** Chests, supply crates, X marks and Devil Fruits on islands; hidden once emptied. */

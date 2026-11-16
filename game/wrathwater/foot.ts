@@ -4,7 +4,7 @@
  */
 import { FRUITS, FRUIT_IDS, PLAYER_FOOT_HP, WEAPONS, WEAPON_ORDER, type FruitId, type StretchMove, type WeaponId } from "./items";
 import type { Sim } from "./sim";
-import { BEACH_TOP, ISLANDS, groundHeight, islandAt, waveHeight, type Building, type BuildingKind, type Island, type LootSpot, type ServiceKind } from "./world";
+import { BEACH_TOP, COUNTER, ISLANDS, doorAxis, groundHeight, islandAt, waveHeight, type Building, type BuildingKind, type Island, type LootSpot, type ServiceKind } from "./world";
 
 export type WalkerKind = "hero" | "marine" | "captain" | "bandit";
 
@@ -76,6 +76,9 @@ const ROB: Record<BuildingKind, { label: string; hold: number }> = {
   market: { label: "Rob the black market", hold: 6 },
   vault: { label: "Crack the vault", hold: 30 },
 };
+/** What Blackwater Cove's stores are called. */
+export const STORE_NAMES: Record<ServiceKind, string> = { shipwright: "shipwright's", blacksmith: "blacksmith's", market: "black market", tavern: "tavern" };
+
 /** Holding E this long at a shop you can visit means rob it, not visit. */
 const ROB_INSTEAD_AFTER = 0.5;
 /** Robbing in Blackwater Cove makes it unsafe for you for this long (seconds). */
@@ -118,6 +121,8 @@ export class Shore {
   spentUntil = new Map<string, number>();
   private nextId = 100000;
   private activeIslands = new Set<number>();
+  /** In VR you walk right into Blackwater Cove's stores: the one you're standing in. */
+  inside: { island: number; index: number; kind: ServiceKind } | null = null;
   private drownWarned = 0;
 
   constructor(private sim: Sim) {}
@@ -162,6 +167,7 @@ export class Shore {
 
   board() {
     if (!this.canBoard()) return false;
+    this.inside = null;
     this.hero = null;
     this.hold = null;
     this.walkers = [];
@@ -173,6 +179,7 @@ export class Shore {
 
   /** After respawning at the haven. */
   reset() {
+    this.inside = null;
     this.launch = null;
     this.flurry = null;
     this.hero = null;
@@ -232,7 +239,8 @@ export class Shore {
       if (!inp.attackHeld && !inp.firstPerson) h.heading = Math.atan2(inp.moveZ, inp.moveX);
     }
     if ((inp.attackHeld || inp.aiming || inp.firstPerson) && !launching) h.heading = inp.aimYaw;
-    this.collide(h);
+    if (this.inside) this.keepInside(h);
+    else this.collide(h);
     const g = groundHeight(h.x, h.z);
     h.swimming = g === null;
     h.y = g ?? waveHeight(h.x, h.z, this.sim.time) - 4;
@@ -257,6 +265,60 @@ export class Shore {
 
     if (inp.attack) this.heroAttack(h);
     if (inp.ability) this.useFootPower(h);
+  }
+
+  // ---------------------------------------------------------------- inside a store
+
+  /** Walk in through a store's door: you stand just inside, facing the counter. */
+  enterStore(island: number, index: number) {
+    const h = this.hero;
+    const b = ISLANDS[island]?.buildings[index];
+    if (!h || !b) return false;
+    const kind = (b.kind === "tavern" ? "tavern" : b.kind) as ServiceKind;
+    const ax = doorAxis(b);
+    h.x = b.x + Math.cos(ax.angle) * (ax.depth / 2 - 22);
+    h.z = b.z + Math.sin(ax.angle) * (ax.depth / 2 - 22);
+    h.heading = ax.angle + Math.PI;
+    this.hold = null;
+    this.inside = { island, index, kind };
+    this.sim.events.push({ k: "store", building: kind });
+    return true;
+  }
+
+  /** Back out through the door. */
+  leaveStore() {
+    const h = this.hero;
+    const at = this.inside;
+    if (!h || !at) return;
+    const b = ISLANDS[at.island].buildings[at.index];
+    h.x = b.door.x;
+    h.z = b.door.z;
+    h.heading = b.facing;
+    this.inside = null;
+    this.sim.events.push({ k: "store", building: null });
+  }
+
+  /** The store you're in: its building. */
+  get insideBuilding() {
+    return this.inside ? ISLANDS[this.inside.island].buildings[this.inside.index] : null;
+  }
+
+  private keepInside(h: Walker) {
+    const b = this.insideBuilding;
+    if (!b) return;
+    const m = HERO_RADIUS + 1;
+    h.x = Math.max(b.x - b.w / 2 + m, Math.min(b.x + b.w / 2 - m, h.x));
+    h.z = Math.max(b.z - b.d / 2 + m, Math.min(b.z + b.d / 2 - m, h.z));
+    // Not over the counter: stay on the customers' side of it.
+    const ax = doorAxis(b);
+    const fx = Math.cos(ax.angle);
+    const fz = Math.sin(ax.angle);
+    const u = (h.x - b.x) * fx + (h.z - b.z) * fz;
+    const front = -ax.depth / 2 + COUNTER + 3 + HERO_RADIUS;
+    if (u < front) {
+      h.x += (front - u) * fx;
+      h.z += (front - u) * fz;
+    }
   }
 
   private collide(w: Walker) {
@@ -799,6 +861,22 @@ export class Shore {
   prompt(): Prompt | null {
     const h = this.hero;
     if (!h || h.dead >= 0) return null;
+    // In a store: walk back to the door to leave; anywhere else, shop.
+    if (this.inside) {
+      const b = this.insideBuilding!;
+      const ax = doorAxis(b);
+      const dx = b.x + Math.cos(ax.angle) * (ax.depth / 2 - 8);
+      const dz = b.z + Math.sin(ax.angle) * (ax.depth / 2 - 8);
+      const name = STORE_NAMES[this.inside.kind];
+      if (Math.hypot(h.x - dx, h.z - dz) < 11) return { key: "leave", label: `Leave the ${name}`, hold: 0, run: () => this.leaveStore() };
+      const at = this.inside;
+      return {
+        key: "counter",
+        label: "Shop at the counter (in VR, point at the board)",
+        hold: 0,
+        run: () => this.sim.events.push({ k: "service", building: at.kind, island: at.island, index: at.index }),
+      };
+    }
     if (this.canBoard()) return { key: "board", label: "Board your ship", hold: 0, run: () => this.board() };
     const isl = ISLANDS[h.island];
     const t = this.sim.time;
@@ -831,14 +909,19 @@ export class Shore {
         }
         return { ...rob, vault: true };
       }
-      if (b.kind === "shipwright" || b.kind === "blacksmith" || b.kind === "market") {
-        const kind: ServiceKind = b.kind;
-        const visit = { shipwright: "Visit the Shipwright (upgrade your ship)", blacksmith: "Visit the Blacksmith (craft weapons)", market: "Visit the Black Market" }[kind];
+      if (b.kind === "shipwright" || b.kind === "blacksmith" || b.kind === "market" || (b.kind === "tavern" && isl.haven)) {
+        const kind = b.kind as ServiceKind;
+        const visit = {
+          shipwright: "Visit the Shipwright (upgrades and bigger ships)",
+          blacksmith: "Visit the Blacksmith (craft weapons)",
+          market: "Visit the Black Market",
+          tavern: "Visit the tavern (hire crew)",
+        }[kind];
         return {
           key: `svc${i}`,
           label: robbed ? visit : `${visit} · hold to rob`,
           hold: 0,
-          run: () => this.sim.events.push({ k: "service", building: kind }),
+          run: () => this.sim.events.push({ k: "service", building: kind, island: isl.index, index: i }),
           ...(!robbed && { robAlt: rob }),
         };
       }

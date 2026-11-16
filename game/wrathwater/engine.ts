@@ -1,6 +1,21 @@
 /** Runs a Wrathwater session: game loop, controls, camera, minimap, autosave. React shows the HUD and menus. */
 import * as THREE from "three";
-import { HUNTERS_BY_STARS, UPGRADES, rankFor, shortBerries, upgradeCost, type UpgradeId } from "./data";
+import {
+  HUNTERS_BY_STARS,
+  SHIP_TIERS,
+  UPGRADES,
+  fullyUpgraded,
+  hireCost,
+  manning,
+  rankFor,
+  shipTier,
+  shortBerries,
+  upgradeCost,
+  upgradeMax,
+  type UpgradeId,
+} from "./data";
+import { STORE_NAMES } from "./foot";
+import type { PanelRow } from "./panel";
 import { SeaAudio } from "./audio";
 import {
   FRUITS,
@@ -17,12 +32,12 @@ import {
   type MaterialId,
   type WeaponId,
 } from "./items";
-import { SeaRenderer, VR_SWING_SPEED, type CameraView } from "./render";
+import { SeaRenderer, VR_SWING, type CameraView } from "./render";
 import { LEVER_IN, LEVER_LENGTH, LEVER_OUT, WHEEL_LOCK, helmLayout } from "./models";
 import { connectedPad, padDown } from "@/lib/gamepad";
 import { writeSave, type SaveData } from "./save";
 import { AWAKEN_COOLDOWN, AWAKEN_TIME, Sim, type Side, type SimEvent } from "./sim";
-import { FORTRESS, FORTRESS_NAME, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, type IslandKind, type ServiceKind } from "./world";
+import { FORTRESS, FORTRESS_NAME, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, doorAxis, type IslandKind, type ServiceKind } from "./world";
 
 const STEP = 1 / 60;
 const MOUSE_SENSITIVITY = 0.0026;
@@ -86,6 +101,8 @@ export interface HudState {
   reload: { port: number; starboard: number };
   landing: string | null;
   inHaven: boolean;
+  /** Your ship's size and how well she's manned (people aboard counts you). */
+  ship: { name: string; tier: number; people: number; min: number; full: number; short: boolean };
   aimSide: Side | null;
   nearStorm: boolean;
   pointerLocked: boolean;
@@ -168,6 +185,10 @@ export class WrathwaterEngine {
   /** VR: turning with the right stick, and the hands' buttons last frame. */
   private vrTurn = 0;
   private vrPrev: { left: boolean[]; right: boolean[] } = { left: [], right: [] };
+  /** VR: the hand holding your backpack (pulled off your back with a grip), if any. */
+  private packHand: "left" | "right" | null = null;
+  /** VR: a swing only counts once your hand has slowed down after the last one. */
+  private swingArmed = true;
   private vrSnapped = false;
   private vrHudTimer = 0;
   private lastHud: HudState | null = null;
@@ -314,11 +335,172 @@ export class WrathwaterEngine {
   /** Every ship upgrade at its top level, and the hull fully repaired. */
   cheatShip() {
     const s = this.sim.save;
-    for (const u of UPGRADES) s.upgrades[u.id] = u.maxLevel;
+    for (const u of UPGRADES) s.upgrades[u.id] = upgradeMax(u, s.shipTier);
     this.sim.refreshPlayerStats();
     this.sim.repairPlayer();
     this.notice("Cheat: your ship is fully upgraded and repaired.", "gold");
     this.save();
+  }
+
+  /** The next size of ship up, and a full crew to sail her. */
+  cheatBiggerShip() {
+    const s = this.sim.save;
+    s.shipTier = Math.min(SHIP_TIERS.length, s.shipTier + 1);
+    s.crew = shipTier(s.shipTier).crewFull - 1;
+    this.sim.refreshPlayerStats();
+    this.sim.repairPlayer();
+    this.notice(`Cheat: you're now sailing a ${shipTier(s.shipTier).name} with a full crew.`, "gold");
+    this.save();
+  }
+
+  // ---------------------------------------------------------------- bigger ships and crew
+
+  /** The next size of ship the shipwright can build you (null once you have the biggest). */
+  get nextShip() {
+    return SHIP_TIERS[this.sim.save.shipTier] ?? null;
+  }
+
+  /** Every upgrade maxed for your ship's size, so the shipwright will build you the next one. */
+  get shipMaxed() {
+    return fullyUpgraded(this.sim.save.upgrades, this.sim.save.shipTier);
+  }
+
+  canBuyShip() {
+    const n = this.nextShip;
+    return !!n && this.shipMaxed && this.sim.save.gold >= n.cost;
+  }
+
+  /** Have the shipwright build you the next size of ship (your upgrades carry over). */
+  buyShip() {
+    const n = this.nextShip;
+    if (!n || !this.canBuyShip()) return false;
+    const s = this.sim.save;
+    s.gold -= n.cost;
+    s.shipTier = n.tier;
+    this.sim.refreshPlayerStats();
+    this.sim.repairPlayer();
+    this.afterPurchase();
+    this.audio.fanfare();
+    this.notice(
+      `Your new ${n.name} is ready! She needs ${n.crewMin} aboard to sail well and is at her best with ${n.crewFull} (you count). Hire crew at the Blackwater Cove tavern. Every upgrade can now go ${upgradeMax(UPGRADES[0], n.tier)} levels.`,
+      "bounty",
+    );
+    return true;
+  }
+
+  /** The most sailors you can hire for your ship (she holds this many plus you). */
+  get crewRoom() {
+    return shipTier(this.sim.save.shipTier).crewFull - 1;
+  }
+
+  /** Sign sailors on at the tavern: up to `n`, as many as fit and you can pay for. Returns how many joined. */
+  hireCrew(n = 1) {
+    const s = this.sim.save;
+    const cost = hireCost(s.shipTier);
+    let hired = 0;
+    while (hired < n && s.crew < this.crewRoom && s.gold >= cost) {
+      s.gold -= cost;
+      s.crew++;
+      hired++;
+    }
+    if (!hired) return 0;
+    this.sim.refreshPlayerStats();
+    this.afterPurchase();
+    const m = manning(s.shipTier, s.crew);
+    this.notice(`${hired === 1 ? "A sailor signs on" : `${hired} sailors sign on`}. ${m.people} aboard${m.short ? `: still short-handed (she needs ${shipTier(s.shipTier).crewMin})` : ""}.`, "gold");
+    return hired;
+  }
+
+  // ---------------------------------------------------------------- VR boards: store price boards and your backpack
+
+  /** What the price board says in the store you're standing in. */
+  private storeRows(kind: ServiceKind): { title: string; subtitle: string; rows: PanelRow[] } {
+    const s = this.sim.save;
+    const leave: PanelRow = { text: "Leave", sub: "Back out through the door", color: "#86efac", act: () => this.sim.shore.leaveStore() };
+    const t = shipTier(s.shipTier);
+    const g = (n: number) => `${n.toLocaleString("en-US")} g`;
+    if (kind === "shipwright") {
+      const rows: PanelRow[] = UPGRADES.map((u) => {
+        const lvl = s.upgrades[u.id];
+        const max = upgradeMax(u, s.shipTier);
+        const cost = upgradeCost(u, lvl);
+        const maxed = lvl >= max;
+        return { text: u.name, sub: `${u.description} · level ${lvl}/${max}`, right: maxed ? "MAX" : g(cost), disabled: maxed || s.gold < cost, act: () => this.buyUpgrade(u.id) };
+      });
+      const n = this.nextShip;
+      if (n)
+        rows.push({
+          text: `Build a ${n.name}`,
+          sub: this.shipMaxed ? `Bigger and tougher: needs ${n.crewMin} to ${n.crewFull} aboard` : "Max every upgrade first",
+          right: g(n.cost),
+          color: "#fcd34d",
+          disabled: !this.canBuyShip(),
+          act: () => this.buyShip(),
+        });
+      else rows.push({ text: "Your Man-o'-War is the biggest ship there is", color: "#a1a1aa" });
+      rows.push(leave);
+      return { title: "Shipwright", subtitle: `${s.gold.toLocaleString("en-US")} gold · your ${t.name}`, rows };
+    }
+    if (kind === "blacksmith") {
+      const rows: PanelRow[] = RECIPES.map((r) => {
+        const owned = s.weapons.includes(r.weapon);
+        const mats = (Object.keys(r.materials) as MaterialId[]).map((m) => `${r.materials[m]} ${MATERIAL_NAMES[m].toLowerCase()}`).join(", ");
+        return { text: `Forge a ${WEAPONS[r.weapon].name}`, sub: owned ? "You have one" : mats, right: owned ? "Owned" : g(r.gold), disabled: !this.canCraft(r.weapon), act: () => this.craft(r.weapon) };
+      });
+      rows.push({ text: `Make ${SHOT_RECIPE.rounds} shot`, sub: "1 iron and 2 gunpowder", right: `${s.ammo} shot`, disabled: !this.canMakeShot(), act: () => this.makeShot() });
+      rows.push(leave);
+      const m = s.materials;
+      return { title: "Blacksmith", subtitle: `${s.gold.toLocaleString("en-US")} gold · timber ${m.wood} · iron ${m.iron} · gunpowder ${m.powder}`, rows };
+    }
+    if (kind === "market") {
+      const rows: PanelRow[] = s.heldFruits.map((f) => ({ text: `Sell the ${fruitInfo(f, s.trueName).name}`, right: g(FRUIT_SELL_PRICE), act: () => this.sellFruit(f) }));
+      if (!rows.length) rows.push({ text: "Nothing the dealer wants", sub: `Spare Devil Fruits sell for ${FRUIT_SELL_PRICE} gold each`, color: "#a1a1aa" });
+      rows.push(leave);
+      return { title: "Black Market", subtitle: `${s.gold.toLocaleString("en-US")} gold · no questions asked`, rows };
+    }
+    // The tavern: hire crew.
+    const cost = hireCost(s.shipTier);
+    const room = this.crewRoom - s.crew;
+    const m = manning(s.shipTier, s.crew);
+    const rows: PanelRow[] = [
+      { text: `Aboard your ${t.name}: ${m.people}`, sub: `She needs ${t.crewMin}, best with ${t.crewFull} (you count)${m.short ? " · short-handed!" : ""}`, color: m.short ? "#fca5a5" : "#86efac" },
+      { text: "Hire a sailor", sub: room > 0 ? `Room for ${room} more` : "No room aboard: a bigger ship holds more", right: g(cost), disabled: room <= 0 || s.gold < cost, act: () => this.hireCrew(1) },
+      {
+        text: "Hire a full crew",
+        sub: room > 0 ? `${room} sailors` : "You have a full crew",
+        right: g(cost * Math.max(1, room)),
+        disabled: room <= 0 || s.gold < cost * room,
+        act: () => this.hireCrew(room),
+      },
+      leave,
+    ];
+    return { title: "The Rusty Anchor", subtitle: `${s.gold.toLocaleString("en-US")} gold · sailors looking for a ship`, rows };
+  }
+
+  /** What's in your backpack: weapons to take in hand, supplies, fruit to eat. */
+  private packRows(): { title: string; subtitle: string; rows: PanelRow[] } {
+    const s = this.sim.save;
+    const held = this.sim.shore.hero?.weapon ?? s.equipped;
+    const rows: PanelRow[] = [{ text: "Weapons (point and pull the trigger to take one)", header: true }];
+    for (const w of ["fists", ...s.weapons] as WeaponId[]) {
+      rows.push({ text: WEAPONS[w].name, right: w === held ? "In hand" : "", disabled: w === held, act: () => this.equip(w) });
+    }
+    rows.push({ text: "Supplies", header: true });
+    const m = s.materials;
+    rows.push({ text: `Timber ${m.wood} · Iron ${m.iron} · Gunpowder ${m.powder}`, right: `${s.ammo} shot` });
+    if (this.canMakeShot()) rows.push({ text: `Make ${SHOT_RECIPE.rounds} shot`, sub: "1 iron and 2 gunpowder", right: "+5", act: () => this.makeShot() });
+    if (s.vaultKeys.length) rows.push({ text: `Vault keys ${s.vaultKeys.length}/3`, color: "#fcd34d" });
+    if (s.heldFruits.length || s.fruit) rows.push({ text: "Devil Fruits", header: true });
+    if (s.fruit) rows.push({ text: `You ate the ${fruitInfo(s.fruit, s.trueName).name}`, color: "#e9d5ff" });
+    for (const f of s.heldFruits) {
+      rows.push({
+        text: `Eat the ${fruitInfo(f, s.trueName).name}`,
+        sub: s.fruit ? "A second fruit would kill you" : "You'll never swim again",
+        disabled: !!s.fruit,
+        act: () => this.eatFruit(f),
+      });
+    }
+    return { title: "Backpack", subtitle: `${s.gold.toLocaleString("en-US")} gold · ${s.ammo} shot · ${shipTier(s.shipTier).name}`, rows };
   }
 
   /** Sail straight to an island. */
@@ -339,7 +521,7 @@ export class WrathwaterEngine {
   buyUpgrade(id: UpgradeId) {
     const def = UPGRADES.find((u) => u.id === id)!;
     const level = this.sim.save.upgrades[id];
-    if (level >= def.maxLevel) return false;
+    if (level >= upgradeMax(def, this.sim.save.shipTier)) return false;
     const cost = upgradeCost(def, level);
     if (this.sim.save.gold < cost) return false;
     this.sim.save.gold -= cost;
@@ -471,6 +653,8 @@ export class WrathwaterEngine {
     if (this.renderer.inVr && this.vrHudTimer > 0.2) {
       this.vrHudTimer = 0;
       this.drawVrHud();
+      this.drawSeaMap(this.renderer.vrMap.canvas, 512, 1);
+      this.renderer.vrMapDrawn();
     }
     this.drawMinimap();
     this.hudTimer += dt;
@@ -773,7 +957,7 @@ export class WrathwaterEngine {
       this.releasePointer();
       this.inputMode = "vr";
       this.vrTurn = this.sim.mode === "foot" ? this.footYaw : 0;
-      this.notice("VR: at the helm, grab the wheel with a grip and turn it, squeeze the sail levers by its left handles, and poke the PORT / STARBOARD cannon buttons by its right handles. On foot: left stick walks, right stick turns, right trigger attacks. A boards, B uses your fruit, ☰ pauses.", "info");
+      this.notice("VR: at the helm, grab the wheel with a grip and turn it, squeeze the sail levers by its left handles, and poke the PORT / STARBOARD cannon buttons by its right handles. On foot: swing your weapon for real, left stick walks, right stick turns. Your map is on your left arm; reach over your shoulder and squeeze to grab your backpack. A boards, B uses your fruit, ☰ pauses.", "info");
       this.pushHud();
       return true;
     } catch {
@@ -829,27 +1013,66 @@ export class WrathwaterEngine {
     }
     if (!this.paused) {
       const foot = this.sim.mode === "foot";
+      // Your backpack: reach back over your shoulder and squeeze a grip to pull it out; let go to put it away.
+      for (const hand of ["left", "right"] as const) {
+        if (!this.packHand && pressed(hand, 1) && this.renderer.vrHandAtBack(hand)) {
+          this.packHand = hand;
+          this.renderer.vrBuzz(hand, 0.5, 40);
+          this.audio.coin();
+        }
+      }
+      if (this.packHand && !on(this.packHand === "left" ? lb : rb, 1)) this.packHand = null;
+      this.renderer.holdBackpack(this.packHand);
+      if (this.packHand) {
+        const p = this.packRows();
+        this.renderer.packPanel.set(p.title, p.subtitle, p.rows);
+      }
+      const inside = foot ? this.sim.shore.inside : null;
+      const board = this.renderer.storePanel;
+      if (inside && board) {
+        const p = this.storeRows(inside.kind);
+        board.set(p.title, p.subtitle, p.rows);
+      }
+      // Point at a row (on the store's board or in your backpack) and pull the trigger.
+      const pointer = this.packHand === "right" ? "left" : "right";
+      const pointed = this.renderer.vrPointAt(pointer);
+      if (pointed && pressed(pointer, 0)) {
+        pointed.panel.rows[pointed.row]?.act?.();
+        this.renderer.vrBuzz(pointer, 0.5, 30);
+      }
+      const rightBusy = (pointer === "right" && !!pointed) || this.packHand === "right" || !!inside;
+      const leftBusy = (pointer === "left" && !!pointed) || this.packHand === "left";
       if (foot) {
         // Walk relative to where you're looking.
         this.padMove = { x: lx, y: -ly };
-        this.padHeld = { attack: on(rb, 0), aim: on(lb, 0), interact: on(rb, 1), sprint: on(lb, 1) };
-        if (on(rb, 0) || on(lb, 0)) this.footYaw = R.yaw;
-        // Swing your sword (or fist) for real: hit a supply crate to smash it open, or anyone in reach.
+        this.padHeld = {
+          attack: on(rb, 0) && !rightBusy,
+          aim: on(lb, 0) && !leftBusy,
+          interact: on(rb, 1) && this.packHand !== "right",
+          sprint: on(lb, 1) && this.packHand !== "left",
+        };
+        if ((on(rb, 0) && !rightBusy) || (on(lb, 0) && !leftBusy)) this.footYaw = R.yaw;
+        // Swing your sword (or fist) for real: a full swing smashes a supply crate open or hits anyone in reach.
         const tip = this.renderer.vrTip;
-        if (tip && tip.speed > VR_SWING_SPEED) {
-          const hit = this.sim.shore.swingAt(tip.pos.x, tip.pos.y, tip.pos.z);
-          if (hit === "crate") this.renderer.vrBuzz("right", 1, 90);
-          else if (hit === "hit") this.renderer.vrBuzz("right", 0.8, 70);
-          else if (hit === "miss") this.renderer.vrBuzz("right", 0.12, 15);
+        if (tip && !inside && this.packHand !== "right") {
+          const need = this.sim.shore.hero?.weapon === "fists" ? VR_SWING.fist : VR_SWING.blade;
+          if (!this.swingArmed && tip.speed < VR_SWING.rearm) this.swingArmed = true;
+          if (this.swingArmed && tip.speed > need.speed && tip.arc > need.arc && tip.chord > need.chord) {
+            this.swingArmed = false;
+            const hit = this.sim.shore.swingAt(tip.pos.x, tip.pos.y, tip.pos.z);
+            if (hit === "crate") this.renderer.vrBuzz("right", 1, 90);
+            else if (hit === "hit") this.renderer.vrBuzz("right", 0.8, 70);
+            else if (hit === "miss") this.renderer.vrBuzz("right", 0.15, 20);
+          }
         }
       } else {
         // At the helm you steer with the wheel and set sail with the levers: grab them with a grip.
         this.padMove = { x: 0, y: 0 };
         this.padHeld = { ...NO_HELD };
-        this.vrHelm(on(lb, 1), on(rb, 1));
-        if (pressed("right", 0)) this.press("fireLook");
+        this.vrHelm(on(lb, 1) && this.packHand !== "left", on(rb, 1) && this.packHand !== "right");
+        if (pressed("right", 0) && !rightBusy) this.press("fireLook");
       }
-      if (pressed("right", 1) && this.sim.mode === "foot") this.press("interact");
+      if (pressed("right", 1) && foot && this.packHand !== "right") this.press("interact");
       if (pressed("right", 4)) this.press("board");
       if (pressed("right", 5)) this.press("power");
       if (pressed("left", 4)) this.press("switchMove");
@@ -982,6 +1205,7 @@ export class WrathwaterEngine {
     lines.push({ text: `Captain ${h.captain} · ${h.rankTitle}`, color: "#fca5a5", size: 26 });
     lines.push({ text: `Bounty ${shortBerries(h.bounty)} · ${h.gold.toLocaleString("en-US")} gold`, color: "#fcd34d" });
     lines.push({ text: h.mode === "foot" ? `Health ${h.heroHp}/${h.heroMaxHp}` : `Hull ${h.hp}/${h.maxHp} · sails ${h.sails}/3`, color: "#86efac" });
+    lines.push({ text: `${h.ship.name} · ${h.ship.people}/${h.ship.full} aboard${h.ship.short ? " · short-handed" : ""}`, color: h.ship.short ? "#fca5a5" : "#a1a1aa", size: 24 });
     lines.push({ text: h.stars > 0 ? `Wanted ${"★".repeat(h.stars)}` : "Not wanted", color: h.stars > 0 ? "#f87171" : "#a1a1aa" });
     if (h.fruit) lines.push({ text: `${h.fruit.power}${h.fruit.ready >= 0.999 ? " · ready" : ""}`, color: h.fruit.ready >= 0.999 ? "#e9d5ff" : "#71717a", size: 26 });
     if (h.prompt) lines.push({ text: `${h.prompt.label}${h.prompt.progress > 0 ? ` ${Math.round(h.prompt.progress * 100)}%` : ""}`, color: "#ffffff", size: 24 });
@@ -1085,8 +1309,33 @@ export class WrathwaterEngine {
         }
         break;
       case "service":
+        if (this.renderer.inVr) {
+          // In VR you walk right in (inside, the board on the wall does the shopping).
+          if (!this.sim.shore.inside) this.sim.shore.enterStore(e.island, e.index);
+          break;
+        }
         this.releasePointer();
         this.cb.onService(e.building);
+        break;
+      case "store": {
+        const b = this.sim.shore.insideBuilding;
+        if (e.building && b) {
+          // Face the counter.
+          const want = doorAxis(b).angle + Math.PI;
+          const head = this.renderer.vrHeadYaw();
+          if (head !== null) {
+            let d = want - head;
+            while (d > Math.PI) d -= Math.PI * 2;
+            while (d < -Math.PI) d += Math.PI * 2;
+            this.vrTurn += d;
+          }
+          this.footYaw = want;
+          this.notice(`You walk into the ${STORE_NAMES[e.building]}. Point at the board and pull the trigger to buy. Walk back to the door to leave.`, "info");
+        }
+        break;
+      }
+      case "crewLost":
+        this.notice(`${e.lost} of your crew went down with her.`, "danger");
         break;
       case "board":
         this.shipYaw = 0;
@@ -1245,6 +1494,11 @@ export class WrathwaterEngine {
       },
       landing: landing ? landing.name : null,
       inHaven: sim.inHaven,
+      ship: (() => {
+        const t = shipTier(sim.save.shipTier);
+        const m = manning(t.tier, sim.save.crew);
+        return { name: t.name, tier: t.tier, people: m.people, min: t.crewMin, full: t.crewFull, short: m.short };
+      })(),
       aimSide: this.aimSide,
       nearStorm: edge > WORLD_HALF - 500,
       pointerLocked: document.pointerLockElement === this.container,
@@ -1303,6 +1557,11 @@ export class WrathwaterEngine {
       c.width = Math.round(size * dpr);
       c.height = Math.round(size * dpr);
     }
+    this.drawSeaMap(c, size, dpr);
+  }
+
+  /** The round sea map around you (the minimap, and in VR the map on your forearm). */
+  private drawSeaMap(c: HTMLCanvasElement, size: number, dpr: number) {
     const g = c.getContext("2d")!;
     const sim = this.sim;
     const hero = sim.mode === "foot" ? sim.shore.hero : null;

@@ -15,8 +15,23 @@ export const BEACH_TOP = 6;
 
 export type IslandKind = "haven" | "town" | "wild" | "mystery" | "fortress";
 export type BuildingKind = "house" | "bank" | "shop" | "armory" | "tavern" | "shipwright" | "blacksmith" | "market" | "vault";
-/** Blackwater Cove's stores: you walk in to use them (they can't be robbed). */
-export type ServiceKind = "shipwright" | "blacksmith" | "market";
+/** Blackwater Cove's stores (and its tavern, where you hire crew): tap E to visit, hold E to rob. */
+export type ServiceKind = "shipwright" | "blacksmith" | "market" | "tavern";
+
+/**
+ * The wall a building's door is in: the map angle it faces (one of the four
+ * sides), how deep the building is from that wall to the back, and how wide.
+ */
+/** Inside a store: how far the counter stands out from the back wall (you can't walk past its front, COUNTER + 3). */
+export const COUNTER = 12;
+
+export function doorAxis(b: Building) {
+  const fx = Math.cos(b.facing);
+  const fz = Math.sin(b.facing);
+  const xFacing = Math.abs(fx) > Math.abs(fz);
+  const angle = xFacing ? (fx > 0 ? 0 : Math.PI) : fz > 0 ? Math.PI / 2 : -Math.PI / 2;
+  return { angle, depth: xFacing ? b.w : b.d, width: xFacing ? b.d : b.w };
+}
 
 export interface Building {
   kind: BuildingKind;

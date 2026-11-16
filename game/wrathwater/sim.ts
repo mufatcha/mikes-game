@@ -9,6 +9,7 @@ import {
   HUNTERS_BY_STARS,
   KING_BOUNTY,
   SHIP_CLASSES,
+  playerClass,
   playerStats,
   rankFor,
   type Faction,
@@ -124,7 +125,9 @@ export type SimEvent =
   | { k: "power"; fruit: FruitId; x: number; z: number; tx: number; tz: number; atSea?: boolean; move?: StretchMove; awake?: boolean }
   | { k: "fruitFound"; fruit: FruitId }
   | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number; smashed?: boolean }
-  | { k: "service"; building: ServiceKind }
+  | { k: "service"; building: ServiceKind; island: number; index: number }
+  | { k: "crewLost"; lost: number }
+  | { k: "store"; building: ServiceKind | null }
   | { k: "vaultKey"; keys: number; island: number }
   | { k: "vaultOpened" }
   | { k: "carrierSighted" }
@@ -316,9 +319,11 @@ export class Sim {
   /** Stats for your ship with the bought upgrades; call after buying. */
   refreshPlayerStats() {
     const p = this.player;
-    const s = playerStats(this.save.upgrades);
+    const s = playerStats(this.save);
     const ratio = p.hp / p.stats.hull;
     p.stats = s;
+    // A new, bigger ship: swap the hull under you.
+    p.cls = playerClass(this.save.shipTier);
     p.hp = Math.min(s.hull, Math.max(1, ratio * s.hull));
   }
 
@@ -354,6 +359,10 @@ export class Sim {
   /** Back to Blackwater Cove after sinking: a quarter of your gold is lost, the Marines lose your trail. */
   respawnPlayer() {
     this.save.gold = Math.floor(this.save.gold * 0.75);
+    // A third of your hired crew went down with her.
+    const lost = Math.ceil(this.save.crew / 3);
+    this.save.crew -= lost;
+    if (lost) this.events.push({ k: "crewLost", lost });
     this.save.deaths++;
     this.ships = this.ships.filter((s) => s !== this.player && !s.ai.hunter);
     this.heat = 0;
@@ -415,9 +424,9 @@ export class Sim {
   // ---------------------------------------------------------------- ships
 
   private spawnPlayer() {
-    const stats = playerStats(this.save.upgrades);
+    const stats = playerStats(this.save);
     // Start at the dock, pointing out to sea.
-    this.player = this.makeShip(SHIP_CLASSES.player, stats, HAVEN.x + HAVEN.radius + 90, HAVEN.z, 0);
+    this.player = this.makeShip(playerClass(this.save.shipTier), stats, HAVEN.x + HAVEN.radius + 90, HAVEN.z, 0);
     this.ships.push(this.player);
   }
 

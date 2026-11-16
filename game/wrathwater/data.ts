@@ -104,17 +104,91 @@ export function upgradeCost(def: UpgradeDef, level: number) {
   return Math.round((def.baseCost * Math.pow(level + 1, 1.7)) / 10) * 10;
 }
 
-/** Your ship's stats with upgrades applied. */
-export function playerStats(u: Upgrades) {
+/**
+ * Your ship comes in four sizes. You start on the smallest; once every
+ * upgrade is at its top level, the shipwright can build you the next size up.
+ * A bigger ship is tougher, carries more guns and lets every upgrade go two
+ * levels higher, but it needs more people aboard to sail and fight it
+ * (counting you): with fewer than `crewMin` she's sluggish and slow to
+ * reload, and she's at her best with `crewFull`.
+ */
+export interface ShipTier {
+  tier: number;
+  name: string;
+  length: number;
+  beam: number;
+  masts: number;
+  /** Extra hull and guns a side on top of your upgrades, and multipliers for damage, speed and turning. */
+  hull: number;
+  cannons: number;
+  damage: number;
+  speed: number;
+  turn: number;
+  range: number;
+  crewMin: number;
+  crewFull: number;
+  /** Gold the shipwright asks to build her. */
+  cost: number;
+}
+
+export const SHIP_TIERS: ShipTier[] = [
+  { tier: 1, name: "Sloop", length: 97, beam: 31, masts: 2, hull: 0, cannons: 0, damage: 1, speed: 1, turn: 1, range: 0, crewMin: 1, crewFull: 1, cost: 0 },
+  { tier: 2, name: "Brigantine", length: 122, beam: 38, masts: 2, hull: 400, cannons: 1, damage: 1.1, speed: 1.04, turn: 0.9, range: 20, crewMin: 2, crewFull: 3, cost: 8000 },
+  { tier: 3, name: "Frigate", length: 148, beam: 46, masts: 3, hull: 1000, cannons: 2, damage: 1.2, speed: 1.07, turn: 0.8, range: 40, crewMin: 3, crewFull: 6, cost: 20000 },
+  { tier: 4, name: "Man-o'-War", length: 178, beam: 56, masts: 3, hull: 1800, cannons: 3, damage: 1.3, speed: 1.1, turn: 0.7, range: 60, crewMin: 5, crewFull: 10, cost: 45000 },
+];
+
+export function shipTier(tier: number) {
+  return SHIP_TIERS[Math.max(1, Math.min(SHIP_TIERS.length, Math.round(tier) || 1)) - 1];
+}
+
+/** How high an upgrade can go on a ship of this size (two more levels per size). */
+export function upgradeMax(def: UpgradeDef, tier: number) {
+  return def.maxLevel + (shipTier(tier).tier - 1) * 2;
+}
+
+/** Every upgrade at its top level for this size: the shipwright will build you the next one. */
+export function fullyUpgraded(u: Upgrades, tier: number) {
+  return UPGRADES.every((d) => u[d.id] >= upgradeMax(d, tier));
+}
+
+/** What a sailor costs to sign on at the tavern. */
+export function hireCost(tier: number) {
+  return 100 + 60 * shipTier(tier).tier;
+}
+
+/** Your ship's class for its size (one object per size, so a change of size is easy to spot). */
+const PLAYER_CLASSES = SHIP_TIERS.map((t) => ({ ...SHIP_CLASSES.player, name: t.name, length: t.length, beam: t.beam, masts: t.masts }));
+export function playerClass(tier: number): ShipClass {
+  return PLAYER_CLASSES[shipTier(tier).tier - 1];
+}
+
+/**
+ * How well-manned she is, from the people aboard (you plus hired crew):
+ * speed and reload multipliers, and whether she's short-handed.
+ */
+export function manning(tier: number, crew: number) {
+  const t = shipTier(tier);
+  const people = 1 + Math.max(0, crew);
+  if (people < t.crewMin) return { speed: 0.6, turn: 0.7, reload: 1.7, short: true, people };
+  const f = t.crewFull > t.crewMin ? Math.min(1, (people - t.crewMin) / (t.crewFull - t.crewMin)) : 1;
+  return { speed: 0.88 + 0.12 * f, turn: 0.9 + 0.1 * f, reload: 1.2 - 0.2 * f, short: false, people };
+}
+
+/** Your ship's stats with its size, upgrades and crew applied. */
+export function playerStats(s: { upgrades: Upgrades; shipTier?: number; crew?: number }) {
+  const u = s.upgrades;
   const base = SHIP_CLASSES.player;
+  const t = shipTier(s.shipTier ?? 1);
+  const m = manning(t.tier, s.crew ?? 0);
   return {
-    hull: base.hull + u.hull * 90,
-    speed: base.speed * (1 + u.sails * 0.09),
-    turn: base.turn * (1 + u.sails * 0.09),
-    cannonsPerSide: base.cannonsPerSide + u.cannons,
-    damage: base.damage * (1 + u.powder * 0.18),
-    reload: base.reload * Math.pow(0.89, u.crew),
-    range: base.range + u.cannons * 12,
+    hull: base.hull + u.hull * 90 + t.hull,
+    speed: base.speed * (1 + u.sails * 0.09) * t.speed * m.speed,
+    turn: base.turn * (1 + u.sails * 0.09) * t.turn * m.turn,
+    cannonsPerSide: base.cannonsPerSide + u.cannons + t.cannons,
+    damage: base.damage * (1 + u.powder * 0.18) * t.damage,
+    reload: base.reload * Math.pow(0.89, u.crew) * m.reload,
+    range: base.range + u.cannons * 12 + t.range,
   };
 }
 
