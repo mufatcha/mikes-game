@@ -94,9 +94,10 @@ export default function WrathwaterApp() {
       }}
       onNew={() => setScreen("naming")}
       onCancelNew={() => setScreen("menu")}
-      onStart={(captain) => {
+      onStart={(captain, side) => {
         deleteSave();
         const s = newSave(captain);
+        s.side = side;
         writeSave(s);
         setSave(s);
         setScreen("playing");
@@ -120,10 +121,11 @@ function TitleMenu({
   onContinue: () => void;
   onNew: () => void;
   onCancelNew: () => void;
-  onStart: (captain: string) => void;
+  onStart: (captain: string, side: "pirate" | "marine") => void;
 }) {
   const profile = useProfile();
   const [name, setName] = useState("");
+  const [side, setSide] = useState<"pirate" | "marine">("pirate");
   const [help, setHelp] = useState(false);
   const [account, setAccount] = useState(false);
   return (
@@ -151,7 +153,7 @@ function TitleMenu({
             onSubmit={(e) => {
               e.preventDefault();
               const captain = name.trim() || profile?.name || "";
-              if (captain) onStart(captain.slice(0, 20));
+              if (captain) onStart(captain.slice(0, 20), side);
             }}
           >
             <label className="font-serif text-xs font-semibold uppercase tracking-[0.3em] text-zinc-400">Name your captain</label>
@@ -163,6 +165,24 @@ function TitleMenu({
               placeholder={profile ? profile.name : "Captain ..."}
               className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 font-serif text-lg text-white outline-none focus:border-red-700"
             />
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["pirate", "🏴‍☠️ Pirate", "Raise your bounty: rob, plunder and fight the Marines."],
+                  ["marine", "⚓ Marine", "Earn merit hunting pirates and bandits. Break the law and you desert."],
+                ] as const
+              ).map(([id, label, text]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setSide(id)}
+                  className={`rounded-lg p-2 text-left ring-1 ${side === id ? (id === "marine" ? "bg-sky-900/60 ring-sky-400" : "bg-red-900/60 ring-red-500") : "bg-white/5 ring-white/10 hover:bg-white/10"}`}
+                >
+                  <p className="font-bold text-white">{label}</p>
+                  <p className="text-[11px] text-zinc-300">{text}</p>
+                </button>
+              ))}
+            </div>
             {existing && (
               <p className="text-xs text-red-300">
                 This starts over: Captain {existing.captain}&apos;s {shortBerries(existing.bounty)} bounty will be lost.
@@ -187,7 +207,7 @@ function TitleMenu({
               <MenuButton primary onClick={onContinue}>
                 Continue · Captain {existing.captain}
                 <span className="block text-xs font-normal normal-case tracking-normal text-red-100/80">
-                  {rankFor(existing.bounty).title} · bounty {shortBerries(existing.bounty)}
+                  {rankFor(existing.bounty, existing.side).title} · {existing.side === "marine" ? "merit" : "bounty"} {shortBerries(existing.bounty)}
                   {existing.fruit ? ` · ${fruitInfo(existing.fruit, existing.trueName).name}` : ""}
                 </span>
               </MenuButton>
@@ -466,7 +486,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       <div
         className={`pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(220,38,38,0.45))] transition-opacity duration-300 ${hurt ? "opacity-100" : "opacity-0"}`}
       />
-      {hud && <Hud hud={hud} touch={touch} />}
+      {hud && <Hud hud={hud} touch={touch} onSkipTutorial={() => engine?.skipTutorial()} />}
       <canvas ref={minimapRef} className={`pointer-events-none absolute bottom-4 right-4 h-44 w-44 sm:h-52 sm:w-52 ${touch ? "hidden" : ""}`} />
       {touch && engine && hud && overlay === "none" && <WrathwaterTouch engine={engine} hud={hud} onVr={playVr} />}
       {!touch && playVr && hud && overlay === "none" && !hud.inVr && (
@@ -616,11 +636,16 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       )}
       {overlay === "king" && hud && (
         <Modal>
-          <p className="text-center text-xs font-semibold uppercase tracking-[0.4em] text-amber-300">Bounty {formatBerries(hud.bounty)}</p>
-          <h2 className="mt-2 text-center font-serif text-4xl font-black uppercase text-amber-200">King of Wrathwater</h2>
+          <p className="text-center text-xs font-semibold uppercase tracking-[0.4em] text-amber-300">
+            {hud.side === "marine" ? "Merit" : "Bounty"} {formatBerries(hud.bounty)}
+          </p>
+          <h2 className="mt-2 text-center font-serif text-4xl font-black uppercase text-amber-200">
+            {hud.side === "marine" ? "Fleet Admiral of Wrathwater" : "King of Wrathwater"}
+          </h2>
           <p className="mt-3 text-center text-zinc-300">
-            Captain {hud.captain}, no pirate has ever been worth more. Every sea is yours. Keep sailing; the Marines
-            will never stop coming.
+            {hud.side === "marine"
+              ? `Fleet Admiral ${hud.captain}, the whole Marine fleet answers to you now. Keep sailing; there are always more pirates.`
+              : `Captain ${hud.captain}, no pirate has ever been worth more. Every sea is yours. Keep sailing; the Marines will never stop coming.`}
           </p>
           <PanelButton primary onClick={resume}>
             Keep sailing
@@ -633,16 +658,32 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
 
 // ---------------------------------------------------------------- HUD
 
-function Hud({ hud, touch }: { hud: HudState; touch: boolean }) {
+function Hud({ hud, touch, onSkipTutorial }: { hud: HudState; touch: boolean; onSkipTutorial: () => void }) {
   const nextFrac = hud.nextRank ? Math.min(1, hud.bounty / hud.nextRank.bounty) : 1;
   return (
     <>
       <Compass hud={hud} />
+      {hud.tutorial && (
+        <div className="pointer-events-auto absolute left-1/2 top-16 z-10 w-[min(92vw,30rem)] -translate-x-1/2 rounded-xl bg-black/75 p-3 ring-1 ring-amber-400/40 backdrop-blur">
+          <div className="flex items-baseline justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300">
+              Tutorial · {Math.min(hud.tutorial.step + 1, hud.tutorial.total)} of {hud.tutorial.total}
+            </p>
+            <button type="button" onClick={onSkipTutorial} className="text-xs text-zinc-400 hover:text-white">
+              Skip tutorial
+            </button>
+          </div>
+          <p className="mt-1 text-sm font-semibold text-white">{hud.tutorial.text}</p>
+          <div className="mt-2 h-1 w-full rounded-full bg-white/10">
+            <div className="h-1 rounded-full bg-amber-400" style={{ width: `${(Math.min(hud.tutorial.step, hud.tutorial.total) / hud.tutorial.total) * 100}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* Wanted poster */}
       <div className={`pointer-events-none absolute left-4 top-4 w-56 ${touch ? "origin-top-left scale-[0.6]" : ""} rotate-[-1.5deg] rounded-sm bg-[#e9dcc0] bg-[radial-gradient(ellipse_at_center,#efe3c8,#d8c39a)] px-4 py-3 text-center text-[#2b1d10] shadow-2xl ring-1 ring-black/40`}>
-        <p className="font-serif text-3xl font-black tracking-[0.15em]">WANTED</p>
-        <p className="-mt-1 font-serif text-[10px] font-bold tracking-[0.3em]">DEAD OR ALIVE</p>
+        <p className="font-serif text-3xl font-black tracking-[0.15em]">{hud.side === "marine" ? "MARINE" : "WANTED"}</p>
+        <p className="-mt-1 font-serif text-[10px] font-bold tracking-[0.3em]">{hud.side === "marine" ? "SERVICE RECORD · MERIT" : "DEAD OR ALIVE"}</p>
         <p className="mt-1 truncate font-serif text-lg font-bold">{hud.captain}</p>
         <p className="font-serif text-xl font-black">{formatBerries(hud.bounty)}</p>
         <p className="text-[11px] font-semibold uppercase tracking-wider text-[#6b4a2b]">{hud.rankTitle}</p>

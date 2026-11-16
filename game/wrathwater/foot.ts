@@ -979,7 +979,8 @@ export class Shore {
     let hostile = false;
     if (heroHere) {
       if (w.kind === "bandit") hostile = d < 260 || (alerted && d < 600);
-      // The fortress and the Vault Wardens don't wait for you to be wanted.
+      // The fortress and the Vault Wardens don't wait for a pirate to be wanted (a Marine is one of their own).
+      else if (this.sim.save.side === "marine") hostile = (this.sim.heat > 0 || alerted) && d < 420;
       else if (ISLANDS[w.island]?.kind === "fortress") hostile = d < 520;
       else if (w.warden) hostile = d < 260 || ((this.sim.heat > 0 || alerted) && d < 420);
       else hostile = (this.sim.heat > 0 || alerted) && d < 420;

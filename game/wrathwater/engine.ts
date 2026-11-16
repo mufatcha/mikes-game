@@ -53,6 +53,8 @@ import { AWAKEN_COOLDOWN, AWAKEN_TIME, Sim, type Side, type SimEvent } from "./s
 import { FORTRESS, FORTRESS_NAME, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, doorAxis, type IslandKind, type ServiceKind } from "./world";
 
 const STEP = 1 / 60;
+/** Steps in the tutorial, counting the "that's the basics" card at the end. */
+const TUTORIAL_STEPS = 9;
 const MOUSE_SENSITIVITY = 0.0026;
 /** Thumbstick look speed, radians per second at full tilt. */
 const STICK_LOOK = 2.8;
@@ -105,6 +107,8 @@ export interface HudState {
   captain: string;
   bounty: number;
   rankTitle: string;
+  /** Pirate (a bounty on your head) or Marine (merit). */
+  side: "pirate" | "marine";
   nextRank: { title: string; bounty: number } | null;
   gold: number;
   hp: number;
@@ -128,6 +132,8 @@ export interface HudState {
   food: { count: number; spoiled: number };
   /** The quest you're on. */
   quest: { title: string; progress: number; count: number } | null;
+  /** The tutorial step to show (null once it's done or skipped). */
+  tutorial: { step: number; total: number; text: string } | null;
   /** Your ship's size and how well she's manned (people aboard counts you). */
   ship: { name: string; tier: number; people: number; min: number; full: number; short: boolean };
   aimSide: Side | null;
@@ -412,6 +418,97 @@ export class WrathwaterEngine {
     this.sim.repairPlayer();
     this.notice(`Cheat: you're now sailing a ${shipTier(s.shipTier).name} with a full crew.`, "gold");
     this.save();
+  }
+
+  // ---------------------------------------------------------------- the tutorial
+
+  /** What the tutorial has seen you do. */
+  private tut = { steer: 0, walked: 0, attacked: false, visited: false, inventory: false, quest: false, doneAt: -1, lastX: 0, lastZ: 0 };
+
+  /** The tutorial's hint for a step, in the words of whatever you're playing with. */
+  private tutorialText(step: number) {
+    const m = this.renderer.inVr ? "vr" : this.inputMode;
+    const pick = (keys: string, pad: string, touch: string, vr: string) => (m === "pad" ? pad : m === "touch" ? touch : m === "vr" ? vr : keys);
+    const name = giverName(0);
+    switch (step) {
+      case 0:
+        return pick("Raise your sails: press W. Each press lets out more sail.", "Raise your sails: push the left stick up.", "Raise your sails: tap Sails +.", "Pull a sail lever beside the wheel toward you.");
+      case 1:
+        return pick("Steer with A and D.", "Steer with the left stick.", "Steer with the stick on the left.", "Grab the wheel with a grip and turn it.");
+      case 2: {
+        // Nobody can fire in Blackwater Cove's safe waters.
+        const out = this.sim.inHaven ? "Sail out past the safe waters (the dotted ring on your map), then fire a broadside: " : "Fire a broadside: ";
+        return out + pick("Q fires left, E fires right.", "LB fires left, RB fires right.", "tap Port or Starbd.", "poke the PORT or STARBOARD cannon button.");
+      }
+      case 3:
+        return pick(
+          "Sail back to the Blackwater Cove dock, slow down, and press F to go ashore.",
+          "Sail back to the Blackwater Cove dock, slow down, and press B to go ashore.",
+          "Sail back to the Blackwater Cove dock, slow down, and tap Ashore.",
+          "Sail back to the Blackwater Cove dock, slow down, and press A to go ashore.",
+        );
+      case 4:
+        return pick("Walk with WASD and attack with a left click.", "Walk with the left stick and attack with RT.", "Walk with the stick and tap Attack.", "Walk with the left stick and swing your sword for real.");
+      case 5:
+        return pick("Walk up to the Shipwright's door and tap E to go in.", "Walk up to the Shipwright's door and press A to go in.", "Walk up to the Shipwright's door and tap Use.", "Walk up to the Shipwright's door and squeeze the right grip to walk in.");
+      case 6:
+        return pick(
+          "Open your inventory with I: skills, items and food are in there.",
+          "Open your inventory with the View button: skills, items and food are in there.",
+          "Open your inventory with the 🎒 button: skills, items and food are in there.",
+          "Reach over your shoulder and squeeze a grip to grab your backpack.",
+        );
+      case 7:
+        return `Find ${name} by the tavern (the glowing !) and talk to them for a job.`;
+      default:
+        return "That's the basics! Board your ship and sail out: find treasure, level up, and make your name on the sea. Good luck, Captain.";
+    }
+  }
+
+  skipTutorial() {
+    this.sim.save.tutorial = -1;
+    this.save();
+    this.pushHud();
+  }
+
+  private updateTutorial(dt: number) {
+    const s = this.sim.save;
+    if (s.tutorial < 0 || this.paused) return;
+    const t = this.tut;
+    const sim = this.sim;
+    const h = sim.shore.hero;
+    if (h) {
+      if (t.lastX || t.lastZ) t.walked += Math.hypot(h.x - t.lastX, h.z - t.lastZ);
+      t.lastX = h.x;
+      t.lastZ = h.z;
+      if (h.swing < 0.2) t.attacked = true;
+    }
+    if (sim.mode === "ship" && Math.abs(sim.player.rudder) > 0.5) t.steer += dt;
+    const p = sim.player;
+    const done = [
+      this.sails > 0,
+      t.steer > 0.6,
+      p.reload[1] > 0 || p.reload[-1] > 0,
+      sim.mode === "foot",
+      t.walked > 40 && t.attacked,
+      t.visited || !!sim.shore.inside,
+      t.inventory || !!this.packHand,
+      t.quest || !!s.quest,
+    ];
+    if (s.tutorial < done.length) {
+      if (done[s.tutorial]) {
+        s.tutorial++;
+        this.audio.coin();
+        this.save();
+      }
+      return;
+    }
+    // The last card stays up a little while, then the tutorial is over.
+    if (t.doneAt < 0) t.doneAt = sim.time;
+    if (sim.time - t.doneAt > 10) {
+      s.tutorial = -1;
+      this.save();
+    }
   }
 
   // ---------------------------------------------------------------- you: XP, levels and skills
@@ -904,6 +1001,7 @@ export class WrathwaterEngine {
     this.pollPad(dt);
     this.pollVr();
     this.updateHelm(dt);
+    this.updateTutorial(dt);
     if (!this.paused) {
       this.acc += dt;
       let steps = 0;
@@ -1040,6 +1138,7 @@ export class WrathwaterEngine {
         break;
       case "inventory":
         this.releasePointer();
+        this.tut.inventory = true;
         this.cb.onInventory();
         break;
       case "pause":
@@ -1491,6 +1590,7 @@ export class WrathwaterEngine {
     if (h.fruit) lines.push({ text: `${h.fruit.power}${h.fruit.ready >= 0.999 ? " · ready" : ""}`, color: h.fruit.ready >= 0.999 ? "#e9d5ff" : "#71717a", size: 26 });
     if (h.prompt) lines.push({ text: `${h.prompt.label}${h.prompt.progress > 0 ? ` ${Math.round(h.prompt.progress * 100)}%` : ""}`, color: "#ffffff", size: 24 });
     else if (h.landing) lines.push({ text: `A: dock at ${h.landing}`, color: "#ffffff", size: 24 });
+    if (h.tutorial) lines.push({ text: `Tutorial: ${h.tutorial.text}`, color: "#fcd34d", size: 20 });
     if (this.lastNotice) lines.push({ text: this.lastNotice, color: "#d4d4d8", size: 20 });
     this.renderer.drawVrHud(lines);
   }
@@ -1539,7 +1639,7 @@ export class WrathwaterEngine {
         this.audio.sink(near(e.x, e.z));
         if (e.byPlayer) {
           const gold = e.gold ? ` · +${e.gold} gold` : "";
-          this.notice(`Sank a ${e.name}! +${shortBerries(e.bounty)} bounty${gold}`, "bounty");
+          this.notice(`Sank a ${e.name}! +${shortBerries(e.bounty)} ${this.sim.save.side === "marine" ? "merit" : "bounty"}${gold}`, "bounty");
           this.gainXp(Math.min(300, 30 + Math.round(e.bounty / 300_000)));
           const q = this.sim.save.quest;
           if (q?.kind === "sink" && q.faction === e.faction) this.questStep();
@@ -1568,7 +1668,13 @@ export class WrathwaterEngine {
         this.audio.coin();
         break;
       case "questGiver":
+        this.tut.quest = true;
         this.talkToGiver(e.island);
+        break;
+      case "deserted":
+        this.audio.alarm();
+        this.notice("You broke the law. You've deserted the Marines: you're a pirate now, and they'll hunt you like one!", "danger");
+        this.save();
         break;
       case "scrape":
         this.notice("Ran aground! Mind the shallows.", "danger");
@@ -1614,6 +1720,7 @@ export class WrathwaterEngine {
         }
         break;
       case "service":
+        this.tut.visited = true;
         if (this.renderer.inVr) {
           // In VR you walk right in (inside, the board on the wall does the shopping).
           if (!this.sim.shore.inside) this.sim.shore.enterStore(e.island, e.index);
@@ -1762,7 +1869,7 @@ export class WrathwaterEngine {
   private pushHud() {
     const sim = this.sim;
     const p = sim.player;
-    const rank = rankFor(sim.save.bounty);
+    const rank = rankFor(sim.save.bounty, sim.save.side);
     const hero = sim.shore.hero;
     const at = sim.mode === "foot" && hero ? hero : p;
     const edge = Math.max(Math.abs(at.x), Math.abs(at.z));
@@ -1788,6 +1895,7 @@ export class WrathwaterEngine {
       captain: sim.save.captain,
       bounty: sim.save.bounty,
       rankTitle: rank.title,
+      side: sim.save.side,
       nextRank: rank.next,
       gold: sim.save.gold,
       hp: Math.max(0, Math.ceil(p.hp)),
@@ -1825,6 +1933,7 @@ export class WrathwaterEngine {
             count: sim.save.quest.count,
           }
         : null,
+      tutorial: sim.save.tutorial >= 0 ? { step: sim.save.tutorial, total: TUTORIAL_STEPS, text: this.tutorialText(sim.save.tutorial) } : null,
       ship: (() => {
         const t = shipTier(sim.save.shipTier);
         const m = manning(t.tier, sim.save.crew);

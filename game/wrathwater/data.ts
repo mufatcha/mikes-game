@@ -205,10 +205,16 @@ export const RANKS = [
 
 export const KING_BOUNTY = RANKS[RANKS.length - 1].bounty;
 
-export function rankFor(bounty: number) {
+/** A Marine's ranks, earned with merit (counted like a bounty) instead of infamy. */
+export const MARINE_RANKS = ["Recruit", "Ensign", "Lieutenant", "Commodore", "Vice Admiral", "Admiral", "Fleet Admiral of Wrathwater"];
+
+/** Your rank from your bounty (a Marine's merit), with the next one to aim for. */
+export function rankFor(bounty: number, side: "pirate" | "marine" = "pirate") {
   let i = 0;
   while (i + 1 < RANKS.length && bounty >= RANKS[i + 1].bounty) i++;
-  return { index: i, ...RANKS[i], next: RANKS[i + 1] ?? null };
+  const title = (k: number) => (side === "marine" ? MARINE_RANKS[k] : RANKS[k].title);
+  const next = RANKS[i + 1] ? { bounty: RANKS[i + 1].bounty, title: title(i + 1) } : null;
+  return { index: i, bounty: RANKS[i].bounty, title: title(i), next };
 }
 
 /** Which Marine ships hunt you at each wanted level (GTA-style stars). */

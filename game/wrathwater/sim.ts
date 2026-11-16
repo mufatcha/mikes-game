@@ -149,6 +149,7 @@ export type SimEvent =
   | { k: "ate"; name: string; spoiled: boolean; poisoned: boolean }
   | { k: "itemUsed"; item: ItemId }
   | { k: "questGiver"; island: number }
+  | { k: "deserted" }
   | { k: "hunger"; level: "hungry" | "starving" }
   | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
@@ -1177,7 +1178,7 @@ export class Sim {
     this.save.bounty += bounty;
     this.save.gold += gold;
     this.addHeat(heat);
-    const after = rankFor(this.save.bounty);
+    const after = rankFor(this.save.bounty, this.save.side);
     if (after.index > before) this.events.push({ k: "rank", title: after.title });
     if (!this.save.crowned && this.save.bounty >= KING_BOUNTY) {
       this.save.crowned = true;
@@ -1194,6 +1195,11 @@ export class Sim {
 
   addHeat(amount: number) {
     if (amount <= 0) return;
+    // A Marine who commits a crime deserts and becomes a wanted pirate.
+    if (this.save.side === "marine") {
+      this.save.side = "pirate";
+      this.events.push({ k: "deserted" });
+    }
     this.heat = Math.min(5, this.heat + amount);
     if (!this.hidden) this.lastSeen = this.time;
   }
@@ -1247,7 +1253,8 @@ export class Sim {
         if (Math.hypot(x - p.x, z - p.z) > 600) {
           const flag = !guards.some((s) => s.cls.id === "marine_flagship");
           const g = this.spawnNpc(flag ? "marine_flagship" : "marine_warship", x, z);
-          g.ai.angered = true;
+          // They fire on pirates, not on a fellow Marine.
+          g.ai.angered = this.save.side === "pirate";
           g.heading = a + Math.PI / 2;
         }
       }
