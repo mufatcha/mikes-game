@@ -40,7 +40,7 @@ import { ProfileButton, ProfileModal } from "@/components/ProfilePanel";
 import { useProfile } from "@/lib/profile";
 
 type Screen = "menu" | "naming" | "playing";
-type Overlay = "none" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename";
+type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename";
 
 const SAVE_KEY = "ww.save.v1";
 
@@ -400,6 +400,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
           onInventory: () => setOverlay((o) => (o === "none" ? "inventory" : o)),
           onCheatMenu: () => setOverlay((o) => (o === "none" ? "cheats" : o)),
           onTrueName: () => setOverlay("truename"),
+          onSaveReplaced: () => setOverlay("replaced"),
           onHurt: () => {
             setHurt(true);
             window.clearTimeout(hurtTimer);
@@ -531,6 +532,18 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       {overlay === "market" && engine && <BlackMarket engine={engine} onClose={resume} />}
       {overlay === "tavern" && engine && <Tavern engine={engine} onClose={resume} />}
       {overlay === "truename" && engine && <TrueName engine={engine} onClose={resume} />}
+      {overlay === "replaced" && (
+        <Modal>
+          <h2 className="font-serif text-3xl font-black uppercase tracking-wide">Progress loaded elsewhere</h2>
+          <p className="mt-2 text-sm text-zinc-300">
+            Your progress was replaced in another tab or window (a save code was loaded there). This game has stopped saving so it can&apos;t
+            overwrite it. Reload to play the progress you loaded.
+          </p>
+          <PanelButton primary onClick={() => window.location.reload()}>
+            Reload
+          </PanelButton>
+        </Modal>
+      )}
       {overlay === "fruit" && engine && foundFruit && (
         <FruitFound
           engine={engine}

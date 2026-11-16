@@ -73,7 +73,9 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
     if (!r.ok) return setMessage({ text: r.error ?? "That code didn't work.", bad: true });
     setPaste("");
     setCode(null);
-    setMessage({ text: r.name ? `Welcome back, ${r.name}! Your progress in both games is loaded.` : "Progress loaded." });
+    setMessage({ text: `${r.name ? `Welcome back, ${r.name}! ` : ""}Your progress in both games is loaded. Restarting the page so everything picks it up...` });
+    // Start the page fresh so nothing still holding the old progress can save over it.
+    window.setTimeout(() => window.location.reload(), 1500);
   };
 
   const loadBox = (

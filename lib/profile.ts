@@ -146,8 +146,10 @@ export async function importCode(code: string): Promise<ImportResult> {
   try {
     for (const k of ourKeys()) localStorage.removeItem(k);
     for (const [k, v] of entries) localStorage.setItem(k, v);
+    // Make sure the browser really kept it.
+    if (entries.some(([k, v]) => localStorage.getItem(k) !== v)) throw new Error("not kept");
   } catch {
-    return { ok: false, error: "This browser won't let the game save (private mode?)." };
+    return { ok: false, error: "This browser won't let the game save (private mode, or storage is full or blocked)." };
   }
   changed();
   // Let the School Wars settings hooks see the new values too.

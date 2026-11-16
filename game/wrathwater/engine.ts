@@ -35,7 +35,7 @@ import {
 import { SeaRenderer, VR_SWING, type CameraView } from "./render";
 import { LEVER_IN, LEVER_LENGTH, LEVER_OUT, WHEEL_LOCK, helmLayout } from "./models";
 import { connectedPad, padDown } from "@/lib/gamepad";
-import { writeSave, type SaveData } from "./save";
+import { SAVE_KEY, writeSave, type SaveData } from "./save";
 import { AWAKEN_COOLDOWN, AWAKEN_TIME, Sim, type Side, type SimEvent } from "./sim";
 import { FORTRESS, FORTRESS_NAME, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, doorAxis, type IslandKind, type ServiceKind } from "./world";
 
@@ -153,6 +153,8 @@ export interface EngineCallbacks {
   onHurt(): void;
   /** You opened the vault and read the fruit's real name. */
   onTrueName(): void;
+  /** Your progress was replaced from another tab (a save code was loaded there): this game stopped saving. */
+  onSaveReplaced(): void;
 }
 
 export class WrathwaterEngine {
@@ -211,6 +213,16 @@ export class WrathwaterEngine {
   private paused = false;
   private hudTimer = 0;
   private saveTimer = 0;
+  /** What this game last saved, so a save written by another tab can be spotted. */
+  private lastWritten: string | null = (() => {
+    try {
+      return localStorage.getItem(SAVE_KEY);
+    } catch {
+      return null;
+    }
+  })();
+  /** Set once another tab replaced your progress: from then on this game never saves over it. */
+  private saveLocked = false;
   private stepTimer = 0;
   private noticeId = 0;
   private lastNoAmmo = -99;
@@ -260,7 +272,27 @@ export class WrathwaterEngine {
   }
 
   save() {
+    if (this.saveLocked) return;
     writeSave(this.sim.save);
+    this.lastWritten = JSON.stringify(this.sim.save);
+  }
+
+  /**
+   * Another tab changed the saved voyage (most likely by loading a save code).
+   * Stop saving here, or this game's older progress would overwrite it a few
+   * seconds later.
+   */
+  private checkReplaced() {
+    if (this.saveLocked || this.lastWritten === null) return;
+    let now: string | null = null;
+    try {
+      now = localStorage.getItem(SAVE_KEY);
+    } catch {
+      return;
+    }
+    if (now === this.lastWritten) return;
+    this.saveLocked = true;
+    this.cb.onSaveReplaced();
   }
 
   // ---------------------------------------------------------------- cheats (W W S S A D A D)
@@ -1786,7 +1818,12 @@ export class WrathwaterEngine {
     el.addEventListener("mousedown", onMouseDown);
     el.addEventListener("wheel", onWheel, { passive: true });
     el.addEventListener("contextmenu", onContext);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SAVE_KEY || e.key === null) this.checkReplaced();
+    };
+    window.addEventListener("storage", onStorage);
     this.cleanup = () => {
+      window.removeEventListener("storage", onStorage);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("mousemove", onMouseMove);

@@ -35,7 +35,8 @@ export interface SaveData {
   crew: number;
 }
 
-const KEY = "ww.save.v1";
+export const SAVE_KEY = "ww.save.v1";
+const KEY = SAVE_KEY;
 
 export function newSave(captain: string): SaveData {
   return {
