@@ -554,8 +554,11 @@ export class SeaRenderer {
   /** Map angle your head is facing in VR. */
   vrHeadYaw(): number | null {
     if (!this.renderer.xr.isPresenting) return null;
+    // Use the scene camera (inside the rig), not the raw XR camera: the XR
+    // camera has no parent, so asking it for a world direction drops the rig's
+    // turn (snap turns, facing a counter) and walking would go the wrong way.
     const d = new THREE.Vector3();
-    this.renderer.xr.getCamera().getWorldDirection(d);
+    this.camera.getWorldDirection(d);
     return Math.atan2(d.z, d.x);
   }
 
@@ -667,8 +670,9 @@ export class SeaRenderer {
   vrHandAtBack(hand: "left" | "right") {
     const grip = this.vrGrips[hand];
     if (!grip || !this.renderer.xr.isPresenting) return false;
-    const head = this.renderer.xr.getCamera();
-    const p = head.worldToLocal(grip.getWorldPosition(new THREE.Vector3())).divideScalar(VR_SCALE);
+    // In your head's own space, which (inside the scaled rig) is already in meters.
+    this.camera.updateWorldMatrix(true, false);
+    const p = this.camera.worldToLocal(grip.getWorldPosition(new THREE.Vector3()));
     // Behind your head's front, no lower than your shoulders, and not far out to the side.
     return p.z > 0.02 && p.y > -0.35 && p.y < 0.3 && Math.abs(p.x) < 0.45;
   }
@@ -793,7 +797,7 @@ export class SeaRenderer {
     // Your backpack's list turns to face you.
     if (this.packHand) {
       this.backpack.updateMatrixWorld(true);
-      this.packPanel.mesh.lookAt(this.renderer.xr.getCamera().getWorldPosition(new THREE.Vector3()));
+      this.packPanel.mesh.lookAt(this.camera.getWorldPosition(new THREE.Vector3()));
     }
   }
 
