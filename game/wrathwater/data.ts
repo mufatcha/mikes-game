@@ -10,7 +10,8 @@ export type ShipClassId =
   | "marine_sloop"
   | "marine_frigate"
   | "marine_warship"
-  | "marine_flagship";
+  | "marine_flagship"
+  | "boss";
 
 export interface ShipClass {
   id: ShipClassId;
@@ -76,7 +77,16 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
     hull: 1500, speed: 70, turn: 0.42, cannonsPerSide: 8, damage: 17, reload: 2.9, range: 600,
     length: 217, beam: 69, masts: 3, bounty: 650_000_000, gold: [1300, 2100],
   },
+  // The end of the voyage: Captain Cinder Mawgrave's burning flagship, out by Mount Cindermaw.
+  boss: {
+    id: "boss", name: "The Cinderwake", faction: "pirate",
+    hull: 6500, speed: 64, turn: 0.38, cannonsPerSide: 10, damage: 20, reload: 3.2, range: 650,
+    length: 290, beam: 86, masts: 3, bounty: 1_500_000_000, gold: [15000, 20000],
+  },
 };
+
+/** The pirate lord who rules the Tempest Reach from the Cinderwake. */
+export const BOSS_NAME = "Captain Cinder Mawgrave";
 
 export type UpgradeId = "hull" | "cannons" | "powder" | "sails" | "crew";
 

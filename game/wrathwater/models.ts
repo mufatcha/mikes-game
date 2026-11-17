@@ -405,6 +405,14 @@ export function buildShip(ship: Ship): ShipVisual {
   rigGeo.setAttribute("position", new THREE.Float32BufferAttribute(rigging, 3));
   group.add(new THREE.LineSegments(rigGeo, ropeMat));
 
+  // The Cinderwake sails under crimson canvas.
+  if (ship.boss) {
+    for (const s of sails) {
+      const m = (s.material as THREE.MeshStandardMaterial).clone();
+      m.color.set("#dc2626");
+      s.material = m;
+    }
+  }
   const helm = buildHelm(cls, group);
   // Someone is actually steering every other ship: a sailor at the wheel, hands on the spokes.
   let helmsman: PersonVisual | null = null;

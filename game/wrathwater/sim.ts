@@ -44,6 +44,7 @@ import {
   HAVEN,
   HAVEN_SAFE_RADIUS,
   ISLANDS,
+  VOLCANO,
   REACH_X,
   WORLD_HALF,
   WORLD_MAX_X,
@@ -108,6 +109,10 @@ export interface Ship {
   escort?: boolean;
   /** Beaten: colors struck, dead in the water, waiting to be boarded and looted. */
   surrendered?: boolean;
+  /** Cinder Mawgrave's Cinderwake. */
+  boss?: boolean;
+  /** Which of the boss's fight stages it's reached (0, then 1 when it calls for help, 2 when enraged). */
+  phase?: number;
   ai: {
     hunter: boolean;
     angered: boolean;
@@ -191,6 +196,9 @@ export type SimEvent =
   | { k: "rumble" }
   | { k: "eruption"; x: number; z: number }
   | { k: "monster"; what: "surface" | "lash" | "slain"; x: number; z: number }
+  | { k: "bossAppears" }
+  | { k: "bossPhase"; phase: number }
+  | { k: "bossDefeated" }
   | { k: "hunger"; level: "hungry" | "starving" }
   | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
@@ -625,6 +633,57 @@ export class Sim {
     this.events.push({ k: "sunk", shipId: s.id, name: s.cls.name, faction: s.faction, bounty: s.cls.bounty, gold: 0, byPlayer: true, x: s.x, z: s.z });
     if (sailors) this.refreshPlayerStats();
     return true;
+  }
+
+  // ---------------------------------------------------------------- Cinder Mawgrave
+
+  /** The Cinderwake, if she's afloat. */
+  get boss() {
+    return this.ships.find((s) => s.boss && s.sinking < 0) ?? null;
+  }
+
+  /** He sails out of the volcano's smoke when you come near, until you've beaten him. */
+  private updateBoss() {
+    const p = this.player;
+    const b = this.boss;
+    if (!b) {
+      if (this.save.bossDefeated || this.mode !== "ship" || p.sinking >= 0) return;
+      if (Math.hypot(p.x - VOLCANO.x, p.z - VOLCANO.z) > VOLCANO.radius + 2600) return;
+      this.summonBoss();
+      return;
+    }
+    b.ai.angered = true;
+    const frac = b.hp / b.stats.hull;
+    // At two-thirds he calls in his brigs; at a third he goes berserk.
+    if ((b.phase ?? 0) < 1 && frac < 0.66) {
+      b.phase = 1;
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        const e = this.spawnNpc("pirate_brig", b.x + Math.cos(a) * 500, b.z + Math.sin(a) * 500);
+        e.ai.angered = true;
+      }
+      this.events.push({ k: "bossPhase", phase: 1 });
+    }
+    if ((b.phase ?? 0) < 2 && frac < 0.33) {
+      b.phase = 2;
+      b.stats = { ...b.stats, reload: b.stats.reload * 0.55, speed: b.stats.speed * 1.3 };
+      this.events.push({ k: "bossPhase", phase: 2 });
+    }
+  }
+
+  /** Bring out the Cinderwake from the far side of the volcano. */
+  summonBoss() {
+    if (this.boss) return this.boss;
+    const p = this.player;
+    const a = Math.atan2(VOLCANO.z - p.z, VOLCANO.x - p.x);
+    const r = VOLCANO.radius + 700;
+    const b = this.spawnNpc("boss", VOLCANO.x + Math.cos(a) * r * 0.3 + Math.cos(a + 1.2) * r, VOLCANO.z + Math.sin(a) * r * 0.3 + Math.sin(a + 1.2) * r);
+    b.boss = true;
+    b.phase = 0;
+    b.ai.angered = true;
+    b.heading = Math.atan2(p.z - b.z, p.x - b.x);
+    this.events.push({ k: "bossAppears" });
+    return b;
   }
 
   /** Hurt a ship with something other than a cannonball (lightning, a serpent, rocks). */
@@ -1325,6 +1384,8 @@ export class Sim {
         owner: s.id,
         byPlayer,
         damage: s.stats.damage,
+        // The Cinderwake fires burning shot.
+        fire: !!s.boss,
       });
     }
     s.reload[side] = s.stats.reload;
@@ -1394,7 +1455,7 @@ export class Sim {
     if (s === this.player && this.ironSkin) amount *= 0.33;
     s.hp -= amount;
     // Badly beaten (and not by much at once), a crew strikes its colors rather than drown.
-    if (s !== this.player && !s.escort && !s.surrendered && s.hp > 0 && s.hp < s.stats.hull * 0.25 && byPlayer && !s.cls.id.startsWith("marine_flag")) {
+    if (s !== this.player && !s.escort && !s.surrendered && s.hp > 0 && s.hp < s.stats.hull * 0.25 && byPlayer && !s.cls.id.startsWith("marine_flag") && !s.boss) {
       s.surrendered = true;
       s.throttle = 0;
       s.ai.angered = false;
@@ -1413,6 +1474,11 @@ export class Sim {
     if (s === this.player) {
       this.events.push({ k: "playerSunk" });
       return;
+    }
+    // Cinder Mawgrave is beaten: the end of the voyage.
+    if (s.boss) {
+      this.save.bossDefeated = true;
+      this.events.push({ k: "bossDefeated" });
     }
     // One of your escorts went down, and her crew with her.
     if (s.escort) {
@@ -1523,6 +1589,8 @@ export class Sim {
         }
       }
     }
+
+    this.updateBoss();
 
     // Somewhere out there, one pirate brig carries the Stretch Fruit.
     if (t >= this.nextCarrierCheck) {

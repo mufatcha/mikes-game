@@ -1,6 +1,7 @@
 /** Runs a Wrathwater session: game loop, controls, camera, minimap, autosave. React shows the HUD and menus. */
 import * as THREE from "three";
 import {
+  BOSS_NAME,
   ESCORT_COST,
   ESCORT_CREW,
   MAX_ESCORTS,
@@ -149,6 +150,8 @@ export interface HudState {
   landing: string | null;
   /** A beaten ship alongside you that you can board and loot. */
   boardable: string | null;
+  /** Cinder Mawgrave's Cinderwake, when she's near: for the health bar. */
+  boss: { name: string; hp: number; max: number } | null;
   /** Escort ships sailing with you, and how many you own. */
   fleet: { escorts: number; owned: number };
   inHaven: boolean;
@@ -220,6 +223,8 @@ export interface EngineCallbacks {
   onTrueName(): void;
   /** Open the world map. */
   onMap(): void;
+  /** You beat Cinder Mawgrave: the Tempest Crown. */
+  onVictory(): void;
   /** A quest giver offers you a quest (accept or turn it down). */
   onQuestOffer(q: Quest): void;
   /** Your progress was replaced from another tab (a save code was loaded there): this game stopped saving. */
@@ -464,6 +469,16 @@ export class WrathwaterEngine {
       "gold",
     );
     this.save();
+  }
+
+  /** Sail to Mount Cindermaw and bring out the Cinderwake. */
+  cheatBoss() {
+    const v = ISLANDS.find((i) => i.kind === "volcano");
+    if (!v) return;
+    this.sim.save.bossDefeated = false;
+    this.sim.save.reachSeen = true;
+    this.sim.sailTo(v.index);
+    this.sim.summonBoss();
   }
 
   /** The next size of ship up, and a full crew to sail her. */
@@ -1868,6 +1883,25 @@ export class WrathwaterEngine {
           this.gainXp(800);
         }
         break;
+      case "bossAppears":
+        this.audio.alarm();
+        this.audio.roar(0.6);
+        this.notice(`${BOSS_NAME} sails out of the volcano's smoke in the Cinderwake! Sink her to claim the Tempest Crown.`, "danger");
+        break;
+      case "bossPhase":
+        this.audio.alarm();
+        this.notice(
+          e.phase === 1 ? `"To me, brothers!" ${BOSS_NAME} calls his brigs in.` : `${BOSS_NAME} goes berserk: the Cinderwake fires twice as fast!`,
+          "danger",
+        );
+        break;
+      case "bossDefeated":
+        this.audio.fanfare();
+        this.gainXp(3000);
+        this.save();
+        this.releasePointer();
+        this.cb.onVictory();
+        break;
       case "crewDown":
         this.notice("One of your crew has fallen.", "danger");
         break;
@@ -2113,6 +2147,10 @@ export class WrathwaterEngine {
       },
       landing: landing ? landing.name : null,
       boardable: sim.boardable()?.cls.name ?? null,
+      boss: (() => {
+        const b = sim.boss;
+        return b && Math.hypot(b.x - p.x, b.z - p.z) < 2500 ? { name: `${BOSS_NAME} · The Cinderwake`, hp: Math.max(0, Math.round(b.hp)), max: Math.round(b.stats.hull) } : null;
+      })(),
       fleet: { escorts: sim.escortShips.length, owned: sim.save.escorts },
       inHaven: sim.inHaven,
       level: (() => {

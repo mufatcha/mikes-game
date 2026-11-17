@@ -74,6 +74,8 @@ export interface SaveData {
   escorts: number;
   /** You've crossed the Stormwall, so the Tempest Reach shows on your map. */
   reachSeen: boolean;
+  /** You sank Cinder Mawgrave's Cinderwake and won the Tempest Crown. */
+  bossDefeated: boolean;
 }
 
 export const SAVE_KEY = "ww.save.v1";
@@ -118,6 +120,7 @@ export function newSave(captain: string): SaveData {
     structures: [],
     escorts: 0,
     reachSeen: false,
+    bossDefeated: false,
   };
 }
 
@@ -171,6 +174,7 @@ export function loadSave(): SaveData | null {
       structures: Array.isArray(s.structures) ? [...new Set(s.structures.filter((x): x is StructureId => STRUCTURE_IDS.includes(x as StructureId)))] : [],
       escorts: Math.max(0, Math.min(MAX_ESCORTS, Math.floor(Number(s.escorts)) || 0)),
       reachSeen: !!s.reachSeen,
+      bossDefeated: !!s.bossDefeated,
     };
   } catch {
     return null;

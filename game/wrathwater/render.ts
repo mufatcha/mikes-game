@@ -1652,6 +1652,14 @@ export class SeaRenderer {
   /** Wakes behind moving ships, spray at the bow, smoke from damage, dust under your feet. */
   private emitAmbient(sim: Sim, dt: number) {
     const p = (kind: PuffKind, x: number, y: number, z: number, vx = 0, vz = 0) => puff(this.smoke, this.glow, kind, x, y, z, vx, vz);
+    // The Cinderwake burns as she sails.
+    const boss = sim.boss;
+    if (boss && Math.random() < 0.6) {
+      const f = forward(boss.heading);
+      const along = (Math.random() - 0.5) * boss.cls.length * 0.7;
+      p("fire", boss.x + f.x * along, 30 + Math.random() * 20, boss.z + f.z * along);
+      if (Math.random() < 0.3) p("smoke", boss.x + f.x * along, 40, boss.z + f.z * along);
+    }
     // The volcano smokes whenever it's in sight.
     this.ashTimer += dt;
     if (this.ashTimer > 0.35 && this.islands.has(VOLCANO.index)) {

@@ -56,7 +56,7 @@ import { ProfileButton, ProfileModal } from "@/components/ProfilePanel";
 import { useProfile } from "@/lib/profile";
 
 type Screen = "menu" | "naming" | "playing";
-type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename" | "general" | "quest" | "map";
+type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename" | "general" | "quest" | "map" | "victory";
 
 const SAVE_KEY = "ww.save.v1";
 
@@ -443,6 +443,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
           onTrueName: () => setOverlay("truename"),
           onSaveReplaced: () => setOverlay("replaced"),
           onMap: () => setOverlay((o) => (o === "none" ? "map" : o)),
+          onVictory: () => setOverlay("victory"),
           onQuestOffer: (q) => {
             setOffer(q);
             setOverlay("quest");
@@ -579,6 +580,27 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       {overlay === "tavern" && engine && <Tavern engine={engine} onClose={resume} />}
       {overlay === "general" && engine && <GeneralStore engine={engine} onClose={resume} />}
       {overlay === "map" && engine && <WorldMap engine={engine} onClose={resume} />}
+      {overlay === "victory" && engine && (
+        <Modal>
+          <p className="text-center text-xs font-semibold uppercase tracking-[0.4em] text-amber-300">The Cinderwake is sunk</p>
+          <h2 className="mt-2 text-center font-serif text-4xl font-black uppercase text-amber-200">The Tempest Crown</h2>
+          <p className="mt-3 text-center text-zinc-300">
+            Captain Cinder Mawgrave goes down with his burning ship, and from the wreck you lift his crown of blackened gold. The Tempest Reach
+            answers to {engine.sim.save.side === "marine" ? "the Marines" : "you"} now. {engine.sim.save.captain}, you&apos;ve beaten Wrathwater.
+          </p>
+          <ul className="mt-3 space-y-0.5 text-center text-sm text-zinc-400">
+            <li>
+              {engine.sim.save.side === "marine" ? "Merit" : "Bounty"} {formatBerries(engine.sim.save.bounty)} · {engine.sim.save.sunk} ships sunk · {engine.sim.save.questsDone} quests done
+            </li>
+            <li>
+              Level {levelFromXp(engine.sim.save.xp).level} · {engine.sim.save.robberies} robberies · {engine.sim.save.crew} crew
+            </li>
+          </ul>
+          <PanelButton primary onClick={resume}>
+            Keep sailing
+          </PanelButton>
+        </Modal>
+      )}
       {overlay === "quest" && engine && offer && (
         <Modal onClose={resume}>
           <p className="text-xs font-bold uppercase tracking-widest text-amber-300">A job for you</p>
@@ -672,6 +694,14 @@ function Hud({ hud, touch, onSkipTutorial }: { hud: HudState; touch: boolean; on
   return (
     <>
       <Compass hud={hud} />
+      {hud.boss && (
+        <div className="pointer-events-none absolute left-1/2 top-16 z-10 w-[min(90vw,34rem)] -translate-x-1/2 text-center">
+          <p className="font-serif text-sm font-bold uppercase tracking-widest text-red-300 drop-shadow">{hud.boss.name}</p>
+          <div className="mt-1 h-3 w-full overflow-hidden rounded-full bg-black/60 ring-1 ring-red-500/60">
+            <div className="h-3 rounded-full bg-gradient-to-r from-red-700 to-orange-500" style={{ width: `${(hud.boss.hp / hud.boss.max) * 100}%` }} />
+          </div>
+        </div>
+      )}
       {hud.tutorial && (
         <div className="pointer-events-auto absolute left-1/2 top-16 z-10 w-[min(92vw,30rem)] -translate-x-1/2 rounded-xl bg-black/75 p-3 ring-1 ring-amber-400/40 backdrop-blur">
           <div className="flex items-baseline justify-between">
@@ -1027,6 +1057,7 @@ function CheatMenu({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
         <PanelButton onClick={cheat(() => engine.cheatBounty())}>🏴 +50,000,000 bounty</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatShip())}>⛵ Max ship upgrades and repair</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatBiggerShip())}>🚢 Next ship size, with a full crew</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatBoss())}>🔥 Sail to Cinder Mawgrave</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatMaxLevel(false))}>⬆️ Max level, with every skill point to spend</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatMaxLevel(true))}>💪 Max level and every skill maxed</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatVaultKeys())}>🗝️ All 3 Vault Warden keys</PanelButton>
