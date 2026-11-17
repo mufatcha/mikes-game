@@ -126,6 +126,7 @@ export type PuffKind =
   | "steam"
   | "bigsmoke"
   | "venom"
+  | "ash"
   | "wind"
   | "iron";
 
@@ -176,6 +177,9 @@ export function puff(smoke: ParticleLayer, glow: ParticleLayer, kind: PuffKind, 
       break;
     case "blood":
       smoke.add({ x, y, z, vx: (r() - 0.5) * 40, vy: 10 + r() * 30, vz: (r() - 0.5) * 40, life: 0.5, size: 2, grow: 0, r: 0.6, g: 0.05, b: 0.05, a: 0.9, gravity: 90 });
+      break;
+    case "ash":
+      smoke.add({ x: x + (r() - 0.5) * 40, y, z: z + (r() - 0.5) * 40, vx: (r() - 0.5) * 14, vy: 18 + r() * 14, vz: (r() - 0.5) * 14, life: 9 + r() * 3, size: 40, grow: 18, r: 0.2, g: 0.18, b: 0.17, a: 0.55, gravity: -0.6, drag: 0.4 });
       break;
     case "venom":
       glow.add({ x: x + (r() - 0.5) * 20, y, z: z + (r() - 0.5) * 20, vx: (r() - 0.5) * 30, vy: 6 + r() * 10, vz: (r() - 0.5) * 30, life: 1.4 + r(), size: 9, grow: 10, r: 0.35, g: 1.3, b: 0.15, a: 0.55, gravity: -2 });

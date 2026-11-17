@@ -31,7 +31,7 @@ import {
   type ShipVisual,
 } from "./models";
 import { forward, sideNormal, type Sim, type SimEvent, type Side } from "./sim";
-import { HAVEN, ISLANDS, WAVES, groundHeight, islandAt, waveHeight } from "./world";
+import { HAVEN, ISLANDS, VOLCANO, WAVES, groundHeight, hillProfile, islandAt, waveHeight } from "./world";
 
 /**
  * Islands are built when you come within this distance of their shore and
@@ -345,6 +345,7 @@ export class SeaRenderer {
   private camTarget = new THREE.Vector3();
   private camReady = false;
   private wakeTimer = 0;
+  private ashTimer = 0;
   private dustTimer = 0;
   private time = 0;
   /** 0 by day, 1 at night. */
@@ -1473,6 +1474,13 @@ export class SeaRenderer {
   /** Wakes behind moving ships, spray at the bow, smoke from damage, dust under your feet. */
   private emitAmbient(sim: Sim, dt: number) {
     const p = (kind: PuffKind, x: number, y: number, z: number, vx = 0, vz = 0) => puff(this.smoke, this.glow, kind, x, y, z, vx, vz);
+    // The volcano smokes whenever it's in sight.
+    this.ashTimer += dt;
+    if (this.ashTimer > 0.35 && this.islands.has(VOLCANO.index)) {
+      this.ashTimer = 0;
+      p("ash", VOLCANO.hill.x, hillProfile(VOLCANO.hill.h, VOLCANO.hill.r, 0) + 6, VOLCANO.hill.z);
+      if (Math.random() < 0.3) p("fire", VOLCANO.hill.x, hillProfile(VOLCANO.hill.h, VOLCANO.hill.r, 0) + 4, VOLCANO.hill.z);
+    }
     this.wakeTimer += dt;
     if (this.wakeTimer > 0.06) {
       this.wakeTimer = 0;

@@ -59,7 +59,23 @@ import { LEVER_IN, LEVER_LENGTH, LEVER_OUT, WHEEL_LOCK, helmLayout } from "./mod
 import { connectedPad, padDown } from "@/lib/gamepad";
 import { SAVE_KEY, writeSave, type SaveData } from "./save";
 import { AWAKEN_COOLDOWN, AWAKEN_TIME, Sim, type Side, type SimEvent } from "./sim";
-import { FORTRESS, FORTRESS_NAME, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, doorAxis, type IslandKind, type ServiceKind } from "./world";
+import {
+  FORTRESS,
+  FORTRESS_NAME,
+  HAVEN,
+  HAVEN_SAFE_RADIUS,
+  ISLANDS,
+  REACH_X,
+  STORMWALL,
+  WORLD_HALF,
+  WORLD_MAX_X,
+  WORLD_MIN_X,
+  doorAxis,
+  edgeDistance,
+  inStormwall,
+  type IslandKind,
+  type ServiceKind,
+} from "./world";
 
 const STEP = 1 / 60;
 /** Steps in the tutorial, counting the "that's the basics" card at the end. */
@@ -89,7 +105,8 @@ export type Action =
   | "bomb"
   | "tonic"
   | "smoke"
-  | "eat";
+  | "eat"
+  | "map";
 
 /** A VR hand holding the wheel (and the angle it was at last frame), or a sail lever. */
 type HelmGrab = { kind: "wheel"; last: number } | { kind: "lever"; i: number; start: number };
@@ -151,6 +168,8 @@ export interface HudState {
   ship: { name: string; tier: number; people: number; min: number; full: number; short: boolean };
   aimSide: Side | null;
   nearStorm: boolean;
+  /** Crossing the Stormwall into (or out of) the Tempest Reach. */
+  stormwall: "danger" | "rough" | null;
   pointerLocked: boolean;
   /** Seen through your own eyes (P switches). */
   firstPerson: boolean;
@@ -199,6 +218,8 @@ export interface EngineCallbacks {
   onHurt(): void;
   /** You opened the vault and read the fruit's real name. */
   onTrueName(): void;
+  /** Open the world map. */
+  onMap(): void;
   /** A quest giver offers you a quest (accept or turn it down). */
   onQuestOffer(q: Quest): void;
   /** Your progress was replaced from another tab (a save code was loaded there): this game stopped saving. */
@@ -1229,6 +1250,10 @@ export class WrathwaterEngine {
       case "eat":
         this.eatFood();
         break;
+      case "map":
+        this.releasePointer();
+        this.cb.onMap();
+        break;
       case "awaken":
         if (!sim.awaken() && sim.canAwaken && !sim.awakened) this.notice("The awakening is still resting.", "info");
         break;
@@ -1968,6 +1993,7 @@ export class WrathwaterEngine {
           blacksmith: "the blacksmith",
           market: "the black market",
           vault: "the vault",
+          hut: "a tribal hut",
         }[e.building];
         this.notice(`You robbed ${what} in ${e.town}! ${this.lootParts(e.gold, e.weapon, e, e.ammo)}`, "bounty");
         if (this.sim.time < this.sim.havenUnsafeUntil && e.town === HAVEN.name) {
@@ -1998,7 +2024,7 @@ export class WrathwaterEngine {
     const rank = rankFor(sim.save.bounty, sim.save.side);
     const hero = sim.shore.hero;
     const at = sim.mode === "foot" && hero ? hero : p;
-    const edge = Math.max(Math.abs(at.x), Math.abs(at.z));
+    const edge = edgeDistance(at.x, at.z);
     const weaponId = sim.save.equipped;
     const fruit = sim.save.fruit;
     const prompt = sim.mode === "foot" ? sim.shore.prompt() : null;
@@ -2068,7 +2094,8 @@ export class WrathwaterEngine {
         return { name: t.name, tier: t.tier, people: m.people, min: t.crewMin, full: t.crewFull, short: m.short };
       })(),
       aimSide: this.aimSide,
-      nearStorm: edge > WORLD_HALF - 500,
+      nearStorm: edge < 500,
+      stormwall: sim.mode === "ship" && inStormwall(sim.player.x) ? (sim.save.shipTier < 2 ? "danger" : "rough") : null,
       pointerLocked: document.pointerLockElement === this.container,
       firstPerson: this.firstPerson,
       noMouse: this.inputMode !== "mouse",
@@ -2125,6 +2152,97 @@ export class WrathwaterEngine {
     this.drawSeaMap(c, size, dpr);
   }
 
+  /**
+   * The whole sea on one map: every island you know of with its name, the
+   * Stormwall and the Tempest Reach (once you've crossed), your ship, your
+   * fleet, and where your quest is.
+   */
+  drawWorldMap(c: HTMLCanvasElement) {
+    const g = c.getContext("2d")!;
+    const sim = this.sim;
+    const W = c.width;
+    const H = c.height;
+    const reach = sim.save.reachSeen;
+    const maxX = reach ? WORLD_MAX_X : REACH_X;
+    const spanX = maxX - WORLD_MIN_X;
+    const spanZ = WORLD_HALF * 2;
+    const k = Math.min((W - 40) / spanX, (H - 40) / spanZ);
+    const ox = (W - spanX * k) / 2;
+    const oz = (H - spanZ * k) / 2;
+    const toMap = (x: number, z: number) => [ox + (x - WORLD_MIN_X) * k, oz + (z + WORLD_HALF) * k] as const;
+    g.fillStyle = "#0b1d2a";
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = "#0e3446";
+    g.fillRect(ox, oz, (REACH_X - WORLD_MIN_X) * k, spanZ * k);
+    if (reach) {
+      g.fillStyle = "#1a2a3a";
+      g.fillRect(ox + (REACH_X - WORLD_MIN_X) * k, oz, (WORLD_MAX_X - REACH_X) * k, spanZ * k);
+      const [sx] = toMap(REACH_X - STORMWALL, 0);
+      g.fillStyle = "rgba(148,163,184,0.35)";
+      g.fillRect(sx, oz, STORMWALL * 2 * k, spanZ * k);
+      g.fillStyle = "rgba(226,232,240,0.7)";
+      g.font = "bold 13px sans-serif";
+      g.textAlign = "center";
+      g.fillText("THE TEMPEST REACH", ox + ((REACH_X + WORLD_MAX_X) / 2 - WORLD_MIN_X) * k, oz + 20);
+    }
+    g.strokeStyle = "rgba(239,68,68,0.6)";
+    g.lineWidth = 2;
+    g.strokeRect(ox, oz, spanX * k, spanZ * k);
+    const [hx, hz] = toMap(HAVEN.x, HAVEN.z);
+    g.strokeStyle = "rgba(250,204,21,0.5)";
+    g.setLineDash([4, 4]);
+    g.beginPath();
+    g.arc(hx, hz, HAVEN_SAFE_RADIUS * k, 0, Math.PI * 2);
+    g.stroke();
+    g.setLineDash([]);
+    const q = sim.save.quest;
+    const questIsland = q ? (q.island ?? q.giver) : -1;
+    for (const isl of ISLANDS) {
+      if (isl === FORTRESS && !sim.fortressKnown) continue;
+      if (isl.reach && !reach) continue;
+      const [x, z] = toMap(isl.x, isl.z);
+      g.fillStyle =
+        isl.haven ? "#ca8a04" : isl.kind === "town" ? "#a8906a" : isl.kind === "fortress" ? "#991b1b" : isl.kind === "volcano" ? "#7c2d12" : isl.kind === "tribe" ? "#4d7c0f" : isl.kind === "mystery" ? "#7e5aa6" : "#8b7a55";
+      g.beginPath();
+      g.arc(x, z, Math.max(4, isl.radius * k), 0, Math.PI * 2);
+      g.fill();
+      if (isl.index === questIsland) {
+        g.strokeStyle = "#fbbf24";
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(x, z, Math.max(8, isl.radius * k + 5), 0, Math.PI * 2);
+        g.stroke();
+      }
+      g.fillStyle = "rgba(255,255,255,0.85)";
+      g.font = `${isl.haven || isl.kind === "town" || isl.kind === "volcano" ? "bold " : ""}11px sans-serif`;
+      g.textAlign = "center";
+      g.fillText(isl.name, x, z - Math.max(6, isl.radius * k) - 4);
+    }
+    for (const s of sim.ships) {
+      if (!s.escort || s.sinking >= 0) continue;
+      const [x, z] = toMap(s.x, s.z);
+      g.fillStyle = "#e5e7eb";
+      g.fillRect(x - 2, z - 2, 4, 4);
+    }
+    const me = sim.mode === "foot" && sim.shore.hero ? sim.shore.hero : sim.player;
+    const [px, pz] = toMap(me.x, me.z);
+    g.save();
+    g.translate(px, pz);
+    g.rotate(sim.mode === "foot" && sim.shore.hero ? sim.shore.hero.heading : sim.player.heading);
+    g.fillStyle = "#ffffff";
+    g.strokeStyle = "#000000";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(11, 0);
+    g.lineTo(-8, 7);
+    g.lineTo(-4, 0);
+    g.lineTo(-8, -7);
+    g.closePath();
+    g.stroke();
+    g.fill();
+    g.restore();
+  }
+
   /** The round sea map around you (the minimap, and in VR the map on your forearm). */
   private drawSeaMap(c: HTMLCanvasElement, size: number, dpr: number) {
     const g = c.getContext("2d")!;
@@ -2174,9 +2292,13 @@ export class WrathwaterEngine {
         }
       }
     }
-    const [ex0, ez0] = toMap(-WORLD_HALF, -WORLD_HALF);
+    const [ex0, ez0] = toMap(WORLD_MIN_X, -WORLD_HALF);
     g.strokeStyle = "rgba(239,68,68,0.6)";
-    g.strokeRect(ex0, ez0, WORLD_HALF * 2 * k, WORLD_HALF * 2 * k);
+    g.strokeRect(ex0, ez0, (WORLD_MAX_X - WORLD_MIN_X) * k, WORLD_HALF * 2 * k);
+    // The Stormwall.
+    const [sx0] = toMap(REACH_X - STORMWALL, 0);
+    g.fillStyle = "rgba(100,116,139,0.35)";
+    g.fillRect(sx0, ez0, STORMWALL * 2 * k, WORLD_HALF * 2 * k);
     if (!hero) {
       for (const cr of sim.crates) {
         const [x, z] = toMap(cr.x, cr.z);
@@ -2278,6 +2400,7 @@ export class WrathwaterEngine {
       else if (e.code === "KeyH") this.press("tonic");
       else if (e.code === "KeyX") this.press("smoke");
       else if (e.code === "KeyN") this.press("eat");
+      else if (e.code === "KeyM") this.press("map");
       else if (e.code === "KeyP") this.toggleView();
       else if (e.code === "KeyV") {
         if (!sim.awaken() && sim.canAwaken && !sim.awakened) this.notice("The awakening is still resting.", "info");

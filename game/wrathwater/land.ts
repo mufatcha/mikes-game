@@ -105,7 +105,10 @@ export function buildIsland(isl: Island): THREE.Group {
       const r = isl.hill.r * (1 - i / 16);
       hp.push(new THREE.Vector2(Math.max(0.01, r), hillProfile(isl.hill.h, isl.hill.r, r) + 0.15));
     }
-    const hill = new THREE.Mesh(new THREE.LatheGeometry(hp, 48), grass);
+    // A volcano is bare black rock; everywhere else is grass.
+    const hill = new THREE.Mesh(new THREE.LatheGeometry(hp, 48), isl.kind === "volcano" ? volcanicRock() : grass);
+    if (isl.kind === "volcano") group.add(buildCrater(isl));
+    if (isl.kind === "tribe") group.add(buildTotem(isl));
     hill.position.set(isl.hill.x, 0, isl.hill.z);
     group.add(hill);
 
@@ -161,9 +164,15 @@ export function buildIsland(isl: Island): THREE.Group {
   return group;
 }
 
+let rockCache: THREE.MeshStandardMaterial | null = null;
+function volcanicRock() {
+  rockCache ??= new THREE.MeshStandardMaterial({ color: "#2a2422", roughness: 1, flatShading: true });
+  return rockCache;
+}
+
 /** Free an island built by buildIsland (its own shapes and materials; shared ones and textures stay). */
 export function disposeIsland(g: THREE.Group) {
-  const keep = shared ? new Set<unknown>([shared.sand, shared.grass, shared.rockMat, shared.trunkMat, shared.leafMat, shared.trunkGeo, shared.frondGeo, shared.rockGeo, windowMat, doorMat, lampMat]) : new Set();
+  const keep = shared ? new Set<unknown>([shared.sand, shared.grass, shared.rockMat, shared.trunkMat, shared.leafMat, shared.trunkGeo, shared.frondGeo, shared.rockGeo, windowMat, doorMat, lampMat, rockCache]) : new Set();
   g.traverse((o) => {
     if (o instanceof THREE.InstancedMesh) {
       o.dispose();
@@ -207,7 +216,51 @@ const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.5,
 const doorMat = new THREE.MeshStandardMaterial({ color: "#3b2414", roughness: 0.9 });
 const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.5, 0.6) });
 
+/** A tribal hut: round walls of woven reeds under a tall thatched cone. */
+function buildHut(b: Building) {
+  const g = new THREE.Group();
+  const r = Math.min(b.w, b.d) / 2;
+  const walls = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.92, r, b.h * 0.6, 12), new THREE.MeshStandardMaterial({ color: "#a07a4a", roughness: 1 }));
+  walls.position.set(b.x, b.y + b.h * 0.3, b.z);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(r * 1.25, b.h * 0.75, 12), new THREE.MeshStandardMaterial({ color: "#c2a35a", roughness: 1, flatShading: true }));
+  roof.position.set(b.x, b.y + b.h * 0.6 + b.h * 0.37, b.z);
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(9, 16), doorMat);
+  door.position.set(b.x + Math.cos(b.facing) * (r * 0.97), b.y + 8, b.z + Math.sin(b.facing) * (r * 0.97));
+  door.rotation.y = Math.PI / 2 - b.facing;
+  g.add(walls, roof, door);
+  return g;
+}
+
+/** The tribe's totem in the middle of the village, with a bonfire. */
+function buildTotem(isl: Island) {
+  const g = new THREE.Group();
+  const y = groundY(isl, isl.x, isl.z);
+  const colors = ["#7c2d12", "#15803d", "#facc15", "#1d4ed8", "#7c2d12"];
+  colors.forEach((c, i) => {
+    const block = new THREE.Mesh(new THREE.BoxGeometry(7, 9, 7), new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 }));
+    block.position.set(isl.x, y + 4.5 + i * 9, isl.z);
+    block.rotation.y = i * 0.4;
+    g.add(block);
+  });
+  const wings = new THREE.Mesh(new THREE.BoxGeometry(26, 3, 4), new THREE.MeshStandardMaterial({ color: "#b45309" }));
+  wings.position.set(isl.x, y + 40, isl.z);
+  g.add(wings);
+  const fire = new THREE.Mesh(new THREE.ConeGeometry(4, 8, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.3, 0.3) }));
+  fire.position.set(isl.x + 26, y + 4, isl.z);
+  g.add(fire);
+  return g;
+}
+
+/** The volcano's glowing crater. */
+function buildCrater(isl: Island) {
+  const top = hillProfile(isl.hill.h, isl.hill.r, 0);
+  const lava = new THREE.Mesh(new THREE.CylinderGeometry(isl.hill.r * 0.12, isl.hill.r * 0.16, 8, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 1.0, 0.15) }));
+  lava.position.set(isl.hill.x, top - 2, isl.hill.z);
+  return lava;
+}
+
 function buildBuilding(b: Building, isl: Island): THREE.Group {
+  if (b.kind === "hut") return buildHut(b);
   const g = new THREE.Group();
   const r = rng(Math.floor(b.x * 31 + b.z * 17));
   const wallColor =

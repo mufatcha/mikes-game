@@ -21,6 +21,7 @@ export default function WrathwaterTouch({ engine, hud, onVr }: { engine: Wrathwa
       <div className="absolute right-2 top-[6.5rem] flex gap-2">
         <Small label="☰" title="Pause" onTap={() => engine.press("pause")} />
         <Small label="🎒" title="Inventory" onTap={() => engine.press("inventory")} />
+        <Small label="🗺️" title="World map" onTap={() => engine.press("map")} />
         <Small label={hud.firstPerson ? "1st" : "3rd"} title="Switch view" onTap={() => engine.press("view")} />
         {onVr && <Small label="VR" title="Play in VR" onTap={onVr} />}
       </div>

@@ -13,8 +13,40 @@ export const ISLAND_GAP = 2900;
 /** Height of a beach above the water. */
 export const BEACH_TOP = 6;
 
-export type IslandKind = "haven" | "town" | "wild" | "mystery" | "fortress";
-export type BuildingKind = "house" | "bank" | "shop" | "armory" | "tavern" | "shipwright" | "blacksmith" | "market" | "vault";
+export type IslandKind = "haven" | "town" | "wild" | "mystery" | "fortress" | "volcano" | "tribe";
+export type BuildingKind = "house" | "bank" | "shop" | "armory" | "tavern" | "shipwright" | "blacksmith" | "market" | "vault" | "hut";
+
+/**
+ * The Tempest Reach: a wilder sea east of the old edge of the world, behind
+ * the Stormwall (a band of endless storm along x = REACH_X). Small ships get
+ * torn apart crossing it. Out there: a volcano, tribal islands, sirens, a sea
+ * serpent and the pirate lord Cinder Mawgrave.
+ */
+export const REACH_X = WORLD_HALF;
+export const REACH_EAST = WORLD_HALF + 14000;
+/** Half the Stormwall's width. */
+export const STORMWALL = 700;
+/** The edges of the whole sea. */
+export const WORLD_MIN_X = -WORLD_HALF;
+export const WORLD_MAX_X = REACH_EAST;
+
+export function inReach(x: number) {
+  return x > REACH_X + STORMWALL;
+}
+export function inStormwall(x: number) {
+  return Math.abs(x - REACH_X) < STORMWALL;
+}
+/** How far a point is from the edge of the sea. */
+export function edgeDistance(x: number, z: number) {
+  return Math.min(x - WORLD_MIN_X, WORLD_MAX_X - x, z + WORLD_HALF, WORLD_HALF - z);
+}
+/** Keep a point inside the sea, `pad` in from the edge. */
+export function clampToWorld(x: number, z: number, pad: number) {
+  return {
+    x: Math.max(WORLD_MIN_X + pad, Math.min(WORLD_MAX_X - pad, x)),
+    z: Math.max(-WORLD_HALF + pad, Math.min(WORLD_HALF - pad, z)),
+  };
+}
 /** Blackwater Cove's stores (and its tavern, where you hire crew): tap E to visit, hold E to rob. */
 export type ServiceKind = "shipwright" | "blacksmith" | "market" | "tavern" | "shop";
 
@@ -77,6 +109,8 @@ export interface Island {
   bandits: { x: number; z: number }[];
   /** Towns: where the Vault Warden stands, a tough Marine captain carrying one of the three vault keys. */
   warden?: { x: number; z: number };
+  /** Out in the Tempest Reach. */
+  reach?: boolean;
   /** Towns and Blackwater Cove: someone outside the tavern who hands out quests. */
   questGiver?: { x: number; z: number; facing: number };
 }
@@ -156,14 +190,16 @@ function makeIslands(): Island[] {
 function decorate(o: { index: number; name: string; kind: IslandKind; x: number; z: number; radius: number; seed: number; haven?: boolean }): Island {
   const r = rng(o.seed);
   const R = o.radius;
-  const flat = o.kind === "town" || o.kind === "haven" || o.kind === "fortress";
+  const flat = o.kind === "town" || o.kind === "haven" || o.kind === "fortress" || o.kind === "tribe";
   const ha = r() * Math.PI * 2;
   const hd = r() * R * 0.15;
+  const volcano = o.kind === "volcano";
   const hill = {
-    x: o.x + Math.cos(ha) * hd,
-    z: o.z + Math.sin(ha) * hd,
-    r: R * (flat ? 0.35 : 0.66),
-    h: flat ? 10 + r() * 6 : 22 + R * (0.12 + r() * 0.2),
+    x: volcano ? o.x : o.x + Math.cos(ha) * hd,
+    z: volcano ? o.z : o.z + Math.sin(ha) * hd,
+    r: R * (volcano ? 0.78 : flat ? 0.35 : 0.66),
+    // A volcano towers over everything.
+    h: volcano ? 300 : flat ? 10 + r() * 6 : 22 + R * (0.12 + r() * 0.2),
   };
   const isl: Island = { ...o, hill, palms: [], rocks: [], buildings: [], spots: [], guards: [], bandits: [] };
 
@@ -185,7 +221,9 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
   // Buildings (towns and the haven), placed in a ring facing the shore.
   if (flat) {
     const kinds: BuildingKind[] =
-      o.kind === "fortress"
+      o.kind === "tribe"
+        ? Array<BuildingKind>(6).fill("hut")
+        : o.kind === "fortress"
         ? ["vault", "armory", "armory"]
         : o.kind === "town"
         ? ["bank", "armory", "shop", "shop", "tavern", ...Array<BuildingKind>(Math.round(R / 60)).fill("house")]
@@ -193,9 +231,11 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
     let a0 = r() * Math.PI * 2;
     for (const kind of kinds) {
       const big = kind === "bank" || kind === "tavern" || kind === "armory" || kind === "shipwright" || kind === "vault";
+      // Huts are small and round-ish.
+      const hut = kind === "hut";
       // Sized for people: a person stands about 19 tall, so houses are two storeys and the big halls taller.
-      const w = kind === "vault" ? 130 : big ? 90 + r() * 20 : 52 + r() * 24;
-      const dd = kind === "vault" ? 110 : big ? 70 + r() * 16 : 44 + r() * 20;
+      const w = hut ? 36 + r() * 6 : kind === "vault" ? 130 : big ? 90 + r() * 20 : 52 + r() * 24;
+      const dd = hut ? 36 + r() * 6 : kind === "vault" ? 110 : big ? 70 + r() * 16 : 44 + r() * 20;
       for (let attempt = 0; attempt < 60; attempt++) {
         const a = a0 + attempt * 0.37;
         const dist = R * (0.38 + r() * 0.4);
@@ -214,7 +254,7 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
           z,
           w: bw,
           d: bd,
-          h: kind === "vault" ? 64 : big ? 50 : 34 + r() * 10,
+          h: hut ? 24 : kind === "vault" ? 64 : big ? 50 : 34 + r() * 10,
           y,
           door: { x: x + Math.cos(facing) * (half + 14), z: z + Math.sin(facing) * (half + 14) },
           facing,
@@ -248,6 +288,22 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
     occupied.push({ ...p, r: 10 });
     isl.spots.push({ id: `${o.index}:${spotN++}`, kind, ...p });
   };
+  if (o.kind === "tribe" || o.kind === "volcano") {
+    // Tribal villages: warriors all around, and their treasure by the totem.
+    spot("chest", 0, 0.3);
+    spot("chest", 0.3, 0.7);
+    spot("buried", 0.2, 0.7);
+    if (o.kind === "tribe") {
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        isl.bandits.push({ x: o.x + Math.cos(a) * R * 0.3, z: o.z + Math.sin(a) * R * 0.3 });
+      }
+    } else {
+      // The volcano's slopes hold rare loot.
+      spot("chest", 0.5, 0.8);
+      spot("crate", 0.6, 0.84);
+    }
+  }
   if (o.kind === "wild" || o.kind === "mystery") {
     const chests = o.kind === "mystery" ? 2 : 1 + Math.floor(r() * 2);
     for (let i = 0; i < chests; i++) spot("chest");
@@ -293,7 +349,40 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
   return isl;
 }
 
-export const ISLANDS = makeIslands();
+const REACH_NAMES = ["Brineteeth", "Howling Spire", "Wreckers' Shoal", "Moonglass Atoll", "Thornreef", "Salt Widow Key", "Gullscream Rock", "Bonewhistle Cay"];
+const TRIBE_NAMES = ["Totem Isle", "Drumhollow", "Feathercrown Cay"];
+/** The volcano where Cinder Mawgrave keeps his lair. */
+export const VOLCANO_NAME = "Mount Cindermaw";
+
+/** The Tempest Reach's islands: one volcano, three tribal islands and the rest wild. */
+function makeReach(start: number): Island[] {
+  const r = rng(77031);
+  type Raw = { x: number; z: number; radius: number; seed: number };
+  const raw: Raw[] = [
+    // The volcano, deep in the Reach.
+    { x: REACH_X + 9000, z: -2500, radius: 560, seed: 4242 },
+  ];
+  let tries = 0;
+  while (raw.length < 12 && tries++ < 20000) {
+    const radius = 160 + r() * 280;
+    const x = REACH_X + STORMWALL + 900 + r() * (REACH_EAST - REACH_X - STORMWALL - 1800);
+    const z = (r() * 2 - 1) * (WORLD_HALF - 900);
+    if (raw.every((o) => Math.hypot(o.x - x, o.z - z) > o.radius + radius + ISLAND_GAP)) raw.push({ x, z, radius, seed: Math.floor(r() * 1e9) });
+  }
+  let wi = 0;
+  return raw.map((o, i) => {
+    const kind: IslandKind = i === 0 ? "volcano" : i <= 3 ? "tribe" : "wild";
+    const name = kind === "volcano" ? VOLCANO_NAME : kind === "tribe" ? TRIBE_NAMES[i - 1] : REACH_NAMES[wi++ % REACH_NAMES.length];
+    const isl = decorate({ ...o, index: start + i, name, kind });
+    isl.reach = true;
+    return isl;
+  });
+}
+
+const MAIN = makeIslands();
+export const ISLANDS = [...MAIN, ...makeReach(MAIN.length)];
+/** Cinder Mawgrave's volcano. */
+export const VOLCANO = ISLANDS.find((i) => i.kind === "volcano")!;
 export const HAVEN = ISLANDS[0];
 /** The secret fortress island that holds the vault. */
 export const FORTRESS = ISLANDS.find((i) => i.kind === "fortress")!;

@@ -72,6 +72,8 @@ export interface SaveData {
   structures: StructureId[];
   /** Escort ships in your fleet. */
   escorts: number;
+  /** You've crossed the Stormwall, so the Tempest Reach shows on your map. */
+  reachSeen: boolean;
 }
 
 export const SAVE_KEY = "ww.save.v1";
@@ -115,6 +117,7 @@ export function newSave(captain: string): SaveData {
     tutorial: 0,
     structures: [],
     escorts: 0,
+    reachSeen: false,
   };
 }
 
@@ -167,6 +170,7 @@ export function loadSave(): SaveData | null {
       tutorial: typeof s.tutorial === "number" ? s.tutorial : -1,
       structures: Array.isArray(s.structures) ? [...new Set(s.structures.filter((x): x is StructureId => STRUCTURE_IDS.includes(x as StructureId)))] : [],
       escorts: Math.max(0, Math.min(MAX_ESCORTS, Math.floor(Number(s.escorts)) || 0)),
+      reachSeen: !!s.reachSeen,
     };
   } catch {
     return null;

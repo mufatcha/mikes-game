@@ -7,7 +7,10 @@ import { giverName } from "./quests";
 import type { Sim } from "./sim";
 import { BEACH_TOP, COUNTER, ISLANDS, doorAxis, groundHeight, islandAt, waveHeight, type Building, type BuildingKind, type Island, type LootSpot, type ServiceKind } from "./world";
 
-export type WalkerKind = "hero" | "marine" | "captain" | "bandit" | "crew";
+export type WalkerKind = "hero" | "marine" | "captain" | "bandit" | "crew" | "tribal";
+
+/** Bandits and tribal warriors: fight on sight, and no Marine cares if you beat them. */
+const outlaw = (k: WalkerKind) => k === "bandit" || k === "tribal";
 
 export interface Walker {
   id: number;
@@ -86,6 +89,7 @@ const ROB: Record<BuildingKind, { label: string; hold: number }> = {
   blacksmith: { label: "Rob the blacksmith's forge", hold: 6 },
   market: { label: "Rob the black market", hold: 6 },
   vault: { label: "Crack the vault", hold: 30 },
+  hut: { label: "Raid the hut", hold: 3 },
 };
 /** What Blackwater Cove's stores are called. */
 export const STORE_NAMES: Record<ServiceKind, string> = { shipwright: "shipwright's", blacksmith: "blacksmith's", market: "black market", tavern: "tavern", shop: "general store" };
@@ -583,8 +587,8 @@ export class Shore {
       this.sim.events.push({ k: "vaultKey", keys: this.sim.save.vaultKeys.length, island: t.island });
     }
     const bounty = t.kind === "captain" ? 12_000_000 : t.kind === "marine" ? 2_000_000 : 1_000_000;
-    const gold = t.kind === "bandit" ? randInt(15, 40) : randInt(5, 20);
-    this.sim.addBounty(bounty, gold, t.kind === "bandit" ? 0 : 0.35);
+    const gold = outlaw(t.kind) ? randInt(15, 40) : randInt(5, 20);
+    this.sim.addBounty(bounty, gold, outlaw(t.kind) ? 0 : 0.35);
     this.sim.events.push({ k: "walkerDown", x: t.x, z: t.z, kind: t.kind, bounty, gold, island: t.island });
   }
 
@@ -958,7 +962,7 @@ export class Shore {
   // ---------------------------------------------------------------- NPCs
 
   private makeWalker(kind: WalkerKind, island: number, x: number, z: number, weapon: WeaponId): Walker {
-    const hp = kind === "captain" ? 190 : kind === "marine" ? 70 : kind === "bandit" ? 55 : PLAYER_FOOT_HP;
+    const hp = kind === "captain" ? 190 : kind === "marine" ? 70 : kind === "tribal" ? 80 : kind === "bandit" ? 55 : PLAYER_FOOT_HP;
     return {
       id: this.nextId++,
       kind,
@@ -1011,7 +1015,8 @@ export class Shore {
           this.walkers.push(this.makeWalker("captain", isl.index, b.door.x, b.door.z, "cutlass"));
         }
         for (const b of isl.bandits) {
-          this.walkers.push(this.makeWalker("bandit", isl.index, b.x, b.z, Math.random() < 0.3 ? "flintlock" : "cutlass"));
+          const tribe = isl.kind === "tribe";
+          this.walkers.push(this.makeWalker(tribe ? "tribal" : "bandit", isl.index, b.x, b.z, tribe ? (Math.random() < 0.5 ? "axe" : "rapier") : Math.random() < 0.3 ? "flintlock" : "cutlass"));
         }
       } else if (!near && this.activeIslands.has(isl.index)) {
         this.activeIslands.delete(isl.index);
@@ -1029,7 +1034,7 @@ export class Shore {
     const alerted = (this.alerted.get(w.island) ?? 0) > t;
     let hostile = false;
     if (heroHere) {
-      if (w.kind === "bandit") hostile = d < 260 || (alerted && d < 600);
+      if (outlaw(w.kind)) hostile = d < 260 || (alerted && d < 600);
       // The fortress and the Vault Wardens don't wait for a pirate to be wanted (a Marine is one of their own).
       else if (this.sim.save.side === "marine") hostile = (this.sim.heat > 0 || alerted) && d < 420;
       else if (ISLANDS[w.island]?.kind === "fortress") hostile = d < 520;
@@ -1075,7 +1080,7 @@ export class Shore {
           w.cooldown = wpn.cooldown + rand(0.9, 1.6);
           w.swing = 0;
           this.sim.events.push({ k: "swing", x: w.x, z: w.z, byHero: false });
-          const dmg = w.kind === "captain" ? 18 : w.kind === "bandit" ? 7 : 8;
+          const dmg = w.kind === "captain" ? 18 : w.kind === "tribal" ? 10 : w.kind === "bandit" ? 7 : 8;
           if (d < wpn.range + HERO_RADIUS + 4) this.hurtHero(h, dmg, w);
         }
       }
@@ -1157,7 +1162,7 @@ export class Shore {
     let best = ALLY_REACH;
     for (const w of this.walkers) {
       if (w.dead >= 0) continue;
-      const fighting = (w.engaged !== undefined && t - w.engaged < 4) || w.kind === "bandit";
+      const fighting = (w.engaged !== undefined && t - w.engaged < 4) || outlaw(w.kind);
       if (!fighting) continue;
       const d = Math.hypot(w.x - a.x, w.z - a.z);
       if (d < best && Math.hypot(w.x - h.x, w.z - h.z) < ALLY_REACH * 1.5) {
@@ -1198,7 +1203,7 @@ export class Shore {
     const s = this.sim.save;
     w.looted = true;
     w.sinkAt = w.dead + 1;
-    const gold = w.kind === "captain" ? randInt(40, 90) : w.kind === "bandit" ? randInt(15, 45) : randInt(8, 25);
+    const gold = w.kind === "captain" ? randInt(40, 90) : outlaw(w.kind) ? randInt(15, 45) : randInt(8, 25);
     s.gold += gold;
     const gun = WEAPONS[w.weapon].kind === "gun";
     const ammo = gun ? randInt(1, 4) : 0;
@@ -1484,6 +1489,13 @@ export class Shore {
         this.sim.events.push({ k: "vaultOpened" });
         break;
       }
+      case "hut":
+        // Tribal treasures: shells and gold, smoked fish, sometimes a tonic.
+        gold = randInt(40, 110);
+        save.food.push({ food: "fish", spoils: save.playTime + 15 * 60 });
+        if (Math.random() < 0.3) save.items.tonic++;
+        this.sim.addBounty(1_000_000, gold, 0);
+        break;
       case "market":
         gold = randInt(250, 450);
         mats = this.giveMaterials([0, 1], [0, 2], [4, 8]);

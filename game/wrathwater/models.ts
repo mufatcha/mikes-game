@@ -574,6 +574,7 @@ const PERSON_COLORS: Record<PersonKind, { coat: string; pants: string; hat: stri
   marine: { coat: "#f1f5f9", pants: "#1e3a8a", hat: "#f8fafc", trim: "#1d4ed8" },
   captain: { coat: "#f8fafc", pants: "#1e293b", hat: "#0f172a", trim: "#eab308" },
   bandit: { coat: "#6b3e1e", pants: "#3f3f46", hat: "#b91c1c", trim: "#b91c1c" },
+  tribal: { coat: "#8a5a3a", pants: "#4d3a26", hat: "#15803d", trim: "#facc15" },
 };
 
 const skinMat = new THREE.MeshStandardMaterial({ color: "#d9a17a", roughness: 0.8 });

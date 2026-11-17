@@ -38,7 +38,24 @@ import {
   type WeaponId,
 } from "./items";
 import type { SaveData } from "./save";
-import { FORTRESS, HAVEN, HAVEN_SAFE_RADIUS, ISLANDS, WORLD_HALF, groundHeight, islandAt, type BuildingKind, type ServiceKind, type SpotKind } from "./world";
+import {
+  FORTRESS,
+  HAVEN,
+  HAVEN_SAFE_RADIUS,
+  ISLANDS,
+  REACH_X,
+  WORLD_HALF,
+  WORLD_MAX_X,
+  WORLD_MIN_X,
+  clampToWorld,
+  edgeDistance,
+  groundHeight,
+  inStormwall,
+  islandAt,
+  type BuildingKind,
+  type ServiceKind,
+  type SpotKind,
+} from "./world";
 
 export const GRAVITY = 160;
 const BALL_SPEED = 390;
@@ -164,6 +181,7 @@ export type SimEvent =
   | { k: "escortLost"; crew: number }
   | { k: "rammed"; name: string; damage: number }
   | { k: "crewDown" }
+  | { k: "stormwall"; small: boolean }
   | { k: "hunger"; level: "hungry" | "starving" }
   | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
@@ -468,6 +486,7 @@ export class Sim {
   // ---------------------------------------------------------------- your deck and your fleet
 
   private ramReady = 0;
+  private inStorm = false;
 
   /** Is this built on your deck? */
   built(id: StructureId) {
@@ -641,6 +660,14 @@ export class Sim {
     // The infirmary patches the hull as you sail.
     if (this.built("infirmary") && p.sinking < 0 && p.hp < p.stats.hull) p.hp = Math.min(p.stats.hull, p.hp + 2 * dt);
     this.syncEscorts();
+    if (!this.save.reachSeen && p.x > REACH_X) this.save.reachSeen = true;
+    if (this.mode === "ship" && p.sinking < 0 && inStormwall(p.x)) {
+      const small = this.save.shipTier < 2;
+      if (!this.inStorm) this.events.push({ k: "stormwall", small });
+      this.inStorm = true;
+      // A sloop gets torn apart; bigger ships ride it out.
+      if (small) this.damage(p, 22 * dt, false, p.x, 8, p.z);
+    } else this.inStorm = false;
     const warn = this.save.hunger <= 0 ? "starving" : this.save.hunger < 20 ? "hungry" : "";
     if (warn && warn !== this.lastHungerWarn) this.events.push({ k: "hunger", level: warn });
     this.lastHungerWarn = warn;
@@ -767,10 +794,10 @@ export class Sim {
         }
         s.speed *= 0.6;
       }
-      const lim = WORLD_HALF - 20;
-      if (Math.abs(s.x) > lim || Math.abs(s.z) > lim) {
-        s.x = clamp(s.x, -lim, lim);
-        s.z = clamp(s.z, -lim, lim);
+      if (edgeDistance(s.x, s.z) < 20) {
+        const c = clampToWorld(s.x, s.z, 20);
+        s.x = c.x;
+        s.z = c.z;
         s.speed *= 0.6;
       }
     }
@@ -897,8 +924,10 @@ export class Sim {
     if (s.faction === "marine" && this.time >= this.havenUnsafeUntil && Math.hypot(ax - HAVEN.x, az - HAVEN.z) < HAVEN_SAFE_RADIUS + 150) {
       return Math.atan2(s.z - HAVEN.z, s.x - HAVEN.x);
     }
-    const lim = WORLD_HALF - 400;
-    if (Math.abs(ax) > lim || Math.abs(az) > lim) return Math.atan2(-s.z, -s.x);
+    // Other ships keep to their own sea: the Stormwall turns them back.
+    if (s !== this.player && !s.escort && (inStormwall(ax) || (s.x < REACH_X) !== (ax < REACH_X))) return s.x < REACH_X ? Math.PI : 0;
+    // Near the edge of the sea: head back toward the middle of your side of it.
+    if (edgeDistance(ax, az) < 400) return Math.atan2(-s.z, (s.x < REACH_X ? 0 : (REACH_X + WORLD_MAX_X) / 2) - s.x);
     return desired;
   }
 
@@ -916,8 +945,10 @@ export class Sim {
     for (let i = 0; i < 30; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = rand(minR, maxR);
-      const x = clamp(cx + Math.cos(a) * r, -WORLD_HALF + 500, WORLD_HALF - 500);
-      const z = clamp(cz + Math.sin(a) * r, -WORLD_HALF + 500, WORLD_HALF - 500);
+      const c = clampToWorld(cx + Math.cos(a) * r, cz + Math.sin(a) * r, 500);
+      const x = c.x;
+      const z = c.z;
+      if (inStormwall(x) || (x < REACH_X) !== (cx < REACH_X)) continue;
       if (!islandAt(x, z, 120) && Math.hypot(x - HAVEN.x, z - HAVEN.z) > HAVEN_SAFE_RADIUS + 200) return { x, z };
     }
     return { x: cx, z: cz };
@@ -1523,8 +1554,9 @@ export class Sim {
 
   private spawnCrate() {
     for (let i = 0; i < 40; i++) {
-      const x = rand(-WORLD_HALF + 400, WORLD_HALF - 400);
+      const x = rand(WORLD_MIN_X + 400, WORLD_MAX_X - 400);
       const z = rand(-WORLD_HALF + 400, WORLD_HALF - 400);
+      if (inStormwall(x)) continue;
       if (islandAt(x, z, 80) || Math.hypot(x - HAVEN.x, z - HAVEN.z) < HAVEN_SAFE_RADIUS) continue;
       this.crates.push({ id: this.nextId++, x, z, gold: Math.round(rand(40, 110)) });
       return;

@@ -56,7 +56,7 @@ import { ProfileButton, ProfileModal } from "@/components/ProfilePanel";
 import { useProfile } from "@/lib/profile";
 
 type Screen = "menu" | "naming" | "playing";
-type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename" | "general" | "quest";
+type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename" | "general" | "quest" | "map";
 
 const SAVE_KEY = "ww.save.v1";
 
@@ -274,6 +274,7 @@ function HowToPlay() {
     ["R", "Use your Devil Fruit power"],
     ["T", "Switch your fruit's move"],
     ["X / N", "Smoke bomb / eat"],
+    ["M", "The world map"],
     ["P", "First person / third person"],
     ["V", "Awaken your fruit (if you know its real name)"],
     ["I / Tab", "Inventory and crafting"],
@@ -441,6 +442,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
           onCheatMenu: () => setOverlay((o) => (o === "none" ? "cheats" : o)),
           onTrueName: () => setOverlay("truename"),
           onSaveReplaced: () => setOverlay("replaced"),
+          onMap: () => setOverlay((o) => (o === "none" ? "map" : o)),
           onQuestOffer: (q) => {
             setOffer(q);
             setOverlay("quest");
@@ -576,6 +578,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       {overlay === "market" && engine && <BlackMarket engine={engine} onClose={resume} />}
       {overlay === "tavern" && engine && <Tavern engine={engine} onClose={resume} />}
       {overlay === "general" && engine && <GeneralStore engine={engine} onClose={resume} />}
+      {overlay === "map" && engine && <WorldMap engine={engine} onClose={resume} />}
       {overlay === "quest" && engine && offer && (
         <Modal onClose={resume}>
           <p className="text-xs font-bold uppercase tracking-widest text-amber-300">A job for you</p>
@@ -761,6 +764,13 @@ function Hud({ hud, touch, onSkipTutorial }: { hud: HudState; touch: boolean; on
       {hud.nearStorm && (
         <div className="pointer-events-none absolute bottom-44 left-1/2 -translate-x-1/2 rounded-xl bg-red-950/80 px-5 py-2 text-sm font-semibold text-red-200">
           The storm wall drives you back. Wrathwater ends here.
+        </div>
+      )}
+      {hud.stormwall && (
+        <div className={`pointer-events-none absolute bottom-44 left-1/2 -translate-x-1/2 rounded-xl px-5 py-2 text-sm font-semibold ${hud.stormwall === "danger" ? "animate-pulse bg-red-950/85 text-red-200" : "bg-slate-900/85 text-slate-200"}`}>
+          {hud.stormwall === "danger"
+            ? "The Stormwall is tearing your sloop apart! Turn back, or push through fast. Only a Brigantine or bigger rides it out."
+            : "Riding out the Stormwall. Beyond it lies the Tempest Reach."}
         </div>
       )}
       {((hud.mode === "ship" && hud.aimSide !== null && !hud.inHaven) || (hud.mode === "foot" && (hud.pointerLocked || hud.noMouse || touch))) && (
@@ -1598,6 +1608,26 @@ function Shipwright({ engine, onClose }: { engine: WrathwaterEngine; onClose: ()
       <DeckAndFleet engine={engine} refresh={() => setTick((t) => t + 1)} />
       <PanelButton primary onClick={onClose}>
         Leave the shipwright
+      </PanelButton>
+    </Modal>
+  );
+}
+
+/** The whole sea, drawn by the engine onto a canvas. */
+function WorldMap({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (ref.current) engine.drawWorldMap(ref.current);
+  }, [engine]);
+  return (
+    <Modal wide onClose={onClose}>
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-serif text-3xl font-black uppercase tracking-wide">Chart of Wrathwater</h2>
+        <span className="text-xs text-zinc-400">Esc closes · gold ring: your quest</span>
+      </div>
+      <canvas ref={ref} width={1100} height={720} className="mt-3 w-full rounded-lg" />
+      <PanelButton primary onClick={onClose}>
+        Close the chart
       </PanelButton>
     </Modal>
   );
