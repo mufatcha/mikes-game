@@ -1819,6 +1819,55 @@ export class WrathwaterEngine {
         this.shakeRam();
         this.notice(`Rammed the ${e.name}! (${e.damage} damage)`, "gold");
         break;
+      case "stormwall":
+        this.audio.thunder(0.6);
+        this.notice(
+          e.small
+            ? "The Stormwall! Your sloop can't take this: turn back, or push through fast. A Brigantine or bigger rides it out."
+            : "Into the Stormwall. Hold on: beyond it lies the Tempest Reach.",
+          e.small ? "danger" : "info",
+        );
+        break;
+      case "weather":
+        this.notice(
+          { storm: "A storm is rolling in: rough seas and lightning. Marines can't see as far.", rain: "It's starting to rain.", fog: "Fog is closing in. Marines can't see as far either.", clear: "" }[e.kind],
+          e.kind === "storm" ? "danger" : "info",
+        );
+        break;
+      case "lightning":
+        this.audio.thunder(near(e.x, e.z) * 0.9 + 0.2);
+        break;
+      case "sirenSong":
+        this.audio.siren();
+        this.notice("A siren is singing... your ship drifts toward her rock and your crew lean over the rail. Blast her, or sail away!", "danger");
+        break;
+      case "lured":
+        this.notice("A sailor jumps overboard, spellbound by the siren's song!", "danger");
+        break;
+      case "sirenSilenced":
+        this.audio.coin();
+        this.notice("The siren is silenced. +150 gold", "gold");
+        this.gainXp(60);
+        break;
+      case "rumble":
+        this.notice("Mount Cindermaw rumbles...", "danger");
+        break;
+      case "eruption":
+        this.audio.sink(0.9);
+        this.notice("ERUPTION! Fire is raining down!", "danger");
+        break;
+      case "monster":
+        if (e.what === "surface") {
+          this.audio.roar(0.8);
+          this.notice("THE GNASHJAW! A sea serpent rises beside you. Hit it while it's up!", "danger");
+        } else if (e.what === "lash") {
+          this.audio.thud(1);
+        } else {
+          this.audio.fanfare();
+          this.notice("You slew the Gnashjaw! +400,000,000 bounty and 5,000 gold.", "bounty");
+          this.gainXp(800);
+        }
+        break;
       case "crewDown":
         this.notice("One of your crew has fallen.", "danger");
         break;
@@ -2077,6 +2126,9 @@ export class WrathwaterEngine {
         ...(sim.ironSkin ? [{ text: "Iron Skin", tone: "good" as const }] : []),
         ...(sim.tailwind ? [{ text: "Tailwind", tone: "good" as const }] : []),
         ...(sim.hidden ? [{ text: "Hidden", tone: "good" as const }] : []),
+        ...(sim.hazards.weather !== "clear" && sim.hazards.weatherAmount > 0.3
+          ? [{ text: { storm: "Storm", rain: "Rain", fog: "Fog", clear: "" }[sim.hazards.weather], tone: (sim.hazards.weather === "storm" ? "bad" : "good") as "bad" | "good" }]
+          : []),
       ],
       items: { ...sim.save.items },
       food: { count: sim.save.food.length, spoiled: sim.save.food.filter((f) => f.spoils <= sim.save.playTime).length },

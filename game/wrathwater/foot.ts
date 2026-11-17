@@ -1198,6 +1198,12 @@ export class Shore {
     this.walkToward(a, fx, fz, d > 90 ? SPRINT : WALK * 1.05, dt);
   }
 
+  /** Something exploding on the ground (a volcanic bomb): hurts you and anyone near. */
+  blast(x: number, z: number, radius: number, damage: number) {
+    if (!this.hero) return;
+    this.explode(x, z, radius, damage, false);
+  }
+
   /** Search a body: coins, shot, maybe their weapon or something to eat. */
   private lootBody(w: Walker) {
     const s = this.sim.save;

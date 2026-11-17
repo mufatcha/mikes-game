@@ -22,6 +22,7 @@ import {
   type ShipClassId,
 } from "./data";
 import { Shore, type WalkerKind } from "./foot";
+import { Hazards, type WeatherKind } from "./hazards";
 import {
   FOODS,
   FRUIT_MOVES,
@@ -182,6 +183,14 @@ export type SimEvent =
   | { k: "rammed"; name: string; damage: number }
   | { k: "crewDown" }
   | { k: "stormwall"; small: boolean }
+  | { k: "weather"; kind: WeatherKind }
+  | { k: "lightning"; x: number; z: number }
+  | { k: "sirenSong"; x: number; z: number }
+  | { k: "sirenSilenced"; x: number; z: number }
+  | { k: "lured" }
+  | { k: "rumble" }
+  | { k: "eruption"; x: number; z: number }
+  | { k: "monster"; what: "surface" | "lash" | "slain"; x: number; z: number }
   | { k: "hunger"; level: "hungry" | "starving" }
   | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
@@ -272,6 +281,8 @@ export class Sim {
   poisonedUntil = 0;
   private lastHungerWarn: "" | "hungry" | "starving" = "";
   shore = new Shore(this);
+  /** Weather, sirens, the sea serpent and the volcano. */
+  hazards = new Hazards(this);
   private hiddenUntil = -1;
 
   private nextId = 1;
@@ -616,6 +627,24 @@ export class Sim {
     return true;
   }
 
+  /** Hurt a ship with something other than a cannonball (lightning, a serpent, rocks). */
+  strikeShip(s: Ship, amount: number, quiet = false) {
+    if (quiet && s === this.player && this.god) return;
+    this.damage(s, amount, false, s.x, 10, s.z);
+  }
+
+  /** A flaming bomb from the volcano, arcing from (x, y, z) to land at (tx, tz). */
+  lobFire(x: number, y: number, z: number, tx: number, tz: number) {
+    const d = Math.max(60, Math.hypot(tx - x, tz - z));
+    const speed = 300;
+    const flight = d / speed;
+    this.balls.push({
+      x, y, z,
+      vx: ((tx - x) / d) * speed, vy: 0.5 * GRAVITY * flight - y / flight, vz: ((tz - z) / d) * speed,
+      owner: -1, byPlayer: false, damage: 45, fire: true,
+    });
+  }
+
   /** Cheat: put your ship just off an island's shore, stopped and facing out to sea. */
   sailTo(index: number) {
     const isl = ISLANDS[index];
@@ -689,6 +718,7 @@ export class Sim {
     }
 
     this.updateStretchAtSea(dt);
+    this.hazards.step(dt);
 
     for (const s of this.ships) {
       if (s !== p && s.sinking < 0) {
@@ -856,7 +886,7 @@ export class Sim {
       if (playerAfloat && !playerSafe && (dPlayer < 950 || s.ai.angered)) mode = "engage";
     } else if (s.faction === "marine") {
       const hostile = s.ai.hunter ? this.stars > 0 : this.heat > 0 || s.ai.angered;
-      if (playerAfloat && !playerSafe && hostile && (s.ai.hunter || dPlayer < MARINE_SIGHT)) mode = "engage";
+      if (playerAfloat && !playerSafe && hostile && (s.ai.hunter || dPlayer < MARINE_SIGHT * this.hazards.sightScale)) mode = "engage";
     }
 
     let desired = s.heading;
@@ -1311,6 +1341,8 @@ export class Sim {
         b.x += b.vx * sub;
         b.y += b.vy * sub;
         b.z += b.vz * sub;
+        // Your shots can hit sirens and the sea serpent too.
+        if (b.byPlayer && this.hazards.hitByBall(b)) continue outer;
         if (b.y < 16) {
           for (const s of this.ships) {
             if (s.id === b.owner || s.sinking >= 0) continue;
@@ -1336,6 +1368,8 @@ export class Sim {
         const ground = b.y < 40 ? groundHeight(b.x, b.z) : null;
         if (ground !== null && b.y <= ground) {
           this.events.push({ k: "impact", x: b.x, y: ground, z: b.z, fire: !!b.fire });
+          // Volcanic bombs burst where they land, hurting anyone near.
+          if (b.owner === -1) this.shore.blast(b.x, b.z, 55, 35);
           continue outer;
         }
         if (b.y <= 0) {
@@ -1442,7 +1476,7 @@ export class Sim {
       const seen =
         !this.hidden &&
         this.mode === "ship" &&
-        this.ships.some((s) => s.faction === "marine" && s.sinking < 0 && Math.hypot(s.x - p.x, s.z - p.z) < MARINE_SIGHT);
+        this.ships.some((s) => s.faction === "marine" && s.sinking < 0 && Math.hypot(s.x - p.x, s.z - p.z) < MARINE_SIGHT * this.hazards.sightScale);
       if (seen) this.lastSeen = this.time;
       else if (this.time - this.lastSeen > HIDE_TIME) this.heat = Math.max(0, this.heat - 0.12 * dt);
     }

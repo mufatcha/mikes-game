@@ -414,6 +414,9 @@ export const WAVES: [dirX: number, dirZ: number, amplitude: number, wavelength: 
   [-0.8, 0.6, 0.25, 23, 2.9],
 ];
 
+/** How rough the sea is right now (storms raise it); the ocean shader follows it too. */
+export const waveState = { scale: 1 };
+
 export function waveHeight(x: number, z: number, t: number) {
   let h = 0;
   for (const [dx, dz, a, l, s] of WAVES) {
@@ -421,5 +424,5 @@ export function waveHeight(x: number, z: number, t: number) {
     const k = (Math.PI * 2) / l;
     h += a * Math.sin(k * ((dx / len) * x + (dz / len) * z) + t * s);
   }
-  return h;
+  return h * waveState.scale;
 }

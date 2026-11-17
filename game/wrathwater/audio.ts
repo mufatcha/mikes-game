@@ -176,6 +176,24 @@ export class SeaAudio {
     }
   }
 
+  /** Thunder: a crack, then a long rumble. */
+  thunder(volume: number) {
+    this.burst(volume, 2400, 0.3, 0.2);
+    this.burst(volume, 90, 0.4, 2.6, 0.1);
+  }
+
+  /** A siren's song: a high, wavering, lovely and wrong melody. */
+  siren() {
+    const notes = [660, 784, 740, 988, 880];
+    notes.forEach((f, i) => this.tone(0.12, f, f * 1.01, 0.5, "sine", i * 0.42));
+  }
+
+  /** The sea serpent's roar. */
+  roar(volume: number) {
+    this.tone(volume, 120, 50, 1.4, "sawtooth");
+    this.burst(volume * 0.7, 300, 0.5, 1.2);
+  }
+
   alarm() {
     this.tone(0.14, 880, 660, 0.25, "sawtooth");
     this.tone(0.14, 880, 660, 0.25, "sawtooth", 0.3);

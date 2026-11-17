@@ -31,7 +31,69 @@ import {
   type ShipVisual,
 } from "./models";
 import { forward, sideNormal, type Sim, type SimEvent, type Side } from "./sim";
-import { HAVEN, ISLANDS, VOLCANO, WAVES, groundHeight, hillProfile, islandAt, waveHeight } from "./world";
+import { HAVEN, ISLANDS, VOLCANO, WAVES, groundHeight, hillProfile, islandAt, waveHeight, waveState } from "./world";
+
+/** A siren's rock: a jagged black rock with a pale, glowing siren on top (her glow shows while she sings). */
+function buildSirenRock() {
+  const g = new THREE.Group();
+  const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(26, 1), new THREE.MeshStandardMaterial({ color: "#1f2933", roughness: 1, flatShading: true }));
+  rock.scale.set(1, 0.7, 1);
+  rock.position.y = 4;
+  g.add(rock);
+  const siren = new THREE.Group();
+  siren.name = "siren";
+  const skin = new THREE.MeshStandardMaterial({ color: "#c7e9e4", emissive: new THREE.Color("#5eead4"), emissiveIntensity: 0.35, roughness: 0.5 });
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(3, 12, 10), new THREE.MeshStandardMaterial({ color: "#0f766e", metalness: 0.4, roughness: 0.4 }));
+  tail.rotation.z = Math.PI / 2.4;
+  tail.position.set(0, 24, 3);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.6, 8, 10), skin);
+  body.position.y = 31;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 10), skin);
+  head.position.y = 37;
+  const hair = new THREE.Mesh(new THREE.ConeGeometry(3, 10, 10), new THREE.MeshStandardMaterial({ color: "#1e3a8a", roughness: 0.6 }));
+  hair.position.set(0, 34, -1.5);
+  hair.rotation.x = Math.PI;
+  siren.add(tail, body, head, hair);
+  g.add(siren);
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(12, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 1.4, 1.3), transparent: true, opacity: 0.25, depthWrite: false }));
+  glow.name = "glow";
+  glow.position.y = 33;
+  g.add(glow);
+  return g;
+}
+
+/** The Gnashjaw: a great sea serpent, its coils arching out of the water. */
+function buildSerpent() {
+  const g = new THREE.Group();
+  const scales = new THREE.MeshStandardMaterial({ color: "#1f3b2d", roughness: 0.6, metalness: 0.2 });
+  for (let i = 0; i < 7; i++) {
+    const seg = new THREE.Mesh(new THREE.SphereGeometry(30 - i * 2.4, 16, 12), scales);
+    seg.name = "seg";
+    g.add(seg);
+  }
+  const head = new THREE.Group();
+  head.name = "head";
+  head.scale.setScalar(1.8);
+  const skull = new THREE.Mesh(new THREE.BoxGeometry(38, 16, 20), scales);
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(34, 6, 18), new THREE.MeshStandardMaterial({ color: "#14261d" }));
+  jaw.position.set(2, -10, 0);
+  jaw.rotation.z = -0.25;
+  const eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.2, 0.2) });
+  for (const z of [-8, 8]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(2.4, 8, 6), eyeMat);
+    eye.position.set(12, 5, z);
+    head.add(eye);
+  }
+  for (let i = 0; i < 6; i++) {
+    const fang = new THREE.Mesh(new THREE.ConeGeometry(1.2, 6, 5), new THREE.MeshStandardMaterial({ color: "#f5f5f4" }));
+    fang.position.set(16 - i * 4, -8, i % 2 ? 6 : -6);
+    fang.rotation.z = Math.PI;
+    head.add(fang);
+  }
+  head.add(skull, jaw);
+  g.add(head);
+  return g;
+}
 
 /**
  * Islands are built when you come within this distance of their shore and
@@ -496,6 +558,8 @@ export class SeaRenderer {
     this.oceanUniforms.uTime.value = sim.time;
     this.skyUniforms.uTime.value = sim.time;
     this.updateSky(sim);
+    this.applyWeather(sim, dt);
+    this.syncHazards(sim);
     this.syncShips(sim, dt, view);
     this.syncPeople(sim, view, dt);
     this.syncProjectiles(sim, dt);
@@ -851,6 +915,94 @@ export class SeaRenderer {
     this.bloom.strength = 0.3 + this.night * 0.35;
   }
 
+  // ---------------------------------------------------------------- weather and the dangers of the Reach
+
+  private flash = 0;
+  private sirenViews = new Map<number, THREE.Group>();
+  private monsterView: THREE.Group | null = null;
+
+  /** Rain, fog and storms: darker skies, shorter sight, rain around you, lightning flashes. */
+  private applyWeather(sim: Sim, dt: number) {
+    const hz = sim.hazards;
+    const a = hz.weatherAmount;
+    const kind = hz.weather;
+    const gloom = kind === "storm" ? 0.65 : kind === "rain" ? 0.35 : kind === "fog" ? 0.15 : 0;
+    const grey = new THREE.Color(0.32, 0.34, 0.38);
+    this.fog.color.lerp(grey, gloom * a);
+    // Fog and storms close in.
+    const near = kind === "fog" ? 120 : kind === "storm" ? 300 : 650;
+    const far = kind === "fog" ? 900 : kind === "storm" ? 1500 : kind === "rain" ? 2200 : 2700;
+    this.fog.near = 650 + (near - 650) * a;
+    this.fog.far = 2700 + (far - 2700) * a;
+    this.skyUniforms.uHorizon.value.lerp(grey, gloom * a);
+    this.skyUniforms.uZenith.value.lerp(new THREE.Color(0.12, 0.13, 0.16), gloom * a);
+    this.sun.intensity *= 1 - gloom * a * 0.7;
+    // Lightning lights everything up for a moment.
+    if (this.flash > 0) {
+      this.flash = Math.max(0, this.flash - dt * 4);
+      this.hemi.intensity += this.flash * 3;
+    }
+    // Rougher seas in the shader, matching the physics.
+    const waves = this.oceanUniforms.uWaves.value as THREE.Vector4[];
+    waves.forEach((w, i) => (w.z = WAVES[i][2] * waveState.scale));
+    // Rain falls all around you.
+    if ((kind === "rain" || kind === "storm") && a > 0.05) {
+      const n = Math.round((kind === "storm" ? 90 : 50) * a * Math.min(dt, 0.05) * 60);
+      const c = this.camTarget;
+      for (let i = 0; i < n; i++) {
+        puff(this.smoke, this.glow, "rain", c.x + (Math.random() - 0.5) * 500, c.y + 120 + Math.random() * 80, c.z + (Math.random() - 0.5) * 500, kind === "storm" ? 60 : 0, 0);
+      }
+    }
+  }
+
+  /** The sirens on their rocks, and the Gnashjaw, when they're near enough to see. */
+  private syncHazards(sim: Sim) {
+    const c = this.camTarget;
+    for (const s of sim.hazards.sirens) {
+      const near = Math.hypot(s.x - c.x, s.z - c.z) < 3000;
+      let g = this.sirenViews.get(s.id);
+      if (!near) {
+        if (g) {
+          this.scene.remove(g);
+          this.sirenViews.delete(s.id);
+        }
+        continue;
+      }
+      if (!g) {
+        g = buildSirenRock();
+        g.position.set(s.x, 0, s.z);
+        this.scene.add(g);
+        this.sirenViews.set(s.id, g);
+      }
+      const siren = g.getObjectByName("siren")!;
+      siren.visible = s.hp > 0;
+      const glow = g.getObjectByName("glow") as THREE.Mesh;
+      glow.visible = s.hp > 0 && s.singing;
+      glow.scale.setScalar(1 + 0.25 * Math.sin(sim.time * 5));
+      siren.rotation.y = Math.atan2(c.x - s.x, c.z - s.z);
+    }
+    const m = sim.hazards.monster;
+    if (!this.monsterView) {
+      this.monsterView = buildSerpent();
+      this.scene.add(this.monsterView);
+    }
+    const v = this.monsterView;
+    v.visible = m.rise > 0.02 && Math.hypot(m.x - c.x, m.z - c.z) < 3000;
+    if (v.visible) {
+      // Arcing coils behind the head, rising out of the sea.
+      const segs = v.children.filter((o) => o.name === "seg");
+      segs.forEach((seg, i) => {
+        const back = i * 50;
+        const wave = Math.sin(sim.time * 3 - i * 0.9);
+        seg.position.set(m.x - Math.cos(m.heading) * back, (m.rise * 110 - i * 8) * (0.6 + 0.4 * wave) - 45, m.z - Math.sin(m.heading) * back);
+      });
+      const head = v.getObjectByName("head")!;
+      head.position.set(m.x + Math.cos(m.heading) * 45, m.rise * 130 - 30, m.z + Math.sin(m.heading) * 45);
+      head.rotation.y = -m.heading;
+      if (Math.random() < 0.3) puff(this.smoke, this.glow, "spray", m.x, 2, m.z);
+    }
+  }
+
   // ---------------------------------------------------------------- events
 
   handleEvents(events: SimEvent[], sim: Sim) {
@@ -887,6 +1039,32 @@ export class SeaRenderer {
         case "impact":
           for (let i = 0; i < 4; i++) p(e.fire ? "fire" : "dust", e.x, e.y, e.z);
           p("spark", e.x, e.y, e.z);
+          break;
+        case "lightning": {
+          this.effects.lightning(e.x + 30, 520, e.z - 20, e.x, 4, e.z);
+          this.flash = 1;
+          for (let i = 0; i < 12; i++) p("spark", e.x, 8, e.z);
+          break;
+        }
+        case "eruption":
+          for (let i = 0; i < 40; i++) p("fire", e.x + (Math.random() - 0.5) * 60, hillProfile(VOLCANO.hill.h, VOLCANO.hill.r, 0) + 10, e.z + (Math.random() - 0.5) * 60);
+          for (let i = 0; i < 12; i++) p("ash", e.x, hillProfile(VOLCANO.hill.h, VOLCANO.hill.r, 0) + 20, e.z);
+          this.shake = Math.max(this.shake, 0.8);
+          break;
+        case "rumble":
+          this.shake = Math.max(this.shake, 0.5);
+          break;
+        case "monster":
+          if (e.what === "lash") {
+            this.shake = Math.max(this.shake, 1.2);
+            for (let i = 0; i < 30; i++) p("splash", e.x + (Math.random() - 0.5) * 60, 2, e.z + (Math.random() - 0.5) * 60);
+          } else if (e.what === "slain") {
+            this.effects.ring(e.x, 3, e.z, 300, "#a3e635", 1.4);
+            for (let i = 0; i < 40; i++) p("splash", e.x + (Math.random() - 0.5) * 120, 2, e.z + (Math.random() - 0.5) * 120);
+          } else for (let i = 0; i < 40; i++) p("splash", e.x + (Math.random() - 0.5) * 80, 2, e.z + (Math.random() - 0.5) * 80);
+          break;
+        case "sirenSilenced":
+          for (let i = 0; i < 20; i++) p("venom", e.x, 10, e.z);
           break;
         case "sunk":
           for (let i = 0; i < 22; i++) p(i % 3 ? "debris" : "fire", e.x, 6, e.z);
