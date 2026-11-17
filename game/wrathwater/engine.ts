@@ -45,6 +45,7 @@ import {
   FOOD_IDS,
   ITEM_IDS,
   levelFromXp,
+  xpForLevel,
   skillEffects,
   type FoodId,
   type ItemId,
@@ -418,6 +419,29 @@ export class WrathwaterEngine {
     this.sim.refreshPlayerStats();
     this.sim.repairPlayer();
     this.notice("Cheat: your ship is fully upgraded and repaired.", "gold");
+    this.save();
+  }
+
+  /**
+   * Max level: enough XP for a skill point for every level of every skill
+   * (spend them in the inventory), or with `trainAll` every skill maxed too.
+   */
+  cheatMaxLevel(trainAll: boolean) {
+    const s = this.sim.save;
+    const target = 1 + SKILL_IDS.length * SKILL_MAX;
+    let xp = 0;
+    for (let l = 1; l < target; l++) xp += xpForLevel(l);
+    s.xp = Math.max(s.xp, xp);
+    if (trainAll) for (const k of SKILL_IDS) s.skills[k] = SKILL_MAX;
+    const h = this.sim.shore.hero;
+    if (h) {
+      h.maxHp = skillEffects(s.skills).maxHp;
+      h.hp = h.maxHp;
+    }
+    this.notice(
+      trainAll ? `Cheat: level ${target} with every skill maxed.` : `Cheat: level ${target}, with ${this.skillPoints} skill points to spend (I).`,
+      "gold",
+    );
     this.save();
   }
 

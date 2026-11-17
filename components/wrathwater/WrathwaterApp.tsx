@@ -1017,6 +1017,8 @@ function CheatMenu({ engine, onClose }: { engine: WrathwaterEngine; onClose: () 
         <PanelButton onClick={cheat(() => engine.cheatBounty())}>🏴 +50,000,000 bounty</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatShip())}>⛵ Max ship upgrades and repair</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatBiggerShip())}>🚢 Next ship size, with a full crew</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatMaxLevel(false))}>⬆️ Max level, with every skill point to spend</PanelButton>
+        <PanelButton onClick={cheat(() => engine.cheatMaxLevel(true))}>💪 Max level and every skill maxed</PanelButton>
         <PanelButton onClick={cheat(() => engine.cheatVaultKeys())}>🗝️ All 3 Vault Warden keys</PanelButton>
         <PanelButton onClick={() => engine.cheatTrueName()}>📜 Learn the fruit&apos;s real name</PanelButton>
         <PanelButton primary={god} onClick={() => setGod(engine.cheatGod())}>
