@@ -26,6 +26,7 @@ import {
 import { STORE_NAMES } from "./foot";
 import type { PanelRow } from "./panel";
 import { giverName, makeQuest, type Quest } from "./quests";
+import { HOME_BUILDINGS, HOME_ISLAND, HOME_PRICE, type HomeBuildingId } from "./home";
 import { SeaAudio } from "./audio";
 import {
   FRUITS,
@@ -225,6 +226,8 @@ export interface EngineCallbacks {
   onMap(): void;
   /** You beat Cinder Mawgrave: the Tempest Crown. */
   onVictory(): void;
+  /** At your island's signpost: open its menu. */
+  onHome(): void;
   /** A quest giver offers you a quest (accept or turn it down). */
   onQuestOffer(q: Quest): void;
   /** Your progress was replaced from another tab (a save code was loaded there): this game stopped saving. */
@@ -737,6 +740,67 @@ export class WrathwaterEngine {
     this.notice(`Quest complete: ${q.title}! +${q.gold} gold, +${q.xp} XP`, "bounty");
     this.gainXp(q.xp);
     this.save();
+  }
+
+  // ---------------------------------------------------------------- your island
+
+  buyHome() {
+    const s = this.sim.save;
+    if (s.home.owned || s.gold < HOME_PRICE) return false;
+    s.gold -= HOME_PRICE;
+    s.home.owned = true;
+    s.home.lastTick = s.playTime;
+    this.afterPurchase();
+    this.audio.fanfare();
+    this.notice(`${HOME_ISLAND.name} is yours! Use the signpost to build on it.`, "bounty");
+    return true;
+  }
+
+  canBuildHome(id: HomeBuildingId) {
+    const s = this.sim.save;
+    return s.home.owned && !s.home.built.includes(id) && s.gold >= HOME_BUILDINGS[id].cost;
+  }
+
+  buildHome(id: HomeBuildingId) {
+    if (!this.canBuildHome(id)) return false;
+    const s = this.sim.save;
+    s.gold -= HOME_BUILDINGS[id].cost;
+    s.home.built.push(id);
+    this.afterPurchase();
+    this.notice(`Built a ${HOME_BUILDINGS[id].name} on ${HOME_ISLAND.name}. ${HOME_BUILDINGS[id].effect}`, "gold");
+    return true;
+  }
+
+  /** Take what the farm, mine and workshop have made. */
+  collectHome() {
+    const s = this.sim.save;
+    const st = s.home.stock;
+    const food = Math.floor(st.food);
+    const iron = Math.floor(st.iron);
+    const powder = Math.floor(st.powder);
+    const wood = Math.floor(st.wood);
+    if (!food && !iron && !powder && !wood) return false;
+    for (let i = 0; i < food; i++) s.food.push({ food: i % 2 ? "fish" : "fruit", spoils: s.playTime + (i % 2 ? 15 : 8) * 60 });
+    s.materials.iron += iron;
+    s.materials.powder += powder;
+    s.materials.wood += wood;
+    st.food -= food;
+    st.iron -= iron;
+    st.powder -= powder;
+    st.wood -= wood;
+    this.afterPurchase();
+    this.notice(`Collected ${[food && `${food} food`, iron && `${iron} iron`, powder && `${powder} gunpowder`, wood && `${wood} timber`].filter(Boolean).join(", ")}.`, "gold");
+    return true;
+  }
+
+  /** Move gold into (positive) or out of (negative) your island's vault. */
+  vaultMove(amount: number) {
+    const s = this.sim.save;
+    if (!s.home.built.includes("vault")) return;
+    const n = amount > 0 ? Math.min(amount, s.gold) : -Math.min(-amount, s.home.vault);
+    s.gold -= n;
+    s.home.vault += n;
+    this.afterPurchase();
   }
 
   // ---------------------------------------------------------------- bigger ships and crew
@@ -1895,6 +1959,16 @@ export class WrathwaterEngine {
           "danger",
         );
         break;
+      case "homeSign": {
+        const h = this.sim.save.home;
+        if (!h.owned) {
+          if (!this.buyHome()) this.notice(`You need ${HOME_PRICE.toLocaleString("en-US")} gold to buy ${HOME_ISLAND.name}.`, "info");
+        } else {
+          this.releasePointer();
+          this.cb.onHome();
+        }
+        break;
+      }
       case "bossDefeated":
         this.audio.fanfare();
         this.gainXp(3000);
@@ -2296,6 +2370,13 @@ export class WrathwaterEngine {
       g.beginPath();
       g.arc(x, z, Math.max(4, isl.radius * k), 0, Math.PI * 2);
       g.fill();
+      if (isl === HOME_ISLAND && sim.save.home.owned) {
+        g.strokeStyle = "#4ade80";
+        g.lineWidth = 3;
+        g.beginPath();
+        g.arc(x, z, Math.max(9, isl.radius * k + 7), 0, Math.PI * 2);
+        g.stroke();
+      }
       if (isl.index === questIsland) {
         g.strokeStyle = "#fbbf24";
         g.lineWidth = 2;

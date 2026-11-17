@@ -4,6 +4,7 @@
  */
 import { FRUIT_IDS, ITEMS, PLAYER_FOOT_HP, WEAPONS, WEAPON_ORDER, skillEffects, type FruitId, type ItemId, type StretchMove, type WeaponId } from "./items";
 import { giverName } from "./quests";
+import { HOME_ISLAND, HOME_PRICE, homeLayout } from "./home";
 import type { Sim } from "./sim";
 import { BEACH_TOP, COUNTER, ISLANDS, doorAxis, groundHeight, islandAt, waveHeight, type Building, type BuildingKind, type Island, type LootSpot, type ServiceKind } from "./world";
 
@@ -184,8 +185,8 @@ export class Shore {
       ally.hp = 90;
       this.allies.push(ally);
     }
-    // Docking at Blackwater Cove: the shipwright's crew patches the hull while you're ashore.
-    if (isl.haven) p.hp = p.stats.hull;
+    // Docking at Blackwater Cove (or your own island's dock): your hull gets patched while you're ashore.
+    if (isl.haven || (isl === HOME_ISLAND && this.sim.save.home.built.includes("dock"))) p.hp = p.stats.hull;
     p.throttle = 0;
     this.sim.input.sails = 0;
     this.sim.mode = "foot";
@@ -1248,6 +1249,19 @@ export class Shore {
     }
     if (this.canBoard()) return { key: "board", label: "Board your ship", hold: 0, run: () => this.board() };
     const isl = ISLANDS[h.island];
+    // Your island's signpost: buy it, or run it.
+    if (isl === HOME_ISLAND) {
+      const sign = homeLayout().sign;
+      if (Math.hypot(sign.x - h.x, sign.z - h.z) < 26) {
+        const owned = this.sim.save.home.owned;
+        return {
+          key: "homesign",
+          label: owned ? "Your island: build, collect and use the vault" : `This island is for sale: buy it for ${HOME_PRICE.toLocaleString("en-US")} gold`,
+          hold: 0,
+          run: () => this.sim.events.push({ k: "homeSign" }),
+        };
+      }
+    }
     for (const w of this.walkers) {
       if (w.dead < 0.6 || w.looted || w.dead > BODY_TIME || Math.hypot(w.x - h.x, w.z - h.z) > 20) continue;
       return { key: `body${w.id}`, label: "Search the body", hold: 1, run: () => this.lootBody(w) };

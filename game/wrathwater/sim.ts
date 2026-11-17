@@ -23,6 +23,7 @@ import {
 } from "./data";
 import { Shore, type WalkerKind } from "./foot";
 import { Hazards, type WeatherKind } from "./hazards";
+import { HOME_ISLAND, produce } from "./home";
 import {
   FOODS,
   FRUIT_MOVES,
@@ -199,6 +200,7 @@ export type SimEvent =
   | { k: "bossAppears" }
   | { k: "bossPhase"; phase: number }
   | { k: "bossDefeated" }
+  | { k: "homeSign" }
   | { k: "hunger"; level: "hungry" | "starving" }
   | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
@@ -635,6 +637,40 @@ export class Sim {
     return true;
   }
 
+  // ---------------------------------------------------------------- your island's watchtower
+
+  private nextTowerShot = 0;
+
+  /** The watchtower on your island fires on enemy ships that come near it. */
+  private towerFire() {
+    const h = this.save.home;
+    if (!h.owned || !h.built.includes("watchtower") || this.time < this.nextTowerShot) return;
+    let target: Ship | null = null;
+    let best = 1000;
+    for (const s of this.ships) {
+      if (s === this.player || s.escort || s.sinking >= 0 || s.surrendered) continue;
+      const hostile = s.faction === "pirate" || s.ai.angered || s.ai.hunter || (s.faction === "marine" && this.heat > 0);
+      const d = Math.hypot(s.x - HOME_ISLAND.x, s.z - HOME_ISLAND.z) - HOME_ISLAND.radius;
+      if (hostile && d < best) {
+        best = d;
+        target = s;
+      }
+    }
+    if (!target) return;
+    this.nextTowerShot = this.time + 3.5;
+    const sx = HOME_ISLAND.x;
+    const sz = HOME_ISLAND.z;
+    const y = 40;
+    const d = Math.hypot(target.x - sx, target.z - sz);
+    const flight = d / 420;
+    this.balls.push({
+      x: sx, y, z: sz,
+      vx: ((target.x - sx) / d) * 420, vy: 0.5 * GRAVITY * flight - y / flight, vz: ((target.z - sz) / d) * 420,
+      owner: -2, byPlayer: true, damage: 45,
+    });
+    this.events.push({ k: "fire", shipId: -2, side: 1, byPlayer: true, x: sx, z: sz, count: 1 });
+  }
+
   // ---------------------------------------------------------------- Cinder Mawgrave
 
   /** The Cinderwake, if she's afloat. */
@@ -749,6 +785,8 @@ export class Sim {
     if (this.built("infirmary") && p.sinking < 0 && p.hp < p.stats.hull) p.hp = Math.min(p.stats.hull, p.hp + 2 * dt);
     this.syncEscorts();
     if (!this.save.reachSeen && p.x > REACH_X) this.save.reachSeen = true;
+    produce(this.save.home, this.save.playTime);
+    this.towerFire();
     if (this.mode === "ship" && p.sinking < 0 && inStormwall(p.x)) {
       const small = this.save.shipTier < 2;
       if (!this.inStorm) this.events.push({ k: "stormwall", small });
@@ -810,8 +848,12 @@ export class Sim {
 
   private spawnPlayer() {
     const stats = playerStats(this.save);
-    // Start at the dock, pointing out to sea.
-    this.player = this.makeShip(playerClass(this.save.shipTier), stats, HAVEN.x + HAVEN.radius + 90, HAVEN.z, 0);
+    // Start at the dock, pointing out to sea (at your own island, if you have a house there).
+    const home = this.save.home.owned && this.save.home.built.includes("house") ? HOME_ISLAND : null;
+    const a = home ? Math.atan2(-home.z, -home.x) : 0;
+    const x = home ? home.x + Math.cos(a) * (home.radius + 90) : HAVEN.x + HAVEN.radius + 90;
+    const z = home ? home.z + Math.sin(a) * (home.radius + 90) : HAVEN.z;
+    this.player = this.makeShip(playerClass(this.save.shipTier), stats, x, z, a);
     this.ships.push(this.player);
   }
 

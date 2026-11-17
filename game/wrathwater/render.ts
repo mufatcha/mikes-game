@@ -8,6 +8,7 @@ import { Effects, ParticleLayer, puff, type PuffKind } from "./fx";
 import { WEAPONS, type WeaponId } from "./items";
 import { buildInterior, disposeInterior } from "./interior";
 import { buildIsland, disposeIsland } from "./land";
+import { HOME_ISLAND } from "./home";
 import { WorldPanel } from "./panel";
 import {
   buildBackpack,
@@ -32,6 +33,11 @@ import {
 } from "./models";
 import { forward, sideNormal, type Sim, type SimEvent, type Side } from "./sim";
 import { HAVEN, ISLANDS, VOLCANO, WAVES, groundHeight, hillProfile, islandAt, waveHeight, waveState } from "./world";
+
+/** What's on your island, as a key that changes when you buy it or build on it. */
+function homeKey(sim: Sim) {
+  return `${sim.save.home.owned}:${sim.save.home.built.join(",")}`;
+}
 
 /** A siren's rock: a jagged black rock with a pale, glowing siren on top (her glow shows while she sings). */
 function buildSirenRock() {
@@ -1474,9 +1480,17 @@ export class SeaRenderer {
     const at = sim.mode === "foot" && sim.shore.hero ? sim.shore.hero : sim.player;
     for (const isl of ISLANDS) {
       const shore = Math.hypot(isl.x - at.x, isl.z - at.z) - isl.radius;
-      const built = this.islands.get(isl.index);
+      let built = this.islands.get(isl.index);
+      // Your island is rebuilt when you buy it or build on it.
+      if (built && isl === HOME_ISLAND && built.userData.home !== homeKey(sim)) {
+        this.scene.remove(built);
+        disposeIsland(built);
+        this.islands.delete(isl.index);
+        built = undefined;
+      }
       if (!built && shore < ISLAND_LOAD) {
-        const g = buildIsland(isl);
+        const g = buildIsland(isl, sim.save.home);
+        g.userData.home = homeKey(sim);
         this.scene.add(g);
         this.islands.set(isl.index, g);
       } else if (built && shore > ISLAND_UNLOAD) {

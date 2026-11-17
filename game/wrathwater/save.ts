@@ -19,6 +19,7 @@ import {
   type WeaponId,
 } from "./items";
 import { cleanQuest, type Quest } from "./quests";
+import { cleanHome, newHome, type HomeState } from "./home";
 
 /** Progress kept between visits, in this browser only. */
 export interface SaveData {
@@ -76,6 +77,8 @@ export interface SaveData {
   reachSeen: boolean;
   /** You sank Cinder Mawgrave's Cinderwake and won the Tempest Crown. */
   bossDefeated: boolean;
+  /** Your own island. */
+  home: HomeState;
 }
 
 export const SAVE_KEY = "ww.save.v1";
@@ -121,6 +124,7 @@ export function newSave(captain: string): SaveData {
     escorts: 0,
     reachSeen: false,
     bossDefeated: false,
+    home: newHome(),
   };
 }
 
@@ -175,6 +179,7 @@ export function loadSave(): SaveData | null {
       escorts: Math.max(0, Math.min(MAX_ESCORTS, Math.floor(Number(s.escorts)) || 0)),
       reachSeen: !!s.reachSeen,
       bossDefeated: !!s.bossDefeated,
+      home: cleanHome(s.home),
     };
   } catch {
     return null;

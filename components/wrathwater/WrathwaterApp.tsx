@@ -51,12 +51,13 @@ import {
   type MaterialId,
 } from "@/game/wrathwater/items";
 import type { Quest } from "@/game/wrathwater/quests";
+import { HOME_BUILDINGS, HOME_BUILDING_IDS, HOME_ISLAND } from "@/game/wrathwater/home";
 import { deleteSave, loadSave, newSave, writeSave, type SaveData } from "@/game/wrathwater/save";
 import { ProfileButton, ProfileModal } from "@/components/ProfilePanel";
 import { useProfile } from "@/lib/profile";
 
 type Screen = "menu" | "naming" | "playing";
-type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename" | "general" | "quest" | "map" | "victory";
+type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename" | "general" | "quest" | "map" | "victory" | "home";
 
 const SAVE_KEY = "ww.save.v1";
 
@@ -444,6 +445,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
           onSaveReplaced: () => setOverlay("replaced"),
           onMap: () => setOverlay((o) => (o === "none" ? "map" : o)),
           onVictory: () => setOverlay("victory"),
+          onHome: () => setOverlay("home"),
           onQuestOffer: (q) => {
             setOffer(q);
             setOverlay("quest");
@@ -580,6 +582,7 @@ function Voyage({ save, onQuit }: { save: SaveData; onQuit: () => void }) {
       {overlay === "tavern" && engine && <Tavern engine={engine} onClose={resume} />}
       {overlay === "general" && engine && <GeneralStore engine={engine} onClose={resume} />}
       {overlay === "map" && engine && <WorldMap engine={engine} onClose={resume} />}
+      {overlay === "home" && engine && <HomeIsland engine={engine} onClose={resume} />}
       {overlay === "victory" && engine && (
         <Modal>
           <p className="text-center text-xs font-semibold uppercase tracking-[0.4em] text-amber-300">The Cinderwake is sunk</p>
@@ -1639,6 +1642,107 @@ function Shipwright({ engine, onClose }: { engine: WrathwaterEngine; onClose: ()
       <DeckAndFleet engine={engine} refresh={() => setTick((t) => t + 1)} />
       <PanelButton primary onClick={onClose}>
         Leave the shipwright
+      </PanelButton>
+    </Modal>
+  );
+}
+
+/** Your island: build, collect what it's made, and keep gold in the vault. */
+function HomeIsland({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => void }) {
+  const [, setTick] = useState(0);
+  const refresh = () => setTick((t) => t + 1);
+  const save = engine.sim.save;
+  const h = save.home;
+  const st = h.stock;
+  return (
+    <Modal wide onClose={onClose}>
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-serif text-3xl font-black uppercase tracking-wide">{HOME_ISLAND.name}</h2>
+        <span className="text-lg font-bold text-amber-300">{save.gold.toLocaleString("en-US")} gold</span>
+      </div>
+      <p className="mt-1 text-sm text-zinc-400">Your own island. What you build works while you&apos;re away.</p>
+      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-emerald-500/10 p-3 ring-1 ring-emerald-400/30">
+        <p className="text-sm">
+          Waiting to collect: {Math.floor(st.food)} food · {Math.floor(st.iron)} iron · {Math.floor(st.powder)} gunpowder · {Math.floor(st.wood)} timber
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            engine.collectHome();
+            refresh();
+          }}
+          className="rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-black hover:bg-emerald-400"
+        >
+          Collect
+        </button>
+      </div>
+      {h.built.includes("vault") && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-amber-500/10 p-3 ring-1 ring-amber-400/30">
+          <p className="flex-1 text-sm">
+            Vault: <span className="font-bold text-amber-300">{h.vault.toLocaleString("en-US")} gold</span> (safe when your ship sinks)
+          </p>
+          {[1000, Infinity].map((n) => (
+            <button
+              key={`in${n}`}
+              type="button"
+              disabled={save.gold <= 0}
+              onClick={() => {
+                engine.vaultMove(n);
+                refresh();
+              }}
+              className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20 disabled:opacity-40"
+            >
+              Store {n === Infinity ? "all" : n.toLocaleString("en-US")}
+            </button>
+          ))}
+          {[1000, Infinity].map((n) => (
+            <button
+              key={`out${n}`}
+              type="button"
+              disabled={h.vault <= 0}
+              onClick={() => {
+                engine.vaultMove(-n);
+                refresh();
+              }}
+              className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20 disabled:opacity-40"
+            >
+              Take {n === Infinity ? "all" : n.toLocaleString("en-US")}
+            </button>
+          ))}
+        </div>
+      )}
+      <h3 className="mt-4 text-xs font-bold uppercase tracking-widest text-red-300">Build</h3>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {HOME_BUILDING_IDS.map((id) => {
+          const b = HOME_BUILDINGS[id];
+          const has = h.built.includes(id);
+          return (
+            <div key={id} className={`flex items-center gap-2 rounded-lg p-2 ring-1 ${has ? "bg-emerald-900/30 ring-emerald-500/40" : "bg-white/5 ring-white/10"}`}>
+              <div className="flex-1">
+                <p className="text-sm font-semibold">{b.name}</p>
+                <p className="text-[11px] text-zinc-400">{b.effect}</p>
+              </div>
+              {has ? (
+                <span className="w-24 text-center text-xs font-bold text-emerald-300">Built</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!engine.canBuildHome(id)}
+                  onClick={() => {
+                    engine.buildHome(id);
+                    refresh();
+                  }}
+                  className="w-24 rounded-md bg-amber-500 px-2 py-1 text-xs font-bold text-black hover:bg-amber-400 disabled:bg-white/10 disabled:text-zinc-500"
+                >
+                  {b.cost.toLocaleString("en-US")} g
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <PanelButton primary onClick={onClose}>
+        Done
       </PanelButton>
     </Modal>
   );

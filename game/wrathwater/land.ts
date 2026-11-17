@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { buildPerson, canvasTexture, sailTexture } from "./models";
 import { BEACH_TOP, hillProfile, type Building, type Island } from "./world";
+import { HOME_ISLAND, homeLayout, type HomeState } from "./home";
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -69,7 +70,7 @@ function makeShared() {
  * renderer builds an island when you sail near it and throws it away when
  * you're far off (see disposeIsland), so only what you can see is loaded.
  */
-export function buildIsland(isl: Island): THREE.Group {
+export function buildIsland(isl: Island, home?: HomeState): THREE.Group {
   shared ??= makeShared();
   const { sand, grass, rockMat, trunkMat, leafMat, trunkGeo, frondGeo, rockGeo } = shared;
   const group = new THREE.Group();
@@ -149,6 +150,7 @@ export function buildIsland(isl: Island): THREE.Group {
     if (isl.kind === "fortress") group.add(buildFortressExtras(isl));
     if (isl.haven) group.add(buildHavenExtras(isl));
     if (isl.questGiver) group.add(buildQuestGiver(isl));
+    if (isl === HOME_ISLAND && home) group.add(buildHomeIsland(isl, home));
   }
 
   for (const [geo, mat, list] of [
@@ -228,6 +230,74 @@ function buildHut(b: Building) {
   door.position.set(b.x + Math.cos(b.facing) * (r * 0.97), b.y + 8, b.z + Math.sin(b.facing) * (r * 0.97));
   door.rotation.y = Math.PI / 2 - b.facing;
   g.add(walls, roof, door);
+  return g;
+}
+
+/** Your island: the signpost, and whatever you've built. */
+function buildHomeIsland(isl: Island, home: HomeState) {
+  const g = new THREE.Group();
+  const lay = homeLayout();
+  const wood = new THREE.MeshStandardMaterial({ color: "#7a5230", roughness: 0.9 });
+  const at = (p: { x: number; z: number }) => ({ x: p.x, y: groundY(isl, p.x, p.z), z: p.z });
+  const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z);
+    g.add(mesh);
+    return mesh;
+  };
+  // The signpost.
+  const s = at(lay.sign);
+  box(1.4, 18, 1.4, wood, s.x, s.y + 9, s.z);
+  const label = home.owned ? "YOUR ISLAND" : "FOR SALE";
+  const board = new THREE.Mesh(new THREE.BoxGeometry(14, 6, 1), new THREE.MeshBasicMaterial({ map: signTexture(label, home.owned ? "#14532d" : "#7c2d12") }));
+  board.position.set(s.x, s.y + 16, s.z);
+  board.rotation.y = Math.atan2(isl.x - s.x, isl.z - s.z) + Math.PI;
+  g.add(board);
+  for (const id of home.built) {
+    const p = at(lay.plots[id]);
+    if (id === "dock") {
+      const a = Math.atan2(p.z - isl.z, p.x - isl.x);
+      const pier = box(90, 3, 18, wood, p.x + Math.cos(a) * 40, 4, p.z + Math.sin(a) * 40);
+      pier.rotation.y = -a;
+    } else if (id === "house") {
+      box(50, 30, 40, new THREE.MeshStandardMaterial({ color: "#d6c3a0" }), p.x, p.y + 15, p.z);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(38, 18, 4), new THREE.MeshStandardMaterial({ color: "#7c2d12", flatShading: true }));
+      roof.rotation.y = Math.PI / 4;
+      roof.position.set(p.x, p.y + 39, p.z);
+      g.add(roof);
+    } else if (id === "farm") {
+      const soil = new THREE.MeshStandardMaterial({ color: "#5b3a1f" });
+      const crop = new THREE.MeshStandardMaterial({ color: "#65a30d" });
+      for (let i = 0; i < 4; i++) {
+        box(50, 1, 6, soil, p.x, p.y + 0.6, p.z - 15 + i * 10);
+        box(48, 4, 3, crop, p.x, p.y + 3, p.z - 15 + i * 10);
+      }
+    } else if (id === "mine") {
+      box(26, 18, 18, new THREE.MeshStandardMaterial({ color: "#57534e", flatShading: true }), p.x, p.y + 9, p.z);
+      box(10, 12, 2, new THREE.MeshStandardMaterial({ color: "#0c0a09" }), p.x, p.y + 6, p.z + 9.2);
+      box(2, 14, 2, wood, p.x - 6, p.y + 7, p.z + 10);
+      box(2, 14, 2, wood, p.x + 6, p.y + 7, p.z + 10);
+    } else if (id === "workshop") {
+      box(36, 20, 28, new THREE.MeshStandardMaterial({ color: "#8b6a48" }), p.x, p.y + 10, p.z);
+      box(4, 14, 4, new THREE.MeshStandardMaterial({ color: "#3f3f46" }), p.x + 12, p.y + 26, p.z);
+    } else if (id === "watchtower") {
+      for (const [dx, dz] of [
+        [-5, -5],
+        [5, -5],
+        [-5, 5],
+        [5, 5],
+      ])
+        box(2, 40, 2, wood, p.x + dx, p.y + 20, p.z + dz);
+      box(16, 2, 16, wood, p.x, p.y + 40, p.z);
+      const gun = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.8, 10, 10), new THREE.MeshStandardMaterial({ color: "#18181b", metalness: 0.7 }));
+      gun.rotation.z = Math.PI / 2;
+      gun.position.set(p.x, p.y + 44, p.z);
+      g.add(gun);
+    } else if (id === "vault") {
+      box(20, 16, 20, new THREE.MeshStandardMaterial({ color: "#3f3f46", metalness: 0.5 }), p.x, p.y + 8, p.z);
+      box(21, 2, 21, new THREE.MeshStandardMaterial({ color: "#d4a017", metalness: 0.7 }), p.x, p.y + 12, p.z);
+    }
+  }
   return g;
 }
 
