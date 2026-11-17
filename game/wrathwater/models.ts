@@ -408,7 +408,7 @@ export function buildShip(ship: Ship): ShipVisual {
   const helm = buildHelm(cls, group);
   // Someone is actually steering every other ship: a sailor at the wheel, hands on the spokes.
   let helmsman: PersonVisual | null = null;
-  if (faction !== "player") {
+  if (faction !== "player" || ship.escort) {
     const big = cls.id === "marine_warship" || cls.id === "marine_flagship";
     helmsman = buildPerson(faction === "marine" ? (big ? "captain" : "marine") : faction === "pirate" ? "bandit" : "sailor");
     const lay = helmLayout(cls);
@@ -427,6 +427,100 @@ function flagColor(faction: Faction) {
 }
 
 /** Cannon barrels poking out each side; rebuilt when you buy more. */
+/**
+ * What you've built on your deck, as models: a galley with a smoking chimney,
+ * an infirmary with a red cross, a tall lookout tower, swivel guns on the
+ * rails, a gilded figurehead at the bow, an iron-banded strongroom, and an
+ * iron ram at the waterline.
+ */
+export function buildStructures(cls: { length: number; beam: number }, list: string[]) {
+  const g = new THREE.Group();
+  g.name = "structures";
+  const L = cls.length;
+  const B = cls.beam;
+  const deck = 5 + B * 0.14;
+  const mat = (color: string, extra: THREE.MeshStandardMaterialParameters = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, ...extra });
+  const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z);
+    g.add(mesh);
+    return mesh;
+  };
+  // Deck spots for cabins and towers, off the centerline so the masts stay clear.
+  const spots = [
+    [0.08, 0.2],
+    [0.08, -0.2],
+    [-0.1, 0.2],
+    [-0.1, -0.2],
+    [0.36, 0.15],
+    [0.36, -0.15],
+  ];
+  let next = 0;
+  const spot = () => {
+    const [fx, fz] = spots[next++ % spots.length];
+    return { x: L * fx, z: B * fz };
+  };
+  const gold = mat("#d4a017", { metalness: 0.7, roughness: 0.3 });
+  const iron = mat("#3f3f46", { metalness: 0.6, roughness: 0.4 });
+  for (const id of list) {
+    if (id === "galley") {
+      const p = spot();
+      box(14, 9, 11, mat("#8b5e34"), p.x, deck + 4.5, p.z);
+      box(15, 1.2, 12, mat("#5a3a20"), p.x, deck + 9.6, p.z);
+      box(1.6, 6, 1.6, iron, p.x - 4, deck + 12, p.z);
+    } else if (id === "infirmary") {
+      const p = spot();
+      box(14, 9, 11, mat("#e7e5e4"), p.x, deck + 4.5, p.z);
+      box(1.2, 5, 5, mat("#dc2626"), p.x, deck + 5, p.z + Math.sign(p.z || 1) * 5.7);
+      box(1.2, 1.6, 5, mat("#dc2626"), p.x, deck + 5, p.z + Math.sign(p.z || 1) * 5.7).scale.set(1, 1, 1);
+      box(1.2, 5, 1.6, mat("#dc2626"), p.x, deck + 5, p.z + Math.sign(p.z || 1) * 5.7);
+    } else if (id === "lookout") {
+      const p = spot();
+      for (const [dx, dz] of [
+        [-2, -2],
+        [2, -2],
+        [-2, 2],
+        [2, 2],
+      ])
+        box(0.8, 30, 0.8, mat("#5a3a20"), p.x + dx, deck + 15, p.z + dz);
+      box(8, 1, 8, mat("#6b4423"), p.x, deck + 30, p.z);
+      box(8, 3, 0.5, mat("#6b4423"), p.x, deck + 32, p.z + 4);
+      box(8, 3, 0.5, mat("#6b4423"), p.x, deck + 32, p.z - 4);
+    } else if (id === "swivel") {
+      for (const side of [1, -1]) {
+        for (const fx of [0.3, -0.05]) {
+          box(0.8, 3, 0.8, iron, L * fx, deck + 1.5, side * (B / 2 - 1));
+          const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 4, 8), iron);
+          gun.rotation.x = Math.PI / 2;
+          gun.position.set(L * fx, deck + 3.4, side * (B / 2 + 0.5));
+          g.add(gun);
+        }
+      }
+    } else if (id === "figurehead") {
+      const fig = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 2, 8, 8), gold);
+      body.position.y = 4;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), gold);
+      head.position.y = 9.2;
+      fig.add(body, head);
+      fig.position.set(L * 0.5, deck - 2, 0);
+      fig.rotation.z = -0.6;
+      g.add(fig);
+    } else if (id === "vault") {
+      const p = spot();
+      box(8, 6, 6, iron, p.x, deck + 3, p.z);
+      box(8.4, 0.8, 6.4, gold, p.x, deck + 4.5, p.z);
+      box(8.4, 0.8, 6.4, gold, p.x, deck + 1.5, p.z);
+    } else if (id === "ram") {
+      const ram = new THREE.Mesh(new THREE.ConeGeometry(3, 14, 4), iron);
+      ram.rotation.z = -Math.PI / 2;
+      ram.position.set(L * 0.5 + 5, 1.5, 0);
+      g.add(ram);
+    }
+  }
+  return g;
+}
+
 export function setCannons(v: ShipVisual, ship: Ship) {
   const n = ship.stats.cannonsPerSide;
   if (v.cannonCount === n) return;
@@ -475,6 +569,7 @@ export type PersonKind = WalkerKind | "sailor";
 
 const PERSON_COLORS: Record<PersonKind, { coat: string; pants: string; hat: string; trim: string }> = {
   sailor: { coat: "#1e3a5f", pants: "#d6d3d1", hat: "#e7e5e4", trim: "#93c5fd" },
+  crew: { coat: "#7f1d1d", pants: "#292524", hat: "#111111", trim: "#d4a017" },
   hero: { coat: "#3b0d0d", pants: "#1c1917", hat: "#111111", trim: "#d4a017" },
   marine: { coat: "#f1f5f9", pants: "#1e3a8a", hat: "#f8fafc", trim: "#1d4ed8" },
   captain: { coat: "#f8fafc", pants: "#1e293b", hat: "#0f172a", trim: "#eab308" },
@@ -669,7 +764,8 @@ export function posePerson(v: PersonVisual, w: Walker, dt: number, aimingGun: bo
   if (w.dead >= 0) {
     const k = Math.min(1, w.dead / 0.6);
     v.body.rotation.z = (-Math.PI / 2) * k;
-    v.body.position.y = -Math.max(0, w.dead - 4) * 3;
+    // A body lies there until it's searched (or a while has passed), then sinks away.
+    v.body.position.y = -Math.max(0, w.dead - (w.sinkAt ?? 90)) * 3;
     return;
   }
   v.body.rotation.z = 0;

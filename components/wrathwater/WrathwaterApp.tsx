@@ -8,7 +8,13 @@ import {
   UPGRADES,
   formatBerries,
   hireCost,
+  flagshipCrew,
   manning,
+  ESCORT_COST,
+  ESCORT_CREW,
+  MAX_ESCORTS,
+  STRUCTURES,
+  STRUCTURE_IDS,
   playerStats,
   rankFor,
   shipTier,
@@ -843,6 +849,7 @@ function ShipPanel({ hud, touch }: { hud: HudState; touch: boolean }) {
         <span className={hud.ship.short ? "font-bold text-red-400" : "text-zinc-300"}>
           {hud.ship.short ? "Short-handed · " : ""}
           {hud.ship.people}/{hud.ship.full} aboard
+          {hud.fleet.owned > 0 && ` · ${hud.fleet.escorts}/${hud.fleet.owned} escorts`}
         </span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-widest text-zinc-400">
@@ -948,7 +955,10 @@ function Prompt({ hud }: { hud: HudState }) {
   let progress = 0;
   let hold = false;
   if (hud.mode === "ship") {
-    if (hud.landing) {
+    if (hud.boardable) {
+      key = "F";
+      label = `Board and loot the ${hud.boardable}`;
+    } else if (hud.landing) {
       key = "F";
       label = `Dock at ${hud.landing}`;
     }
@@ -1583,10 +1593,87 @@ function Shipwright({ engine, onClose }: { engine: WrathwaterEngine; onClose: ()
           <p className="mt-1 text-sm text-zinc-300">The biggest ship on the sea. Nothing left to build.</p>
         )}
       </div>
+      <DeckAndFleet engine={engine} refresh={() => setTick((t) => t + 1)} />
       <PanelButton primary onClick={onClose}>
         Leave the shipwright
       </PanelButton>
     </Modal>
+  );
+}
+
+/** Things to build on your deck, and escort ships for your fleet. */
+function DeckAndFleet({ engine, refresh }: { engine: WrathwaterEngine; refresh: () => void }) {
+  const save = engine.sim.save;
+  const slots = engine.deckSlots;
+  return (
+    <>
+      <div className="mt-4 flex items-baseline justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-red-300">Build on your deck</h3>
+        <span className="text-xs text-zinc-400">
+          {slots.used}/{slots.total} deck slots used (bigger ships have more)
+        </span>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {STRUCTURE_IDS.map((id) => {
+          const st = STRUCTURES[id];
+          const has = save.structures.includes(id);
+          return (
+            <div key={id} className={`flex items-center gap-2 rounded-lg p-2 ring-1 ${has ? "bg-emerald-900/30 ring-emerald-500/40" : "bg-white/5 ring-white/10"}`}>
+              <div className="flex-1">
+                <p className="text-sm font-semibold">{st.name}</p>
+                <p className="text-[11px] text-zinc-400">{st.effect}</p>
+              </div>
+              {has ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    engine.scrapStructure(id);
+                    refresh();
+                  }}
+                  className="w-24 rounded-md px-2 py-1 text-xs text-zinc-400 ring-1 ring-white/15 hover:text-red-300"
+                >
+                  Take down (+{Math.round(st.cost / 2)}g)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!engine.canBuild(id)}
+                  onClick={() => {
+                    engine.buildStructure(id);
+                    refresh();
+                  }}
+                  className="w-24 rounded-md bg-amber-500 px-2 py-1 text-xs font-bold text-black hover:bg-amber-400 disabled:bg-white/10 disabled:text-zinc-500"
+                >
+                  {st.cost.toLocaleString("en-US")} g
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 flex items-center gap-3 rounded-lg bg-sky-500/10 p-3 ring-1 ring-sky-400/30">
+        <div className="flex-1 text-sm">
+          <p className="font-semibold">
+            Escort brigs: {save.escorts}/{MAX_ESCORTS}
+          </p>
+          <p className="text-xs text-zinc-400">
+            They sail behind you and fight your enemies. Each holds {ESCORT_CREW} more crew and needs 2 aboard to sail. There&apos;s no limit on crew, but a
+            bigger crew needs more ships to carry it.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={!engine.canBuyEscort()}
+          onClick={() => {
+            engine.buyEscort();
+            refresh();
+          }}
+          className="w-28 rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-black hover:bg-sky-400 disabled:bg-white/10 disabled:text-zinc-500"
+        >
+          {ESCORT_COST.toLocaleString("en-US")} g
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -1595,7 +1682,7 @@ function Tavern({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => 
   const [, setTick] = useState(0);
   const save = engine.sim.save;
   const tier = shipTier(save.shipTier);
-  const m = manning(save.shipTier, save.crew);
+  const m = manning(save.shipTier, flagshipCrew(save.shipTier, save.crew));
   const cost = hireCost(save.shipTier);
   const room = engine.crewRoom - save.crew;
   const hire = (n: number) => {
@@ -1631,7 +1718,7 @@ function Tavern({ engine, onClose }: { engine: WrathwaterEngine; onClose: () => 
           {room > 0 ? `Hire a full crew (${room}) · ${(cost * room).toLocaleString("en-US")} g` : "Full crew aboard"}
         </button>
       </div>
-      {room <= 0 && tier.tier < 4 && <p className="mt-2 text-xs text-zinc-500">No room for more: the shipwright can build you a bigger ship once she&apos;s fully upgraded.</p>}
+      {room <= 0 && tier.tier < 4 && <p className="mt-2 text-xs text-zinc-500">No room for more: buy an escort brig at the shipwright (each holds 8 more), or a bigger ship.</p>}
       <FoodShop engine={engine} refresh={() => setTick((t) => t + 1)} />
       <PanelButton primary onClick={onClose}>
         Leave the tavern

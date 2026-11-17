@@ -39,42 +39,42 @@ export const SHIP_CLASSES: Record<ShipClassId, ShipClass> = {
   player: {
     id: "player", name: "Your Ship", faction: "player",
     hull: 220, speed: 80, turn: 0.75, cannonsPerSide: 2, damage: 13, reload: 3.8, range: 520,
-    length: 97, beam: 31, masts: 2, bounty: 0, gold: [0, 0],
+    length: 130, beam: 40, masts: 2, bounty: 0, gold: [0, 0],
   },
   merchant_cog: {
     id: "merchant_cog", name: "Merchant Cog", faction: "merchant",
     hull: 120, speed: 52, turn: 0.55, cannonsPerSide: 1, damage: 7, reload: 5, range: 420,
-    length: 75, beam: 26, masts: 1, bounty: 2_000_000, gold: [60, 120],
+    length: 98, beam: 34, masts: 1, bounty: 2_000_000, gold: [60, 120],
   },
   treasure_galleon: {
     id: "treasure_galleon", name: "Treasure Galleon", faction: "merchant",
     hull: 360, speed: 46, turn: 0.35, cannonsPerSide: 3, damage: 9, reload: 5, range: 460,
-    length: 123, beam: 40, masts: 3, bounty: 14_000_000, gold: [320, 600],
+    length: 160, beam: 52, masts: 3, bounty: 14_000_000, gold: [320, 600],
   },
   pirate_brig: {
     id: "pirate_brig", name: "Rival Pirate Brig", faction: "pirate",
     hull: 230, speed: 70, turn: 0.62, cannonsPerSide: 3, damage: 11, reload: 4, range: 480,
-    length: 92, beam: 31, masts: 2, bounty: 9_000_000, gold: [130, 260],
+    length: 120, beam: 40, masts: 2, bounty: 9_000_000, gold: [130, 260],
   },
   marine_sloop: {
     id: "marine_sloop", name: "Marine Sloop", faction: "marine",
     hull: 170, speed: 78, turn: 0.72, cannonsPerSide: 2, damage: 10, reload: 3.6, range: 480,
-    length: 84, beam: 26, masts: 1, bounty: 15_000_000, gold: [80, 150],
+    length: 109, beam: 34, masts: 1, bounty: 15_000_000, gold: [80, 150],
   },
   marine_frigate: {
     id: "marine_frigate", name: "Marine Frigate", faction: "marine",
     hull: 360, speed: 72, turn: 0.52, cannonsPerSide: 4, damage: 12, reload: 3.5, range: 520,
-    length: 110, beam: 35, masts: 2, bounty: 45_000_000, gold: [200, 360],
+    length: 143, beam: 46, masts: 2, bounty: 45_000_000, gold: [200, 360],
   },
   marine_warship: {
     id: "marine_warship", name: "Marine Warship", faction: "marine",
     hull: 680, speed: 64, turn: 0.4, cannonsPerSide: 6, damage: 14, reload: 3.3, range: 560,
-    length: 136, beam: 44, masts: 3, bounty: 150_000_000, gold: [420, 700],
+    length: 177, beam: 57, masts: 3, bounty: 150_000_000, gold: [420, 700],
   },
   marine_flagship: {
     id: "marine_flagship", name: "Admiral's Flagship", faction: "marine",
     hull: 1500, speed: 70, turn: 0.42, cannonsPerSide: 8, damage: 17, reload: 2.9, range: 600,
-    length: 167, beam: 53, masts: 3, bounty: 650_000_000, gold: [1300, 2100],
+    length: 217, beam: 69, masts: 3, bounty: 650_000_000, gold: [1300, 2100],
   },
 };
 
@@ -129,14 +129,60 @@ export interface ShipTier {
   crewFull: number;
   /** Gold the shipwright asks to build her. */
   cost: number;
+  /** Deck slots for things you build on her. */
+  slots: number;
 }
 
 export const SHIP_TIERS: ShipTier[] = [
-  { tier: 1, name: "Sloop", length: 97, beam: 31, masts: 2, hull: 0, cannons: 0, damage: 1, speed: 1, turn: 1, range: 0, crewMin: 1, crewFull: 1, cost: 0 },
-  { tier: 2, name: "Brigantine", length: 122, beam: 38, masts: 2, hull: 400, cannons: 1, damage: 1.1, speed: 1.04, turn: 0.9, range: 20, crewMin: 2, crewFull: 3, cost: 8000 },
-  { tier: 3, name: "Frigate", length: 148, beam: 46, masts: 3, hull: 1000, cannons: 2, damage: 1.2, speed: 1.07, turn: 0.8, range: 40, crewMin: 3, crewFull: 6, cost: 20000 },
-  { tier: 4, name: "Man-o'-War", length: 178, beam: 56, masts: 3, hull: 1800, cannons: 3, damage: 1.3, speed: 1.1, turn: 0.7, range: 60, crewMin: 5, crewFull: 10, cost: 45000 },
+  { tier: 1, name: "Sloop", length: 130, beam: 40, masts: 2, hull: 0, cannons: 0, damage: 1, speed: 1, turn: 1, range: 0, crewMin: 1, crewFull: 4, cost: 0, slots: 2 },
+  { tier: 2, name: "Brigantine", length: 165, beam: 50, masts: 2, hull: 400, cannons: 1, damage: 1.1, speed: 1.04, turn: 0.9, range: 20, crewMin: 3, crewFull: 8, cost: 8000, slots: 3 },
+  { tier: 3, name: "Frigate", length: 205, beam: 60, masts: 3, hull: 1000, cannons: 2, damage: 1.2, speed: 1.07, turn: 0.8, range: 40, crewMin: 5, crewFull: 14, cost: 20000, slots: 4 },
+  { tier: 4, name: "Man-o'-War", length: 250, beam: 74, masts: 3, hull: 1800, cannons: 3, damage: 1.3, speed: 1.1, turn: 0.7, range: 60, crewMin: 8, crewFull: 20, cost: 45000, slots: 6 },
 ];
+
+// ---------------------------------------------------------------- things you build on your deck
+
+/** Things the shipwright can build on your deck. Each takes one of your ship's deck slots. */
+export type StructureId = "galley" | "infirmary" | "lookout" | "swivel" | "figurehead" | "vault" | "ram";
+export const STRUCTURES: Record<StructureId, { id: StructureId; name: string; cost: number; effect: string }> = {
+  galley: { id: "galley", name: "Galley", cost: 1200, effect: "A ship's kitchen: you get hungry a third slower." },
+  infirmary: { id: "infirmary", name: "Infirmary", cost: 2000, effect: "Patches the hull as you sail (2 a second), and fewer crew are lost if she sinks." },
+  lookout: { id: "lookout", name: "Lookout Tower", cost: 1500, effect: "Your map shows 60% farther." },
+  swivel: { id: "swivel", name: "Swivel Guns", cost: 2500, effect: "Broadsides hit 15% harder." },
+  figurehead: { id: "figurehead", name: "Gilded Figurehead", cost: 1800, effect: "She cuts the water: 6% faster." },
+  vault: { id: "vault", name: "Strongroom", cost: 3000, effect: "15% more gold from sinking ships, robbing and fights." },
+  ram: { id: "ram", name: "Iron Ram", cost: 2200, effect: "Ram enemy ships at speed to smash them." },
+};
+export const STRUCTURE_IDS = Object.keys(STRUCTURES) as StructureId[];
+
+// ---------------------------------------------------------------- your fleet
+
+/**
+ * Escort ships sail with you. There's no limit on crew, but every ship only
+ * holds so many: your own holds its `crewFull` (counting you) and each escort
+ * holds ESCORT_CREW more. Escorts need at least ESCORT_MIN_CREW aboard to sail
+ * with you.
+ */
+export const ESCORT_COST = 5000;
+export const ESCORT_CREW = 8;
+export const ESCORT_MIN_CREW = 2;
+export const MAX_ESCORTS = 4;
+
+/** Hired sailors aboard your own ship (the rest crew your escorts). */
+export function flagshipCrew(tier: number, crew: number) {
+  return Math.min(Math.max(0, crew), shipTier(tier).crewFull - 1);
+}
+
+/** How many sailors your fleet can hold: your ship, plus each escort. */
+export function fleetRoom(tier: number, escorts: number) {
+  return shipTier(tier).crewFull - 1 + escorts * ESCORT_CREW;
+}
+
+/** How many of your escorts have enough crew to sail. */
+export function crewedEscorts(tier: number, crew: number, escorts: number) {
+  const spare = Math.max(0, crew - flagshipCrew(tier, crew));
+  return Math.min(escorts, Math.floor(spare / ESCORT_MIN_CREW));
+}
 
 export function shipTier(tier: number) {
   return SHIP_TIERS[Math.max(1, Math.min(SHIP_TIERS.length, Math.round(tier) || 1)) - 1];
@@ -176,17 +222,18 @@ export function manning(tier: number, crew: number) {
 }
 
 /** Your ship's stats with its size, upgrades and crew applied. */
-export function playerStats(s: { upgrades: Upgrades; shipTier?: number; crew?: number }) {
+export function playerStats(s: { upgrades: Upgrades; shipTier?: number; crew?: number; structures?: StructureId[] }) {
   const u = s.upgrades;
   const base = SHIP_CLASSES.player;
   const t = shipTier(s.shipTier ?? 1);
-  const m = manning(t.tier, s.crew ?? 0);
+  const m = manning(t.tier, flagshipCrew(t.tier, s.crew ?? 0));
+  const built = s.structures ?? [];
   return {
     hull: base.hull + u.hull * 90 + t.hull,
-    speed: base.speed * (1 + u.sails * 0.09) * t.speed * m.speed,
+    speed: base.speed * (1 + u.sails * 0.09) * t.speed * m.speed * (built.includes("figurehead") ? 1.06 : 1),
     turn: base.turn * (1 + u.sails * 0.09) * t.turn * m.turn,
     cannonsPerSide: base.cannonsPerSide + u.cannons + t.cannons,
-    damage: base.damage * (1 + u.powder * 0.18) * t.damage,
+    damage: base.damage * (1 + u.powder * 0.18) * t.damage * (built.includes("swivel") ? 1.15 : 1),
     reload: base.reload * Math.pow(0.89, u.crew) * m.reload,
     range: base.range + u.cannons * 12 + t.range,
   };

@@ -1,4 +1,4 @@
-import { NO_UPGRADES, SHIP_TIERS, type Upgrades } from "./data";
+import { MAX_ESCORTS, NO_UPGRADES, SHIP_TIERS, STRUCTURE_IDS, type StructureId, type Upgrades } from "./data";
 import { ISLANDS } from "./world";
 import {
   FOOD_IDS,
@@ -68,6 +68,10 @@ export interface SaveData {
   questsDone: number;
   /** Tutorial step, or -1 once it's done or skipped. */
   tutorial: number;
+  /** What you've built on your deck. */
+  structures: StructureId[];
+  /** Escort ships in your fleet. */
+  escorts: number;
 }
 
 export const SAVE_KEY = "ww.save.v1";
@@ -93,7 +97,8 @@ export function newSave(captain: string): SaveData {
     vaultKeys: [],
     trueName: false,
     shipTier: 1,
-    crew: 0,
+    // You set out with two sailors.
+    crew: 2,
     xp: 0,
     skills: { ...NO_SKILLS },
     items: { bomb: 2, tonic: 2, smoke: 0 },
@@ -108,6 +113,8 @@ export function newSave(captain: string): SaveData {
     quest: null,
     questsDone: 0,
     tutorial: 0,
+    structures: [],
+    escorts: 0,
   };
 }
 
@@ -158,6 +165,8 @@ export function loadSave(): SaveData | null {
       questsDone: Math.max(0, Number(s.questsDone) || 0),
       // Captains from before the tutorial existed don't need it.
       tutorial: typeof s.tutorial === "number" ? s.tutorial : -1,
+      structures: Array.isArray(s.structures) ? [...new Set(s.structures.filter((x): x is StructureId => STRUCTURE_IDS.includes(x as StructureId)))] : [],
+      escorts: Math.max(0, Math.min(MAX_ESCORTS, Math.floor(Number(s.escorts)) || 0)),
     };
   } catch {
     return null;

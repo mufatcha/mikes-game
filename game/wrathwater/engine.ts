@@ -1,6 +1,14 @@
 /** Runs a Wrathwater session: game loop, controls, camera, minimap, autosave. React shows the HUD and menus. */
 import * as THREE from "three";
 import {
+  ESCORT_COST,
+  ESCORT_CREW,
+  MAX_ESCORTS,
+  STRUCTURES,
+  STRUCTURE_IDS,
+  flagshipCrew,
+  fleetRoom,
+  type StructureId,
   HUNTERS_BY_STARS,
   SHIP_TIERS,
   UPGRADES,
@@ -121,6 +129,10 @@ export interface HudState {
   hunted: boolean;
   reload: { port: number; starboard: number };
   landing: string | null;
+  /** A beaten ship alongside you that you can board and loot. */
+  boardable: string | null;
+  /** Escort ships sailing with you, and how many you own. */
+  fleet: { escorts: number; owned: number };
   inHaven: boolean;
   /** You: level, XP into it, unspent skill points. */
   level: { level: number; into: number; need: number; points: number };
@@ -200,7 +212,7 @@ export class WrathwaterEngine {
   private shipYaw = 0;
   private footYaw = 0;
   private pitch = 0.26;
-  private shipDistance = 240;
+  private shipDistance = 330;
   /** The last few keys pressed, to spot the cheat code. */
   private typed: string[] = [];
   private footDistance = 55;
@@ -418,6 +430,10 @@ export class WrathwaterEngine {
     this.sim.repairPlayer();
     this.notice(`Cheat: you're now sailing a ${shipTier(s.shipTier).name} with a full crew.`, "gold");
     this.save();
+  }
+
+  private shakeRam() {
+    this.audio.thud(1);
   }
 
   // ---------------------------------------------------------------- the tutorial
@@ -700,7 +716,57 @@ export class WrathwaterEngine {
 
   /** The most sailors you can hire for your ship (she holds this many plus you). */
   get crewRoom() {
-    return shipTier(this.sim.save.shipTier).crewFull - 1;
+    return fleetRoom(this.sim.save.shipTier, this.sim.save.escorts);
+  }
+
+  // ---------------------------------------------------------------- your deck and your fleet
+
+  /** Deck slots your ship has, and how many are used. */
+  get deckSlots() {
+    return { total: shipTier(this.sim.save.shipTier).slots, used: this.sim.save.structures.length };
+  }
+
+  canBuild(id: StructureId) {
+    const s = this.sim.save;
+    return !s.structures.includes(id) && this.deckSlots.used < this.deckSlots.total && s.gold >= STRUCTURES[id].cost;
+  }
+
+  /** Have the shipwright build something on your deck. */
+  buildStructure(id: StructureId) {
+    if (!this.canBuild(id)) return false;
+    const s = this.sim.save;
+    s.gold -= STRUCTURES[id].cost;
+    s.structures.push(id);
+    this.sim.refreshPlayerStats();
+    this.afterPurchase();
+    this.notice(`The shipwright builds a ${STRUCTURES[id].name} on your deck. ${STRUCTURES[id].effect}`, "gold");
+    return true;
+  }
+
+  /** Take something off your deck to free its slot (you get half back). */
+  scrapStructure(id: StructureId) {
+    const s = this.sim.save;
+    if (!s.structures.includes(id)) return false;
+    s.structures = s.structures.filter((x) => x !== id);
+    s.gold += Math.round(STRUCTURES[id].cost / 2);
+    this.sim.refreshPlayerStats();
+    this.afterPurchase();
+    return true;
+  }
+
+  canBuyEscort() {
+    return this.sim.save.escorts < MAX_ESCORTS && this.sim.save.gold >= ESCORT_COST;
+  }
+
+  /** Add an escort brig to your fleet (it needs crew to sail). */
+  buyEscort() {
+    if (!this.canBuyEscort()) return false;
+    const s = this.sim.save;
+    s.gold -= ESCORT_COST;
+    s.escorts++;
+    this.afterPurchase();
+    this.notice(`An escort brig joins your fleet. Each holds ${ESCORT_CREW} sailors and needs at least 2 to sail: hire crew at the tavern.`, "gold");
+    return true;
   }
 
   /** Sign sailors on at the tavern: up to `n`, as many as fit and you can pay for. Returns how many joined. */
@@ -716,7 +782,7 @@ export class WrathwaterEngine {
     if (!hired) return 0;
     this.sim.refreshPlayerStats();
     this.afterPurchase();
-    const m = manning(s.shipTier, s.crew);
+    const m = manning(s.shipTier, flagshipCrew(s.shipTier, s.crew));
     this.notice(`${hired === 1 ? "A sailor signs on" : `${hired} sailors sign on`}. ${m.people} aboard${m.short ? `: still short-handed (she needs ${shipTier(s.shipTier).crewMin})` : ""}.`, "gold");
     return hired;
   }
@@ -748,6 +814,19 @@ export class WrathwaterEngine {
           act: () => this.buyShip(),
         });
       else rows.push({ text: "Your Man-o'-War is the biggest ship there is", color: "#a1a1aa" });
+      const slots = this.deckSlots;
+      for (const id of STRUCTURE_IDS) {
+        const has = s.structures.includes(id);
+        if (has) continue;
+        rows.push({ text: `Build: ${STRUCTURES[id].name}`, sub: `${STRUCTURES[id].effect} (deck ${slots.used}/${slots.total})`, right: g(STRUCTURES[id].cost), disabled: !this.canBuild(id), act: () => this.buildStructure(id) });
+      }
+      rows.push({
+        text: `Buy an escort brig (${s.escorts}/${MAX_ESCORTS})`,
+        sub: `Sails with you and fights; holds ${ESCORT_CREW} more crew`,
+        right: g(ESCORT_COST),
+        disabled: !this.canBuyEscort(),
+        act: () => this.buyEscort(),
+      });
       rows.push(leave);
       return { title: "Shipwright", subtitle: `${s.gold.toLocaleString("en-US")} gold · your ${t.name}`, rows };
     }
@@ -795,10 +874,10 @@ export class WrathwaterEngine {
     // The tavern: hire crew.
     const cost = hireCost(s.shipTier);
     const room = this.crewRoom - s.crew;
-    const m = manning(s.shipTier, s.crew);
+    const m = manning(s.shipTier, flagshipCrew(s.shipTier, s.crew));
     const rows: PanelRow[] = [
       { text: `Aboard your ${t.name}: ${m.people}`, sub: `She needs ${t.crewMin}, best with ${t.crewFull} (you count)${m.short ? " · short-handed!" : ""}`, color: m.short ? "#fca5a5" : "#86efac" },
-      { text: "Hire a sailor", sub: room > 0 ? `Room for ${room} more` : "No room aboard: a bigger ship holds more", right: g(cost), disabled: room <= 0 || s.gold < cost, act: () => this.hireCrew(1) },
+      { text: "Hire a sailor", sub: room > 0 ? `Room for ${room} more` : "No room: buy an escort brig or a bigger ship", right: g(cost), disabled: room <= 0 || s.gold < cost, act: () => this.hireCrew(1) },
       {
         text: "Hire a full crew",
         sub: room > 0 ? `${room} sailors` : "You have a full crew",
@@ -1134,6 +1213,7 @@ export class WrathwaterEngine {
         break;
       case "board":
         if (foot) sim.shore.board();
+        else if (sim.boardShip()) this.sails = 0;
         else if (sim.shore.goAshore()) this.sails = 0;
         break;
       case "inventory":
@@ -1671,6 +1751,28 @@ export class WrathwaterEngine {
         this.tut.quest = true;
         this.talkToGiver(e.island);
         break;
+      case "surrender":
+        this.notice(`The ${e.name} strikes her colors! Come alongside slowly and press F to board and loot her.`, "gold");
+        break;
+      case "boarded": {
+        this.audio.coin();
+        this.audio.fanfare();
+        const join = e.sailors ? ` ${e.sailors} of her crew join yours.` : "";
+        this.notice(`You board the ${e.name}: +${e.gold} gold, ${e.wood} timber, ${e.iron} iron, ${e.powder} gunpowder, ${e.ammo} shot.${join} Then she's scuttled.`, "bounty");
+        this.gainXp(40);
+        break;
+      }
+      case "escortLost":
+        this.audio.sink(1);
+        this.notice(`One of your escorts went down${e.crew ? `, with ${e.crew} of your crew` : ""}.`, "danger");
+        break;
+      case "rammed":
+        this.shakeRam();
+        this.notice(`Rammed the ${e.name}! (${e.damage} damage)`, "gold");
+        break;
+      case "crewDown":
+        this.notice("One of your crew has fallen.", "danger");
+        break;
       case "deserted":
         this.audio.alarm();
         this.notice("You broke the law. You've deserted the Marines: you're a pirate now, and they'll hunt you like one!", "danger");
@@ -1911,6 +2013,8 @@ export class WrathwaterEngine {
         starboard: 1 - p.reload[1] / p.stats.reload,
       },
       landing: landing ? landing.name : null,
+      boardable: sim.boardable()?.cls.name ?? null,
+      fleet: { escorts: sim.escortShips.length, owned: sim.save.escorts },
       inHaven: sim.inHaven,
       level: (() => {
         const l = levelFromXp(sim.save.xp);
@@ -1936,7 +2040,7 @@ export class WrathwaterEngine {
       tutorial: sim.save.tutorial >= 0 ? { step: sim.save.tutorial, total: TUTORIAL_STEPS, text: this.tutorialText(sim.save.tutorial) } : null,
       ship: (() => {
         const t = shipTier(sim.save.shipTier);
-        const m = manning(t.tier, sim.save.crew);
+        const m = manning(t.tier, flagshipCrew(t.tier, sim.save.crew));
         return { name: t.name, tier: t.tier, people: m.people, min: t.crewMin, full: t.crewFull, short: m.short };
       })(),
       aimSide: this.aimSide,
@@ -2004,7 +2108,8 @@ export class WrathwaterEngine {
     const hero = sim.mode === "foot" ? sim.shore.hero : null;
     const me = hero ?? sim.player;
     const R = size / 2;
-    const span = hero ? 700 : 2600;
+    // A lookout tower lets you see farther.
+    const span = (hero ? 700 : 2600) * (sim.built("lookout") ? 1.6 : 1);
     const k = R / span;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, size, size);
@@ -2163,7 +2268,8 @@ export class WrathwaterEngine {
           e.preventDefault();
           if (this.aimSide !== null) sim.input.fire = this.aimSide;
         } else if (e.code === "KeyF") {
-          if (sim.shore.goAshore()) this.sails = 0;
+          if (sim.boardShip()) this.sails = 0;
+          else if (sim.shore.goAshore()) this.sails = 0;
         } else if (e.code === "KeyC") this.shipYaw = 0;
       } else {
         if (e.code === "KeyF") sim.shore.board();

@@ -11,6 +11,7 @@ import { buildIsland, disposeIsland } from "./land";
 import { WorldPanel } from "./panel";
 import {
   buildBackpack,
+  buildStructures,
   buildBuriedMark,
   buildChest,
   buildCrate,
@@ -1093,9 +1094,22 @@ export class SeaRenderer {
         this.ships.set(s.id, v);
         this.scene.add(v.group);
       }
+      if (s.surrendered && !v.group.userData.white) {
+        v.group.userData.white = true;
+        (v.flag.material as THREE.MeshStandardMaterial).map = null;
+        (v.flag.material as THREE.MeshStandardMaterial).color.set("#f8fafc");
+        (v.flag.material as THREE.MeshStandardMaterial).needsUpdate = true;
+      }
       if (s === sim.player) {
         setCannons(v, s);
-        this.syncCrew(v, s, sim.save.crew, t);
+        this.syncCrew(v, s, Math.min(sim.save.crew, s.cls.length > 200 ? 12 : s.cls.length > 160 ? 9 : 6), t);
+        // What you've built on deck.
+        const key = sim.save.structures.join(",");
+        if (v.group.userData.structures !== key) {
+          v.group.getObjectByName("structures")?.removeFromParent();
+          v.group.add(buildStructures(s.cls, sim.save.structures));
+          v.group.userData.structures = key;
+        }
         v.helm.wheel.rotation.x = view.helm.wheel;
         view.helm.levers.forEach((a, i) => (v.helm.levers[i].rotation.z = a));
         // Cannon buttons glow when that side is loaded, and sink in when pressed.
@@ -1162,7 +1176,7 @@ export class SeaRenderer {
 
   private syncPeople(sim: Sim, view: CameraView, dt: number) {
     const shore = sim.shore;
-    const list = shore.hero ? [shore.hero, ...shore.walkers] : shore.walkers;
+    const list = shore.hero ? [shore.hero, ...shore.walkers, ...shore.allies] : [...shore.walkers, ...shore.allies];
     const seen = new Set<number>();
     for (const w of list) {
       seen.add(w.id);

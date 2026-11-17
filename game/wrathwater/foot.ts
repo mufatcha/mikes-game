@@ -7,7 +7,7 @@ import { giverName } from "./quests";
 import type { Sim } from "./sim";
 import { BEACH_TOP, COUNTER, ISLANDS, doorAxis, groundHeight, islandAt, waveHeight, type Building, type BuildingKind, type Island, type LootSpot, type ServiceKind } from "./world";
 
-export type WalkerKind = "hero" | "marine" | "captain" | "bandit";
+export type WalkerKind = "hero" | "marine" | "captain" | "bandit" | "crew";
 
 export interface Walker {
   id: number;
@@ -34,6 +34,11 @@ export interface Walker {
   /** Seconds of poison left (it hurts every second), and of being bound by smoke (can't fight). */
   poison?: number;
   stun?: number;
+  /** A body you've searched (it sinks into the ground from `dead` = sinkAt). */
+  looted?: boolean;
+  sinkAt?: number;
+  /** When this enemy last fought (your crew go for enemies who are fighting). */
+  engaged?: number;
 }
 
 export interface Shot {
@@ -90,6 +95,12 @@ const ROB_INSTEAD_AFTER = 0.5;
 /** Robbing in Blackwater Cove makes it unsafe for you for this long (seconds). */
 const HAVEN_ANGRY = 180;
 
+/** How long a body lies there before it's gone (seconds). */
+const BODY_TIME = 90;
+/** Crew ashore: how many come with you, and how far they'll go for a fight. */
+const MAX_ALLIES = 6;
+const ALLY_REACH = 260;
+
 const WALK = 72;
 const SPRINT = 112;
 const SWIM = 34;
@@ -127,6 +138,8 @@ export class Shore {
   spentUntil = new Map<string, number>();
   private nextId = 100000;
   private activeIslands = new Set<number>();
+  /** Your crew ashore: they follow you and fight beside you. */
+  allies: Walker[] = [];
   /** In VR you walk right into Blackwater Cove's stores: the one you're standing in. */
   inside: { island: number; index: number; kind: ServiceKind } | null = null;
   private drownWarned = 0;
@@ -157,6 +170,16 @@ export class Shore {
     this.hero.maxHp = fx.maxHp;
     this.hero.hp = fx.maxHp;
     this.hero.heading = a + Math.PI;
+    // Up to six of your crew come ashore with you.
+    const n = Math.min(MAX_ALLIES, this.sim.save.crew);
+    this.allies = [];
+    for (let i = 0; i < n; i++) {
+      const b = a + (i - (n - 1) / 2) * 0.35;
+      const ally = this.makeWalker("crew", isl.index, x + Math.cos(b) * 26, z + Math.sin(b) * 26, "cutlass");
+      ally.maxHp = 90;
+      ally.hp = 90;
+      this.allies.push(ally);
+    }
     // Docking at Blackwater Cove: the shipwright's crew patches the hull while you're ashore.
     if (isl.haven) p.hp = p.stats.hull;
     p.throttle = 0;
@@ -178,6 +201,7 @@ export class Shore {
     this.hero = null;
     this.hold = null;
     this.walkers = [];
+    this.allies = [];
     this.activeIslands.clear();
     this.sim.mode = "ship";
     this.sim.events.push({ k: "board" });
@@ -187,6 +211,7 @@ export class Shore {
   /** After respawning at the haven. */
   reset() {
     this.inside = null;
+    this.allies = [];
     this.launch = null;
     this.flurry = null;
     this.hero = null;
@@ -224,7 +249,19 @@ export class Shore {
       }
       if (h) this.think(w, h, dt);
     }
-    this.walkers = this.walkers.filter((w) => w.dead < 8);
+    // Bodies stay until searched (or a minute and a half), then sink away.
+    this.walkers = this.walkers.filter((w) => w.dead < (w.sinkAt ?? BODY_TIME) + 4);
+    for (const a of this.allies) {
+      a.swing += dt;
+      a.hurt = Math.max(0, a.hurt - dt);
+      a.cooldown = Math.max(0, a.cooldown - dt);
+      if (a.dead >= 0) {
+        a.dead += dt;
+        continue;
+      }
+      if (h) this.allyThink(a, h, dt);
+    }
+    this.allies = this.allies.filter((a) => a.dead < 8);
     if (h) {
       h.swing += dt;
       h.hurt = Math.max(0, h.hurt - dt);
@@ -484,7 +521,7 @@ export class Shore {
           this.sim.events.push({ k: "impact", x: s.x, y: s.y, z: s.z, fire: s.fire });
           continue outer;
         }
-        const targets = s.byHero ? this.walkers : this.hero ? [this.hero] : [];
+        const targets = s.byHero ? this.walkers : this.hero ? [this.hero, ...this.allies] : this.allies;
         for (const t of targets) {
           if (t.dead >= 0 || Math.hypot(t.x - s.x, t.z - s.z) > (s.fire ? 16 : 9)) continue;
           if (s.fire) this.explode(s.x, s.z, 45, s.damage, true);
@@ -513,6 +550,20 @@ export class Shore {
   private damageWalker(t: Walker, amount: number, byHero: boolean) {
     if (t.kind === "hero") {
       this.hurtHero(t, amount, null);
+      return;
+    }
+    if (t.kind === "crew") {
+      if (t.dead >= 0 || this.sim.god) return;
+      t.hp -= amount;
+      t.hurt = 0.25;
+      this.sim.events.push({ k: "walkerHit", x: t.x, y: t.y + 14, z: t.z, damage: Math.round(amount) });
+      if (t.hp <= 0) {
+        t.hp = 0;
+        t.dead = 0;
+        // A sailor lost for good.
+        this.sim.save.crew = Math.max(0, this.sim.save.crew - 1);
+        this.sim.events.push({ k: "crewDown" });
+      }
       return;
     }
     t.hp -= amount;
@@ -992,6 +1043,19 @@ export class Shore {
     let goalZ = w.home.z;
     let speed = WALK * 0.55;
     if (hostile) {
+      w.engaged = t;
+      // Whoever's closest: you, or one of your crew.
+      let tgt: Walker = h;
+      let td = d;
+      for (const a of this.allies) {
+        if (a.dead >= 0) continue;
+        const ad = Math.hypot(a.x - w.x, a.z - w.z);
+        if (ad < td) {
+          td = ad;
+          tgt = a;
+        }
+      }
+      if (tgt !== h) return this.fightAlly(w, tgt, td, dt);
       w.heading = Math.atan2(dz, dx);
       speed = WALK * 0.9;
       if (wpn.kind === "gun") {
@@ -1036,6 +1100,119 @@ export class Shore {
     void wrap;
   }
 
+  /** An enemy fighting one of your crew. */
+  private fightAlly(w: Walker, a: Walker, d: number, dt: number) {
+    const wpn = WEAPONS[w.weapon];
+    w.heading = Math.atan2(a.z - w.z, a.x - w.x);
+    if (wpn.kind === "gun") {
+      if (d < wpn.range * 0.9 && w.cooldown <= 0) {
+        w.cooldown = wpn.cooldown + rand(0.8, 1.6);
+        w.swing = 0;
+        this.fireGun(w, w.weapon, w.heading, false);
+      }
+      this.walkToward(w, a.x - Math.cos(w.heading) * 160, a.z - Math.sin(w.heading) * 160, WALK * 0.9, dt);
+      return;
+    }
+    if (d < wpn.range + 10 && w.cooldown <= 0) {
+      w.cooldown = wpn.cooldown + rand(0.9, 1.6);
+      w.swing = 0;
+      this.sim.events.push({ k: "swing", x: w.x, z: w.z, byHero: false });
+      this.damageWalker(a, w.kind === "captain" ? 18 : 9, false);
+    }
+    this.walkToward(w, a.x, a.z, WALK * 0.9, dt);
+  }
+
+  /** Step a walker toward a point, staying on land and out of buildings. */
+  private walkToward(w: Walker, x: number, z: number, speed: number, dt: number) {
+    const gx = x - w.x;
+    const gz = z - w.z;
+    const gd = Math.hypot(gx, gz);
+    w.moving = gd > 12;
+    if (w.moving) {
+      const step = Math.min(gd, speed * dt);
+      const nx = w.x + (gx / gd) * step;
+      const nz = w.z + (gz / gd) * step;
+      // Stay on dry land (but anyone already in the shallows can wade out).
+      if (groundHeight(nx, nz) !== null || groundHeight(w.x, w.z) === null) {
+        w.x = nx;
+        w.z = nz;
+      }
+    }
+    this.collide(w);
+    w.y = groundHeight(w.x, w.z) ?? w.y;
+  }
+
+  /**
+   * One of your crew ashore: stick close to you, and wade into any fight
+   * near you (anyone who's fighting you or them, and bandits).
+   */
+  private allyThink(a: Walker, h: Walker, dt: number) {
+    const t = this.sim.time;
+    // You're in a store: they wait outside.
+    if (this.inside || h.dead >= 0) {
+      a.moving = false;
+      return;
+    }
+    let foe: Walker | null = null;
+    let best = ALLY_REACH;
+    for (const w of this.walkers) {
+      if (w.dead >= 0) continue;
+      const fighting = (w.engaged !== undefined && t - w.engaged < 4) || w.kind === "bandit";
+      if (!fighting) continue;
+      const d = Math.hypot(w.x - a.x, w.z - a.z);
+      if (d < best && Math.hypot(w.x - h.x, w.z - h.z) < ALLY_REACH * 1.5) {
+        best = d;
+        foe = w;
+      }
+    }
+    if (foe) {
+      a.heading = Math.atan2(foe.z - a.z, foe.x - a.x);
+      if (best < 26 && a.cooldown <= 0) {
+        a.cooldown = 0.9 + Math.random() * 0.4;
+        a.swing = 0;
+        this.sim.events.push({ k: "swing", x: a.x, z: a.z, byHero: false });
+        // They fight for you: their blows count as yours.
+        this.damageWalker(foe, 14, true);
+      }
+      this.walkToward(a, foe.x, foe.z, SPRINT * 0.85, dt);
+      return;
+    }
+    // Follow you, spread out around you.
+    const i = this.allies.indexOf(a);
+    const ang = h.heading + Math.PI + (i - (this.allies.length - 1) / 2) * 0.55;
+    const fx = h.x + Math.cos(ang) * 30;
+    const fz = h.z + Math.sin(ang) * 30;
+    const d = Math.hypot(fx - a.x, fz - a.z);
+    // Left far behind (you jumped or swam off): catch up.
+    if (d > 500 && groundHeight(fx, fz) !== null) {
+      a.x = fx;
+      a.z = fz;
+    }
+    a.island = h.island;
+    if (d > 14) a.heading = Math.atan2(fz - a.z, fx - a.x);
+    this.walkToward(a, fx, fz, d > 90 ? SPRINT : WALK * 1.05, dt);
+  }
+
+  /** Search a body: coins, shot, maybe their weapon or something to eat. */
+  private lootBody(w: Walker) {
+    const s = this.sim.save;
+    w.looted = true;
+    w.sinkAt = w.dead + 1;
+    const gold = w.kind === "captain" ? randInt(40, 90) : w.kind === "bandit" ? randInt(15, 45) : randInt(8, 25);
+    s.gold += gold;
+    const gun = WEAPONS[w.weapon].kind === "gun";
+    const ammo = gun ? randInt(1, 4) : 0;
+    s.ammo += ammo;
+    let weapon: WeaponId | null = null;
+    if (w.weapon !== "fists" && !s.weapons.includes(w.weapon) && Math.random() < 0.15) {
+      weapon = w.weapon;
+      s.weapons.push(w.weapon);
+    }
+    if (Math.random() < 0.3) s.food.push({ food: "biscuit", spoils: s.playTime + 30 * 60 });
+    if (Math.random() < 0.1) s.items[Math.random() < 0.5 ? "tonic" : "bomb"]++;
+    this.sim.events.push({ k: "loot", x: w.x, z: w.z, gold, weapon, wood: 0, iron: 0, powder: 0, ammo, kind: "body" });
+  }
+
   // ---------------------------------------------------------------- looting and robbing
 
   /** What pressing E would do right now, on foot. */
@@ -1060,6 +1237,10 @@ export class Shore {
     }
     if (this.canBoard()) return { key: "board", label: "Board your ship", hold: 0, run: () => this.board() };
     const isl = ISLANDS[h.island];
+    for (const w of this.walkers) {
+      if (w.dead < 0.6 || w.looted || w.dead > BODY_TIME || Math.hypot(w.x - h.x, w.z - h.z) > 20) continue;
+      return { key: `body${w.id}`, label: "Search the body", hold: 1, run: () => this.lootBody(w) };
+    }
     if (isl.questGiver && Math.hypot(isl.questGiver.x - h.x, isl.questGiver.z - h.z) < 26) {
       const name = giverName(isl.index);
       const q = this.sim.save.quest;

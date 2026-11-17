@@ -8,11 +8,16 @@
 import {
   HUNTERS_BY_STARS,
   KING_BOUNTY,
+  ESCORT_CREW,
   SHIP_CLASSES,
+  crewedEscorts,
+  fleetRoom,
+  flagshipCrew,
   playerClass,
   playerStats,
   rankFor,
   type Faction,
+  type StructureId,
   type ShipClass,
   type ShipClassId,
 } from "./data";
@@ -81,6 +86,10 @@ export interface Ship {
   fruitCarrier?: boolean;
   /** Seconds left burning (Flame-Flame Fruit). */
   burn: number;
+  /** One of your escort ships, sailing with you. */
+  escort?: boolean;
+  /** Beaten: colors struck, dead in the water, waiting to be boarded and looted. */
+  surrendered?: boolean;
   ai: {
     hunter: boolean;
     angered: boolean;
@@ -138,7 +147,7 @@ export type SimEvent =
   | { k: "drowning" }
   | { k: "power"; fruit: FruitId; x: number; z: number; tx: number; tz: number; atSea?: boolean; move?: StretchMove | FruitMove; awake?: boolean }
   | { k: "fruitFound"; fruit: FruitId }
-  | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number; smashed?: boolean; spot?: string; kind?: SpotKind }
+  | { k: "loot"; x: number; z: number; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number; smashed?: boolean; spot?: string; kind?: SpotKind | "body" }
   | { k: "service"; building: ServiceKind; island: number; index: number }
   | { k: "crewLost"; lost: number }
   | { k: "store"; building: ServiceKind | null }
@@ -150,6 +159,11 @@ export type SimEvent =
   | { k: "itemUsed"; item: ItemId }
   | { k: "questGiver"; island: number }
   | { k: "deserted" }
+  | { k: "surrender"; name: string; x: number; z: number }
+  | { k: "boarded"; name: string; gold: number; sailors: number; wood: number; iron: number; powder: number; ammo: number }
+  | { k: "escortLost"; crew: number }
+  | { k: "rammed"; name: string; damage: number }
+  | { k: "crewDown" }
   | { k: "hunger"; level: "hungry" | "starving" }
   | { k: "awakened"; on: boolean }
   | { k: "robbed"; building: BuildingKind; town: string; gold: number; weapon: WeaponId | null; wood: number; iron: number; powder: number; ammo: number };
@@ -192,6 +206,10 @@ const wrap = (a: number) => {
 };
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
+const randInt = (lo: number, hi: number) => Math.floor(rand(lo, hi + 1));
+
+/** Your escort ships: sturdy brigs flying your colors. */
+const ESCORT_CLASS: ShipClass = { ...SHIP_CLASSES.pirate_brig, name: "Escort Brig", faction: "player", bounty: 0, gold: [0, 0] };
 
 export function forward(h: number) {
   return { x: Math.cos(h), z: Math.sin(h) };
@@ -447,6 +465,138 @@ export class Sim {
     this.lastStars = 0;
   }
 
+  // ---------------------------------------------------------------- your deck and your fleet
+
+  private ramReady = 0;
+
+  /** Is this built on your deck? */
+  built(id: StructureId) {
+    return this.save.structures.includes(id);
+  }
+
+  /** Your escort ships that are afloat. */
+  get escortShips() {
+    return this.ships.filter((s) => s.escort && s.sinking < 0);
+  }
+
+  /** Keep as many escorts sailing with you as you own and can crew. */
+  private syncEscorts() {
+    const want = crewedEscorts(this.save.shipTier, this.save.crew, this.save.escorts);
+    const have = this.escortShips;
+    if (have.length > want) {
+      // Not enough crew any more: the extra escorts drop back to port.
+      for (const s of have.slice(want)) this.ships = this.ships.filter((x) => x !== s);
+      return;
+    }
+    const p = this.player;
+    for (let i = have.length; i < want; i++) {
+      const slot = this.escortSlot(i);
+      const s = this.makeShip(ESCORT_CLASS, { ...ESCORT_CLASS }, slot.x, slot.z, p.heading);
+      s.escort = true;
+      s.faction = "player";
+      this.ships.push(s);
+    }
+  }
+
+  /** Where escort number i sails: in a V behind you. */
+  private escortSlot(i: number) {
+    const p = this.player;
+    const f = forward(p.heading);
+    const side = i % 2 === 0 ? 1 : -1;
+    const row = 1 + Math.floor(i / 2);
+    const back = p.cls.length * 0.5 + 90 * row;
+    const out = 110 * row;
+    return { x: p.x - f.x * back - f.z * out * side, z: p.z - f.z * back + f.x * out * side };
+  }
+
+  /** An escort: hold formation, and fight anything that's fighting you. */
+  private escortThink(s: Ship) {
+    const p = this.player;
+    const i = this.escortShips.indexOf(s);
+    // The nearest enemy that's engaging you (or that you've attacked).
+    let foe: Ship | null = null;
+    let best = 900;
+    for (const t of this.ships) {
+      if (t === p || t.escort || t.sinking >= 0 || t.surrendered) continue;
+      const hostile = t.ai.angered || t.ai.hunter || (t.faction === "pirate" && Math.hypot(t.x - p.x, t.z - p.z) < 950) || (t.faction === "marine" && this.heat > 0);
+      if (!hostile) continue;
+      const d = Math.hypot(t.x - s.x, t.z - s.z);
+      if (d < best) {
+        best = d;
+        foe = t;
+      }
+    }
+    let desired: number;
+    if (foe && this.mode === "ship" && !this.inHaven) {
+      const toF = Math.atan2(foe.z - s.z, foe.x - s.x);
+      const f = forward(s.heading);
+      const cross = f.x * (foe.z - s.z) - f.z * (foe.x - s.x);
+      const side: Side = cross > 0 ? 1 : -1;
+      desired = best > s.stats.range * 0.85 ? toF : toF - (side * Math.PI) / 2;
+      s.throttle = best > s.stats.range * 0.85 ? 1 : 0.7;
+      if (best < s.stats.range && s.reload[side] <= 0) {
+        const aim = this.aimAt(s, side, foe, 0.8);
+        this.fire(s, side, aim.range, aim.yaw);
+        s.reload[side] = s.stats.reload;
+      }
+    } else {
+      const slot = this.escortSlot(Math.max(0, i));
+      const d = Math.hypot(slot.x - s.x, slot.z - s.z);
+      desired = d > 30 ? Math.atan2(slot.z - s.z, slot.x - s.x) : p.heading;
+      // Keep up with you, faster when falling behind.
+      s.throttle = this.mode === "foot" ? 0 : clamp((p.speed / s.stats.speed) * 0.9 + d / 400, 0, 1);
+      // Far behind (you sailed off or were towed): catch up instantly when out of sight.
+      if (d > 2500) {
+        s.x = slot.x;
+        s.z = slot.z;
+        s.heading = p.heading;
+      }
+    }
+    desired = this.avoid(s, desired);
+    s.rudder = clamp(wrap(desired - s.heading) * 2.2, -1, 1);
+  }
+
+  /** A beaten ship close enough to board, if you're alongside and slow. */
+  boardable(): Ship | null {
+    const p = this.player;
+    if (this.mode !== "ship" || p.sinking >= 0 || p.speed > 45) return null;
+    for (const s of this.ships) {
+      if (!s.surrendered || s.sinking >= 0) continue;
+      if (Math.hypot(s.x - p.x, s.z - p.z) < (p.cls.beam + s.cls.beam) / 2 + p.cls.length * 0.3 + 90) return s;
+    }
+    return null;
+  }
+
+  /** Board a beaten ship: take her cargo, take on any sailors who want to join you, then scuttle her. */
+  boardShip() {
+    const s = this.boardable();
+    if (!s) return false;
+    const save = this.save;
+    const gold = Math.round(rand(s.cls.gold[0], s.cls.gold[1]) * 1.5);
+    const wood = randInt(2, 5);
+    const iron = randInt(1, 4);
+    const powder = randInt(1, 4);
+    const ammo = randInt(3, 8);
+    save.materials.wood += wood;
+    save.materials.iron += iron;
+    save.materials.powder += powder;
+    save.ammo += ammo;
+    // Some of her crew sign on with you, if your fleet has room.
+    const room = Math.max(0, fleetRoom(save.shipTier, save.escorts) - save.crew);
+    const sailors = Math.min(room, s.faction === "marine" ? randInt(0, 1) : randInt(1, 3));
+    save.crew += sailors;
+    this.events.push({ k: "boarded", name: s.cls.name, gold, sailors, wood, iron, powder, ammo });
+    // She's yours to sink: the bounty and the gold come with it.
+    s.hitByPlayer = true;
+    s.surrendered = false;
+    this.reward(s.cls.bounty, gold, SINK_HEAT[s.cls.id] ?? 0);
+    s.hp = 0;
+    s.sinking = 0;
+    this.events.push({ k: "sunk", shipId: s.id, name: s.cls.name, faction: s.faction, bounty: s.cls.bounty, gold: 0, byPlayer: true, x: s.x, z: s.z });
+    if (sailors) this.refreshPlayerStats();
+    return true;
+  }
+
   /** Cheat: put your ship just off an island's shore, stopped and facing out to sea. */
   sailTo(index: number) {
     const isl = ISLANDS[index];
@@ -467,7 +617,7 @@ export class Sim {
   respawnPlayer() {
     this.save.gold = Math.floor(this.save.gold * 0.75);
     // A third of your hired crew went down with her.
-    const lost = Math.ceil(this.save.crew / 3);
+    const lost = Math.ceil(this.save.crew / (this.built("infirmary") ? 6 : 3));
     this.save.crew -= lost;
     if (lost) this.events.push({ k: "crewLost", lost });
     this.save.deaths++;
@@ -487,7 +637,10 @@ export class Sim {
     for (let i = 0; i < this.fruitCd.length; i++) this.fruitCd[i] = Math.max(0, this.fruitCd[i] - dt);
     // You get hungry as time goes by.
     this.save.playTime += dt;
-    this.save.hunger = Math.max(0, this.save.hunger - (100 / HUNGER_TIME) * dt);
+    this.save.hunger = Math.max(0, this.save.hunger - (100 / HUNGER_TIME) * dt * (this.built("galley") ? 0.66 : 1));
+    // The infirmary patches the hull as you sail.
+    if (this.built("infirmary") && p.sinking < 0 && p.hp < p.stats.hull) p.hp = Math.min(p.stats.hull, p.hp + 2 * dt);
+    this.syncEscorts();
     const warn = this.save.hunger <= 0 ? "starving" : this.save.hunger < 20 ? "hungry" : "";
     if (warn && warn !== this.lastHungerWarn) this.events.push({ k: "hunger", level: warn });
     this.lastHungerWarn = warn;
@@ -511,7 +664,10 @@ export class Sim {
     this.updateStretchAtSea(dt);
 
     for (const s of this.ships) {
-      if (s !== p && s.sinking < 0) this.think(s);
+      if (s !== p && s.sinking < 0) {
+        if (s.escort) this.escortThink(s);
+        else this.think(s);
+      }
       this.move(s, dt);
       for (const side of [1, -1]) s.reload[side] = Math.max(0, s.reload[side] - dt);
       if (s.burn > 0 && s.sinking < 0 && !(this.god && s === this.player)) {
@@ -634,6 +790,17 @@ export class Sim {
         a.z -= (dz / d) * push;
         b.x += (dx / d) * push;
         b.z += (dz / d) * push;
+        // The iron ram: hit an enemy fast and it splinters.
+        const p = this.player;
+        if ((a === p || b === p) && this.built("ram") && p.speed > 35 && this.time > this.ramReady) {
+          const other = a === p ? b : a;
+          if (!other.escort && other.sinking < 0) {
+            const dmg = p.speed * 2.2;
+            this.ramReady = this.time + 1.2;
+            this.damage(other, dmg, true, other.x, 6, other.z);
+            this.events.push({ k: "rammed", name: other.cls.name, damage: Math.round(dmg) });
+          }
+        }
         a.speed *= 0.9;
         b.speed *= 0.9;
       }
@@ -649,6 +816,12 @@ export class Sim {
     const playerAfloat = p.sinking < 0 && this.mode === "ship" && !this.hidden;
     const playerSafe = this.inHaven;
 
+    // Colors struck: dead in the water, guns silent.
+    if (s.surrendered) {
+      s.throttle = 0;
+      s.rudder = 0;
+      return;
+    }
     let mode: "patrol" | "engage" | "flee" = "patrol";
     if (s.faction === "merchant") {
       if (playerAfloat && (s.ai.angered || this.stars >= 2) && dPlayer < 1200) mode = "flee";
@@ -662,20 +835,29 @@ export class Sim {
     let desired = s.heading;
     s.throttle = 0.55;
     if (mode === "engage") {
-      const toP = Math.atan2(p.z - s.z, p.x - s.x);
+      let tgt: Ship = p;
+      let dT = dPlayer;
+      for (const e of this.escortShips) {
+        const d = Math.hypot(e.x - s.x, e.z - s.z);
+        if (d < dT) {
+          dT = d;
+          tgt = e;
+        }
+      }
+      const toP = Math.atan2(tgt.z - s.z, tgt.x - s.x);
       const range = s.stats.range;
-      if (dPlayer > range * 0.85) {
+      if (dT > range * 0.85) {
         desired = toP;
         s.throttle = 1;
       } else {
         // Turn side-on so the player sits on a broadside.
         const f = forward(s.heading);
-        const cross = f.x * (p.z - s.z) - f.z * (p.x - s.x);
+        const cross = f.x * (tgt.z - s.z) - f.z * (tgt.x - s.x);
         const side: Side = cross > 0 ? 1 : -1;
         desired = toP - (side * Math.PI) / 2;
-        if (dPlayer < range * 0.4) desired -= side * 0.4; // too close: open the distance
+        if (dT < range * 0.4) desired -= side * 0.4; // too close: open the distance
         s.throttle = 0.75;
-        this.aiFire(s, side, dPlayer);
+        this.aiFire(s, side, dT, tgt);
       }
     } else if (mode === "flee") {
       desired = Math.atan2(s.z - p.z, s.x - p.x);
@@ -720,9 +902,9 @@ export class Sim {
     return desired;
   }
 
-  private aiFire(s: Ship, side: Side, dPlayer: number) {
+  private aiFire(s: Ship, side: Side, dPlayer: number, target?: Ship) {
     if (dPlayer > s.stats.range * 1.05 || s.reload[side] > 0) return;
-    const p = this.player;
+    const p = target ?? this.player;
     const n = sideNormal(s.heading, side);
     const toP = { x: (p.x - s.x) / dPlayer, z: (p.z - s.z) / dPlayer };
     if (n.x * toP.x + n.z * toP.z < Math.cos(0.38)) return;
@@ -1013,7 +1195,7 @@ export class Sim {
     let best: Ship | null = null;
     let bestD = Infinity;
     for (const t of this.ships) {
-      if (t === s || t.sinking >= 0) continue;
+      if (t === s || t.sinking >= 0 || t.escort) continue;
       const dx = t.x - s.x;
       const dz = t.z - s.z;
       const d = Math.hypot(dx, dz);
@@ -1051,7 +1233,7 @@ export class Sim {
 
   /** Fire a full broadside, aimed to land around `aimRange`, guns swiveled by `aimYaw`. */
   private fire(s: Ship, side: Side, aimRange: number, aimYaw: number) {
-    const byPlayer = s === this.player;
+    const byPlayer = s === this.player || !!s.escort;
     const n = s.stats.cannonsPerSide;
     const f = forward(s.heading);
     const sn = sideNormal(s.heading, side);
@@ -1101,8 +1283,9 @@ export class Sim {
         if (b.y < 16) {
           for (const s of this.ships) {
             if (s.id === b.owner || s.sinking >= 0) continue;
-            // Enemy fire only hurts you; your fire hurts everyone.
-            if (!b.byPlayer && s !== this.player) continue;
+            // Enemy fire hurts you and your escorts; your fleet's fire hurts everyone else.
+            const ours = s === this.player || !!s.escort;
+            if (b.byPlayer === ours) continue;
             const dx = b.x - s.x;
             const dz = b.z - s.z;
             const f = forward(s.heading);
@@ -1145,6 +1328,13 @@ export class Sim {
     // Iron Skin turns your hull to iron too.
     if (s === this.player && this.ironSkin) amount *= 0.33;
     s.hp -= amount;
+    // Badly beaten (and not by much at once), a crew strikes its colors rather than drown.
+    if (s !== this.player && !s.escort && !s.surrendered && s.hp > 0 && s.hp < s.stats.hull * 0.25 && byPlayer && !s.cls.id.startsWith("marine_flag")) {
+      s.surrendered = true;
+      s.throttle = 0;
+      s.ai.angered = false;
+      this.events.push({ k: "surrender", name: s.cls.name, x: s.x, z: s.z });
+    }
     this.events.push({ k: "hit", x, y, z, onPlayer: s === this.player, byPlayer, damage: amount });
     if (byPlayer && s !== this.player) {
       s.hitByPlayer = true;
@@ -1157,6 +1347,15 @@ export class Sim {
     s.sinking = 0;
     if (s === this.player) {
       this.events.push({ k: "playerSunk" });
+      return;
+    }
+    // One of your escorts went down, and her crew with her.
+    if (s.escort) {
+      const save = this.save;
+      const aboard = Math.min(ESCORT_CREW, Math.max(0, save.crew - flagshipCrew(save.shipTier, save.crew)));
+      save.crew -= aboard;
+      save.escorts = Math.max(0, save.escorts - 1);
+      this.events.push({ k: "escortLost", crew: aboard });
       return;
     }
     if (s.fruitCarrier && !this.save.fruitsFound.includes("gomu")) this.crates.push({ id: this.nextId++, x: s.x, z: s.z, gold: 250, fruit: "gomu" });
@@ -1176,7 +1375,7 @@ export class Sim {
   addBounty(bounty: number, gold: number, heat: number) {
     const before = rankFor(this.save.bounty).index;
     this.save.bounty += bounty;
-    this.save.gold += gold;
+    this.save.gold += Math.round(gold * (this.built("vault") ? 1.15 : 1));
     this.addHeat(heat);
     const after = rankFor(this.save.bounty, this.save.side);
     if (after.index > before) this.events.push({ k: "rank", title: after.title });
