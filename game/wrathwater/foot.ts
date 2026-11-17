@@ -1266,7 +1266,9 @@ export class Shore {
       if (w.dead < 0.6 || w.looted || w.dead > BODY_TIME || Math.hypot(w.x - h.x, w.z - h.z) > 20) continue;
       return { key: `body${w.id}`, label: "Search the body", hold: 1, run: () => this.lootBody(w) };
     }
-    if (isl.questGiver && Math.hypot(isl.questGiver.x - h.x, isl.questGiver.z - h.z) < 26) {
+    // The quest giver, unless you're nearer a door.
+    const nearDoor = isl.buildings.some((b) => Math.hypot(b.door.x - h.x, b.door.z - h.z) < Math.hypot((isl.questGiver?.x ?? 1e9) - h.x, (isl.questGiver?.z ?? 1e9) - h.z));
+    if (isl.questGiver && !nearDoor && Math.hypot(isl.questGiver.x - h.x, isl.questGiver.z - h.z) < 22) {
       const name = giverName(isl.index);
       const q = this.sim.save.quest;
       const label = !q ? `Talk to ${name} (quest)` : q.giver === isl.index && q.kind === "bring" ? `Hand over to ${name}` : `Talk to ${name}`;

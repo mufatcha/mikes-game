@@ -69,17 +69,69 @@ export function createProfile(name: string) {
   window.dispatchEvent(new StorageEvent("storage"));
 }
 
+/** Keys we always look for by name, in case a browser won't list what it has stored. */
+const KNOWN_KEYS = ["mg.profile", "mg.name", "mg.loadout", "mg.xp", "ww.save.v1", "ww.view"];
+
 function ourKeys(): string[] {
-  const keys: string[] = [];
+  const keys = new Set<string>();
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && PREFIXES.some((p) => k.startsWith(p))) keys.push(k);
+      if (k && PREFIXES.some((p) => k.startsWith(p))) keys.add(k);
     }
   } catch {
     // Storage blocked.
   }
-  return keys.sort();
+  for (const k of KNOWN_KEYS) {
+    try {
+      if (localStorage.getItem(k) !== null) keys.add(k);
+    } catch {
+      // Storage blocked.
+    }
+  }
+  return [...keys].sort();
+}
+
+/**
+ * Does this browser actually keep what the game saves? Not in a private /
+ * incognito window, or when site data is blocked.
+ */
+export function storageWorks() {
+  try {
+    const k = "mg.__test";
+    localStorage.setItem(k, "1");
+    const ok = localStorage.getItem(k) === "1";
+    localStorage.removeItem(k);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Ask the browser not to clear the game's saves when it tidies up storage (some browsers do after a week). */
+export function askToKeepSaves() {
+  try {
+    void navigator.storage?.persist?.();
+  } catch {
+    // Not supported: nothing to do.
+  }
+}
+
+/** What a set of saved keys holds, in words, for showing before you copy or after you load a code. */
+export function describeSaved(data: Record<string, string>) {
+  const parts: string[] = [];
+  try {
+    const ww = data["ww.save.v1"];
+    if (ww) {
+      const s = JSON.parse(ww) as { captain?: string; bounty?: number };
+      if (typeof s.captain === "string") parts.push(`Wrathwater: Captain ${s.captain}, bounty ${(Number(s.bounty) || 0).toLocaleString("en-US")}`);
+    }
+    if (data["mg.xp"]) parts.push("School Wars levels");
+    if (data["mg.profile"]) parts.push("your account");
+  } catch {
+    // Unreadable: say nothing.
+  }
+  return parts.join(" · ");
 }
 
 // ---------------------------------------------------------------- the save code
@@ -107,22 +159,26 @@ function check(text: string) {
   return (h >>> 0).toString(36).slice(-4).padStart(4, "0");
 }
 
-/** Everything this profile has saved, packed into one code. */
-export async function exportCode(): Promise<string> {
+/** Everything this profile has saved, packed into one code (and what's in it). Throws "empty" if there's nothing saved here. */
+export async function exportCode(): Promise<{ code: string; holds: string }> {
   const data: Record<string, string> = {};
   for (const k of ourKeys()) {
     const v = localStorage.getItem(k);
     if (v !== null) data[k] = v;
   }
+  // A code with nothing in it would "load" fine and change nothing: refuse to make one.
+  if (!Object.keys(data).length) throw new Error("empty");
   const json = JSON.stringify({ v: 1, data });
   const body = toBase64Url(await squash(new TextEncoder().encode(json), false));
-  return `${CODE_PREFIX}${body}.${check(body)}`;
+  return { code: `${CODE_PREFIX}${body}.${check(body)}`, holds: describeSaved(data) };
 }
 
 export interface ImportResult {
   ok: boolean;
   error?: string;
   name?: string;
+  /** What the code held, in words. */
+  holds?: string;
 }
 
 /** Load a save code (or save file text), replacing this browser's progress in both games. */
@@ -143,6 +199,12 @@ export async function importCode(code: string): Promise<ImportResult> {
   const entries = Object.entries(data).filter(
     (e): e is [string, string] => PREFIXES.some((p) => e[0].startsWith(p)) && typeof e[1] === "string" && e[1].length < 200_000,
   );
+  if (!entries.length) {
+    return {
+      ok: false,
+      error: "This code is empty: it was made in a browser that had no saved progress. Make a new code on the computer (and browser) where you play.",
+    };
+  }
   try {
     for (const k of ourKeys()) localStorage.removeItem(k);
     for (const [k, v] of entries) localStorage.setItem(k, v);
@@ -154,7 +216,7 @@ export async function importCode(code: string): Promise<ImportResult> {
   changed();
   // Let the School Wars settings hooks see the new values too.
   window.dispatchEvent(new StorageEvent("storage"));
-  return { ok: true, name: readProfile()?.name };
+  return { ok: true, name: readProfile()?.name, holds: describeSaved(Object.fromEntries(entries)) };
 }
 
 /** Forget this profile and both games' progress on this computer. */

@@ -47,6 +47,7 @@ import {
   SKILL_IDS,
   SKILL_MAX,
   levelFromXp,
+  skillEffects,
   type FruitId,
   type MaterialId,
 } from "@/game/wrathwater/items";
@@ -54,7 +55,13 @@ import type { Quest } from "@/game/wrathwater/quests";
 import { HOME_BUILDINGS, HOME_BUILDING_IDS, HOME_ISLAND } from "@/game/wrathwater/home";
 import { deleteSave, loadSave, newSave, writeSave, type SaveData } from "@/game/wrathwater/save";
 import { ProfileButton, ProfileModal } from "@/components/ProfilePanel";
-import { useProfile } from "@/lib/profile";
+import { storageWorks, useProfile } from "@/lib/profile";
+
+const noSubscribe = () => () => {};
+/** Whether this browser keeps saves (checked in the browser; assumed fine while rendering on the server). */
+function useStorageWorks() {
+  return useSyncExternalStore(noSubscribe, storageWorks, () => true);
+}
 
 type Screen = "menu" | "naming" | "playing";
 type Overlay = "none" | "replaced" | "pause" | "shop" | "market" | "tavern" | "sunk" | "defeated" | "king" | "help" | "inventory" | "fruit" | "cheats" | "truename" | "general" | "quest" | "map" | "victory" | "home";
@@ -131,6 +138,7 @@ function TitleMenu({
   onStart: (captain: string, side: "pirate" | "marine") => void;
 }) {
   const profile = useProfile();
+  const keeps = useStorageWorks();
   const [name, setName] = useState("");
   const [side, setSide] = useState<"pirate" | "marine">("pirate");
   const [help, setHelp] = useState(false);
@@ -154,6 +162,12 @@ function TitleMenu({
         </div>
       )}
       <div className="relative z-10 mt-[38vh] flex w-full max-w-sm flex-col gap-3">
+        {!keeps && (
+          <p className="rounded-lg bg-red-950/80 p-3 text-center text-sm text-red-200 ring-1 ring-red-500/40">
+            This browser isn&apos;t keeping your progress (a private or incognito window, or site data is blocked). Play in a normal window, or
+            your voyage is lost when you close it.
+          </p>
+        )}
         {naming ? (
           <form
             className="flex flex-col gap-3 rounded-xl bg-black/75 p-5 ring-1 ring-white/15 backdrop-blur"
@@ -1236,7 +1250,9 @@ function CaptainSection({ engine, refresh }: { engine: WrathwaterEngine; refresh
   return (
     <section className="mt-4">
       <div className="flex items-baseline justify-between">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-sky-300">You · level {lvl.level}</h3>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-sky-300">
+          You · level {lvl.level} · max health {skillEffects(save.skills).maxHp}
+        </h3>
         <span className="text-xs text-zinc-400">
           {lvl.into}/{lvl.need} XP to the next level{points > 0 && <span className="font-bold text-amber-300"> · {points} point{points === 1 ? "" : "s"} to spend</span>}
         </span>

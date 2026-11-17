@@ -331,7 +331,8 @@ function decorate(o: { index: number; name: string; kind: IslandKind; x: number;
   const tavern = isl.buildings.find((b) => b.kind === "tavern");
   if (tavern && (o.kind === "town" || o.kind === "haven")) {
     const side = tavern.facing + Math.PI / 2;
-    isl.questGiver = { x: tavern.door.x + Math.cos(side) * 20, z: tavern.door.z + Math.sin(side) * 20, facing: tavern.facing };
+    // Far enough along the wall that the tavern door's own prompt isn't blocked.
+    isl.questGiver = { x: tavern.door.x + Math.cos(side) * 50, z: tavern.door.z + Math.sin(side) * 50, facing: tavern.facing };
   }
   // Three towns each have a Vault Warden guarding one of the vault's three keys.
   if (o.kind === "town" && TOWN_NAMES.slice(0, 3).includes(o.name) && isl.buildings[0]) {

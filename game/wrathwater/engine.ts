@@ -622,6 +622,16 @@ export class WrathwaterEngine {
       h.hp = Math.min(h.maxHp, h.hp + 15);
     }
     this.afterPurchase();
+    // Say exactly what changed, so you can tell it took.
+    const fx = skillEffects(s.skills);
+    const now = {
+      vitality: `max health is now ${fx.maxHp}`,
+      strength: `blades and fists hit ${Math.round((fx.melee - 1) * 100)}% harder`,
+      agility: `you run ${Math.round((fx.speed - 1) * 100)}% faster`,
+      marksman: `guns hit ${Math.round((fx.gunDamage - 1) * 100)}% harder and are ready ${Math.round((1 - fx.gunCooldown) * 100)}% sooner`,
+      mastery: `powers come back ${Math.round((1 - fx.fruitCooldown) * 100)}% sooner and hit ${Math.round((fx.fruitDamage - 1) * 100)}% harder`,
+    }[id];
+    this.notice(`${SKILLS[id].name} ${s.skills[id]}/${SKILL_MAX}: ${now}.`, "gold");
     return true;
   }
 
@@ -2656,8 +2666,17 @@ export class WrathwaterEngine {
       if (e.key === SAVE_KEY || e.key === null) this.checkReplaced();
     };
     window.addEventListener("storage", onStorage);
+    // Save the moment you switch tabs, minimize, or close the game.
+    const onHide = () => {
+      if (document.visibilityState === "hidden") this.save();
+    };
+    const onPageHide = () => this.save();
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
     this.cleanup = () => {
       window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("mousemove", onMouseMove);

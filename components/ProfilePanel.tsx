@@ -1,12 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { createProfile, exportCode, importCode, profileSummary, signOut, useProfile } from "@/lib/profile";
+import { useEffect, useRef, useState } from "react";
+import { askToKeepSaves, createProfile, exportCode, importCode, profileSummary, signOut, storageWorks, useProfile } from "@/lib/profile";
 import Modal from "./Modal";
 
 /** The profile button for the title screens: shows your name once you've made an account. */
 export function ProfileButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
   const profile = useProfile();
+  // Ask the browser to keep the game's saves for good.
+  useEffect(() => askToKeepSaves(), []);
   return (
     <button
       type="button"
@@ -28,6 +30,8 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
   const profile = useProfile();
   const [name, setName] = useState("");
   const [code, setCode] = useState<string | null>(null);
+  const [holds, setHolds] = useState("");
+  const [keeps] = useState(() => storageWorks());
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [paste, setPaste] = useState("");
@@ -39,10 +43,17 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
   const makeCode = async () => {
     try {
       const c = await exportCode();
-      setCode(c);
-      return c;
-    } catch {
-      setMessage({ text: "This browser can't make a save code.", bad: true });
+      setCode(c.code);
+      setHolds(c.holds);
+      return c.code;
+    } catch (e) {
+      setMessage({
+        text:
+          e instanceof Error && e.message === "empty"
+            ? "Nothing is saved in this browser yet, so there's nothing to put in a code. Make the code on the computer and browser where you play."
+            : "This browser can't make a save code.",
+        bad: true,
+      });
       return null;
     }
   };
@@ -73,7 +84,9 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
     if (!r.ok) return setMessage({ text: r.error ?? "That code didn't work.", bad: true });
     setPaste("");
     setCode(null);
-    setMessage({ text: `${r.name ? `Welcome back, ${r.name}! ` : ""}Your progress in both games is loaded. Restarting the page so everything picks it up...` });
+    setMessage({
+      text: `${r.name ? `Welcome back, ${r.name}! ` : ""}Loaded: ${r.holds || "your progress"}. Restarting the page so everything picks it up...`,
+    });
     // Start the page fresh so nothing still holding the old progress can save over it.
     window.setTimeout(() => window.location.reload(), 1500);
   };
@@ -173,6 +186,7 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
               <span className="font-semibold text-zinc-200">Make an account</span> and load it there. Make a new code whenever you want to bring your
               latest progress.
             </p>
+            {holds && <p className="text-xs text-emerald-300">This code holds: {holds}</p>}
             {code && (
               <textarea
                 readOnly
@@ -221,6 +235,12 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </>
+      )}
+      {!keeps && (
+        <p className="rounded-lg bg-red-950/60 p-2 text-center text-xs text-red-200">
+          This browser isn&apos;t keeping your progress (a private or incognito window, or site data is blocked). Anything you play here is lost when you
+          close it. Play in a normal window to keep your progress.
+        </p>
       )}
       {message && <p className={`text-center text-sm ${message.bad ? "text-red-400" : "text-emerald-300"}`}>{message.text}</p>}
       <button type="button" onClick={onClose} className="rounded-lg border border-white/15 py-2 text-sm text-zinc-300 hover:text-white">
